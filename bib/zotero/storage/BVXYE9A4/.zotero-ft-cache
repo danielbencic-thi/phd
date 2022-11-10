@@ -1,0 +1,2024 @@
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+1
+
+Geometrically Constrained Trajectory Optimization for Multicopters
+Zhepei Wang , Xin Zhou , Chao Xu , and Fei Gao
+
+Abstract—In this article, we present an optimization-based framework for multicopter trajectory planning subject to geometrical conﬁguration constraints and user-deﬁned dynamic constraints. The basis of the framework is a novel trajectory representation built upon our novel optimality conditions for unconstrained control effort minimization. We design linear-complexity operations on this representation to conduct spatial–temporal deformation under various planning requirements. Smooth maps are utilized to exactly eliminate geometrical constraints in a lightweight fashion. A variety of state-input constraints are supported by the decoupling of dense constraint evaluation from sparse parameterization and the backward differentiation of ﬂatness map. As a result, this framework transforms a generally constrained multicopter planning problem into an unconstrained optimization that can be solved reliably and efﬁciently. Our framework bridges the gaps among solution quality, planning efﬁciency, and constraint ﬁdelity for a multicopter with limited resources and maneuvering capability. Its generality and robustness are both demonstrated by applications to different ﬂight tasks. Extensive simulations and benchmarks are also conducted to show its capability of generating high-quality solutions while retaining the computation speed against other specialized methods by orders of magnitude.
+Index Terms—Aerial systems, applications, autonomous vehicle navigation, collision avoidance, motion and path planning.
+I. INTRODUCTION
+M ULTICOPTERS rely on robust and efﬁcient trajectory planning for safe yet agile autonomous navigation in complex environments [1]–[6]. For robotics, precisely incorporating dynamics, smoothness, and safety are essential to generate high-quality motions. Moreover, lightweight robots, such as multicopters under size, weight, and power constraints, put further hard requirements on the real-time computing using limited onboard resources. Despite that various successful tools
+Manuscript received December 19, 2021; accepted February 17, 2022. This paper was recommended for publication by Associate Editor R. Murrieta-Cid and Editor P. Robuffo Giordano upon evaluation of the reviewers’ comments. This work was supported by the National Natural Science Foundation of China under Grant 62003299 and Grant 62088101. (Corresponding authors: Fei Gao; Chao Xu.)
+Zhepei Wang, Xin Zhou, Chao Xu, and Fei Gao are with the College of Control Science and Engineering, Zhejiang University, Hangzhou 310027, China, and also with the Huzhou Institute of Zhejiang University, Huzhou 313000, China (e-mail: wangzhepei@zju.edu.cn; iszhouxin@zju.edu.cn; cxu@zju.edu.cn; fgaoaa@zju.edu.cn).
+The source code of our framework is available at https://github.com/ZJUFAST-Lab/GCOPTER
+This article has supplementary material provided by the authors and color versions of one or more ﬁgures available at https://doi.org/10.1109/TRO. 2022.3160022.
+Digital Object Identiﬁer 10.1109/TRO.2022.3160022
+
+in general-purpose kinodynamic planning or optimal control have been presented, few of them guarantee efﬁcient online planning while also considering general constraints on dynamics for multicopters. Consequently, existing applications often use oversimpliﬁed requirements on trajectories for better computation efﬁciency, thus limiting the full exploitation of vehicle’s capability.
+The high-performance planning mentioned above possesses four major algorithmic challenges. First, ensuring safety often involves frequent interactions with a large volume of highly discretized environment data. Second, the nonlinearity of vehicle dynamics brings difﬁculties to directly enforcing physically acceptable states and inputs when the multicopter is ﬂying at the limit of its capabilities. Third, high-quality motions conventionally need ﬁne discretization of the dynamic process, where requirements for task resources tend to be unrealistic. Fourth, methods that use sparse representation for trajectories lack an effective way to optimize the temporal proﬁle while satisfying continuous-time constraints.
+In this article, we overcome these challenges by designing a lightweight and ﬂexible optimization framework to meet userdeﬁned requirements based on a novel trajectory class.
+As the theoretical foundation of our framework, we present necessary and sufﬁcient optimality conditions to multistage control effort minimization for the concerned linear dynamics, which are given for the ﬁrst time to the best of our knowledge. The conditions are easy to use in that the unique optimal solution can be directly constructed with linear complexity in both the time and space aspects. More importantly, the existence and uniqueness of conditions further provide crucial information on the smoothness of the problem parameter sensitivity.
+To ease computation burden without sacriﬁcing trajectory quality, it is essential to use sparse parameterization while keeping the ﬂexibility to suit multicopter dynamics. Therefore, we design a novel trajectory class based on our optimality conditions. Any element in this class is by default an unconstrained control effort minimizer; thus, we name it as MINCO (minimum control). MINCO differs from conventional splines that majorly focus on the smoothness of the geometrical shape, such as B-Splines and Bézier curves. Its sparse parameters are designed to directly control both the spatial and temporal proﬁles of a trajectory, which are of equal importance for dynamic feasibility. Besides, a spatial–temporal deformation scheme is also designed such that MINCO can be optimized under any user-deﬁned objective.
+Our framework utilizes the geometrical approximation of low-dimensional free space based on the results of samplingbased or search-based global methods. The safety is ensured via conﬁguration constraints formed by the union of obstacle-free
+
+1552-3098 © 2022 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+2
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+convex primitives. Constraint elimination schemes are proposed such that MINCO can be freely deformed through unconstrained optimization. The schemes exactly eliminate constraints that are directly deﬁned on decision variables without introducing extra local minima.
+Reliable motion planning requires admissible states and inputs, while most of the existing ﬂatness-based methods only support differential constraints. To ensure high-ﬁdelity feasibility, we propose a systematic way to enforce user-deﬁned state-input constraints for our sparse parameterization without resorting to a ﬁne discretization of trajectories. We exploit the backward differentiation of ﬂatness map such that the constraint violation can be reﬂected in their gradient w.r.t. sparse parameters. Besides, a differentiable penalty functional is also proposed to enforce general continuous-time constraints.
+Our framework focuses on computationally efﬁcient yet highquality trajectory planning for multicopters where there are complex constraints for safety, critical limits on dynamics, and taskspeciﬁed requirements. To validate its effectiveness, we conduct extensive benchmarks against various cutting-edge multicopter trajectory planning methods. Results show that our method exceeds existing methods for orders of magnitude in efﬁciency and retains comparable solution quality against general-purpose optimal-control solvers. We also conduct versatile simulations and extreme real-world ﬂights to show the practical performance of our approach.
+The contributions of this article are as follows. 1) Optimality conditions in a general form on multistage
+control effort minimization are proposed with a proof of both the necessity and sufﬁciency for the ﬁrst time. 2) A novel trajectory class is designed to meet user-deﬁned objectives while retaining local smoothness by spatial– temporal deformation via linear-complexity operations. 3) A ﬂexible trajectory planning framework that leverages both constraint elimination and constraint transcription is proposed for multicopter systems with user-deﬁned stateinput constraints. 4) A set of simulations and experiments that validate our method signiﬁcantly outperforms state-of-the-art works in efﬁciency, optimality, robustness, and generality.
+II. RELATED WORK
+Despite various planning approaches in the existing literature, there has yet to emerge a complete framework to accomplish time-critical large-scale trajectory planning for multicopters while incorporating user-deﬁned continuous-time constraints on state and control. Our framework bridges this gap by exploring and exploiting different capabilities from both optimal control and motion planning.
+A. Differentially Flat Multicopters
+The concept of differential ﬂatness has been introduced by Fliess et al. [7] and drawn great attentions in robotics trajectory planning [8]–[10]. The property makes it possible to recover the full state and input of a ﬂat system from ﬁnite derivatives of its ﬂat outputs. Mellinger and Kumar [11] validate the ﬂatness of quadcopters with aligned propellers, which take the thrust and 3-D torque as inputs. Watterson and Kumar [12] use the Hopf ﬁbration to decompose the quadcopter rotation, thus achieving the minimum singularity number in ﬂatness maps.
+
+Ferrin et al. [13] show the ﬂatness of a hexacopter whose inputs are desired orientation and thrust. They utilize the ﬂatness to compute the nominal state where a linear–quadratic regulator is applied. Faessler et al. [14] further consider linear drags that produce extra linear and angular accelerations. They show the ﬂatness of parallel-rotor multicopters subject to the drag effect. Moreover, Mu and Chirarattananon [15] investigate underactuated multicopters with tilted propellers. They prove that the ﬂatness holds for a wide range of tricopters, quadcopters, and hexacopters as long as the input rank condition is satisﬁed.
+The ﬂatness of a multicopter, if holds, beneﬁts trajectory generation and tracking control in obtaining the reference state and input without integrating differential equations. Literature mentioned above uses ﬂatness to avoid confronting system dynamics during planning. However, dynamics of a real physical system are only valid for reasonable state and admissible input. Although our framework also utilizes the ﬂatness property, it differs from previous works in that a general form of state-input constraints is formally supported.
+B. Sampling-Based Motion Planning
+Sampling-based motion planners focus on global solutions of problems by exploration and exploitation, where the complexity mainly originates from the conﬁguration space. The probabilistic roadmap (PRM) [16] and the rapidly exploring random tree (RRT) [17] are both probabilistically complete since their probability of failure decays to zero exponentially as the sample number goes to inﬁnity [18]. Karaman and Frazzoli [19] propose asymptotically optimal variants of PRM and RRT, known as PRM* and RRT*, which ensure the convergence to globally optimal solutions as the sample number goes to inﬁnity. There are also algorithms [20]–[22] that further improve the efﬁciency or applicability of randomized motion planning. Our method exploits sampling-based planners to overcome the complexity from environments. It accomplishes the optimization of a dynamically feasible trajectory that is homotopic to a given low-dimensional collision-free path. It is designed to ﬂexibly incorporate system state-input constraints, which is not the strength of sampling-based methods. In this way, the complexity from both the environments and dynamics is divided and conquered.
+C. Optimization-Based Motion Planning
+Optimization-based planners focus on local solutions by using high-order information of the problems. They depend on speciﬁc environment preprocessing methods such that the obstacle information is encoded into the optimization.
+Trajectory optimization has long been studied for general systems in the control community [23]. Many general-purpose methods are designed for high-quality solutions, such as the collocation-based method GPOPS-II [24], and the shootingbased one ACADO [25]. They transcribe the original problem into a nonlinear programming (NLP) using a lot of equalities and variables and, then, resort to well-established NLP solvers, such as SNOPT [26] or IPOPT [27]. However, trajectory planning in robotics may impose hard-to-formulate constraints, nonsmoothness, and integer variables. Besides, general-purpose methods often take a long computation time, making them inappropriate for time-critical tasks. For example, Bry et al. [28] report that direct collocation with SNOPT takes several minutes to optimize a
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+3
+
+4.5-m trajectory for a 12-state airplane ﬂying among cylindrical obstacles [29]. Therefore, specialized methods are on calling to overcome these difﬁculties.
+For differentially ﬂat multicopters, motion planning can be transformed into the optimization of low-dimensional trajectories of ﬂat outputs. Mellinger and Kumar [11] use ﬁxed-duration splines to represent quadcopter trajectories. A quadratic programming (QP) is formulated by the quadratic cost of snap and linear constraints of safety. However, perturbation problems need to be solved in ﬁnite difference to estimate the gradient for time allocation. Its actuator constraints are also oversimpliﬁed. Bry et al. [28] propose a closed-form solution for this QP without safety constraints. They heuristically add waypoints from a collision-free path of RRT* to recompute the solution until the safety is satisﬁed. This method is admittedly efﬁcient but cannot guarantee high-quality solutions in obstacle-rich environments. Besides, it involves the inverse of a matrix whose nonsingularity is never discussed. Deits and Tedrake [30] approximate the free space using polytopes. The safety of each piece of trajectory is equivalent to a sum-of-square (SOS) condition if it entirely lies inside a polytope. They solve interval assignment using mixed-integer second-order conic programming (MISOCP). It generates globally optimal trajectories, while the computation time is unacceptable. Gao et al. [31] also use the polyhedron-shaped free space representation. They alternately optimize the geometrical and temporal proﬁles of a trajectory. The safety is enforced by the convex-hull property of Bézier curves, and the dynamic proﬁle is optimized via time-optimal path parameterization (TOPP) [32]. There are also variants that propose improvements over the above methods. For example, Tordesillas et al. [33] improve the efﬁciency of [30] by substituting SOS conditions on polynomials with linear constraints on Bézier curves at the cost of conservatism [34]. Sun et al. [35] avoid integer variables by optimizing time allocation instead, where the sensitivity of a bilevel optimization is exploited.
+These specialized methods utilize the continuous-time trajectory parameterization to avoid the computation burden from the ﬁne discretization. However, they do not support ﬂexibly optimizing its time allocation, decoupling temporal resolutions of constraints from decision variable dimensions, or enforcing high-ﬁdelity constraints except for restrictions on derivative norms. In this article, our framework supports all these features by introducing uniﬁed techniques for a novel sparse parameterization. Moreover, the solution quality is comparable with that of the general-purpose optimal-control solvers.
+
+III. PRELIMINARIES
+
+A. Differential Flatness Consider a dynamical system of the following type:
+
+x˙ = f (x) + g(x)u
+
+(1)
+
+with f : Rn → Rn, g : Rn → Rn×m, state x ∈ Rn, and input u ∈ Rm. The map g is assumed to have rank m. The system
+is said to be differentially ﬂat [7] if there exists a ﬂat output z ∈ Rm determined by x and ﬁnite derivatives of u, such that x
+and u can both be parameterized by ﬁnite derivatives of z:
+
+x = Ψx(z, z˙, . . . , z(s−1))
+
+(2)
+
+u = Ψu(z, z˙, . . . , z(s))
+
+(3)
+
+Fig. 1. Transform Ψu and Ψx of a ﬂat system eliminate differential constraints (blue surface) from dynamics in the state-input space (left coordinate). The
+original state-input constraint GD (red area) is also transformed into a new constraint G (blue volume) in the ﬂat-output space (right coordinate).
+
+where Ψx : (Rm)s−1 → Rn and Ψu : (Rm)s → Rm are both induced by f and g. Intuitively, the state and control can be
+determined from z without explicit integration of the system
+dynamics (1).
+Leveraging the ﬂatness of a system, the trajectory generation
+is convenient when there are only differential constraints in (1). If we introduce a new control variable v = z(s) and denote z[s−1] ∈ Rms as
+
+z[s−1] = (zT, z˙T, . . . , z(s−1)T )T
+
+(4)
+
+the input u = Ψu(z[s−1], v) then exactly linearizes the original
+ﬂat system into m decoupled chains of s-integrators. Let zi denote the ith entry in z, vi the ith entry in v, and zi[s−1] = (zi, z˙i, . . . , zi(s−1))T. The ith integrator chain is
+
+z˙i[s−1] =
+
+0 0
+
+Is−1 0T
+
+zi[s−1] +
+
+0 1
+
+vi
+
+(5)
+
+where 0 and I are a zero matrix and an identity matrix with appropriate sizes, respectively. Given an initial state and a goal state, boundary values of each integrator chain (5) can be algebraically computed. Thus, any trajectory integrated from these m integrator chains can be transformed into a feasible trajectory [8] for the original ﬂat system via (2) and (3).
+For dynamics with a small m, the ﬂatness maps Ψx and Ψu further reduce the trajectory dimension and eliminate the differential constraints (1), which is illustrated in Fig. 1. As a side effect, nonlinearity coming from both Ψx and Ψu brings additional difﬁculties in trajectory generation for z when there are additional state-input constraints for (1). However, such an effect is relieved if the ﬂat-output space coincides with the conﬁguration space of the relevant planning problem.
+
+B. Direct Optimization in Flat-Output Space
+
+Fortunately, the differential ﬂatness of multicopters has been well studied and shown to have physically meaningful ﬂatoutput space, which overlaps with the conﬁguration space. Explicit forms of Ψx and Ψu are available in [11]–[15] for a variety of underactuated multicopters. More importantly, their ﬂat outputs share the same form in general
+
+z = (px, py, pz, ψ)T
+
+(6)
+
+where (px, py, pz)T is the translation of the center of gravity and ψ is the yaw angle of the vehicle. The ﬂat output z, especially
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+4
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+its translation, provides a lot of convenience for the multicopter
+motion planning with complex spatial constraints.
+To generate feasible motions for a multicopter, we ﬁrst optimize the trajectory z(t) : [0, T ] → Rm in its ﬂat-output space such that most of the spatial constraints are directly enforced. Then, the ﬂatness maps Ψx and Ψu are applied to transform z(t) into the state-input trajectory x(t) and u(t).
+For motion smoothness, the quadratic control effort [36]
+with time regularization is adopted as a cost functional of z(t). General constraints on multicopters can be classiﬁed into conﬁguration constraints and user-deﬁned dynamic constraints.
+Normally, a collision-free motion implies
+
+z(t) ∈ F ∀t ∈ [0, T ]
+
+(7)
+
+where F is the concerned obstacle-free region in conﬁguration space. Besides, user-deﬁned state-input constraints, such as actuator limits or task-speciﬁc constraints, are denoted by
+
+GD(x(t), u(t)) 0 ∀t ∈ [0, T ].
+
+(8)
+
+Exploiting Ψx and Ψu, the corresponding constraints on z(t) are computed as
+
+GD(Ψx(z[s−1](t)), Ψu(z[s](t))) 0 ∀t ∈ [0, T ]. (9)
+
+Apparently, via the ﬂatness, a constraint on x and u has its equivalent form on the ﬁnite derivatives of z(t). For simplicity, we denote (9) hereafter by
+
+G(z(t), z˙(t), . . . , z(s)(t)) 0 ∀t ∈ [0, T ] (10)
+
+where G consists of ng equivalent constraints. It is worth noting that we do not make further assumptions
+on the multicopter dynamics and ﬂatness maps. In other words, the proposed framework supports a wide range of multicopters, including, but not limited to the ones in [11]–[15].
+
+where bMT is positive. Common choices are ρs(T ) = kρT and ρs(T ) = kρ(T − TΣ)2 with an expected time TΣ. Besides, ρ can also be deﬁned to strictly ﬁx the total time
+
+ρf (T ) =
+
+0, ∞,
+
+if T = TΣ . if T = TΣ
+
+(13)
+
+As for nonlinear constraints G, they are required to be C2, i.e., twice continuously differentiable. As for the feasible region F in the conﬁguration space, we approximate it geometrically by the union of MP closed convex sets as
+
+MP
+
+F F˜ = Pi.
+
+(14)
+
+i=1
+
+For simplicity, locally sequential connection is assumed on these convex sets
+
+Pi ∩ Pj = ∅,
+
+if |i − j| = 2
+
+Int (Pi ∩ Pj) = ∅, if |i − j| ≤ 1
+
+(15)
+
+where Int(·) means the interior of a set. The translation of z¯o and z¯f is inscribed in P1 and PMP , respectively. As for F˜, we consider the case that each Pi is a closed m-dimensional ball:
+
+PiB = x ∈ Rm x − oi 2 ≤ ri
+
+(16)
+
+or, more generally, a bounded convex polytope described by its H-representation [37] with potentially redundant constraints
+
+PiH = x ∈ Rm Aix bi .
+
+(17)
+
+For the optimization in (11), we aim to construct a computationally efﬁcient solver while retaining the ﬂexibility to handle different task-speciﬁc constraints GD in (8).
+
+C. Problem Formulation
+
+Concluding above descriptions gives the following problem:
+
+T
+min v(t)TWv(t)dt + ρ(T )
+z(t),T 0
+s.t. z(s)(t) = v(t) ∀t ∈ [0, T ]
+
+(11a) (11b)
+
+G(z(t), . . . , z(s)(t)) 0 ∀t ∈ [0, T ]
+
+(11c)
+
+z(t) ∈ F ∀t ∈ [0, T ]
+
+(11d)
+
+z[s−1](0) = z¯o, z[s−1](T ) = z¯f
+
+(11e)
+
+where W ∈ Rm×m is a positive diagonal matrix, ρ : [0, ∞) → [0, ∞] is the time regularization, z¯o ∈ Rms is the initial condition, and z¯f ∈ Rms is the terminal condition. The control input v is allowed to be discontinuous in a ﬁnite number of time instants,
+as is commonly assumed in the existing literature [36].
+The trajectory optimization (11) is nontrivial because of the continuous-time constraints G and the nonconvex set F. We further specify some reasonable conditions to make it a well-deﬁned problem. As for time regularization ρ, it trades off between the
+control effort and the expectation of total time
+
+MT
+
+ρs(T ) = biT i
+
+(12)
+
+i=0
+
+IV. MULTISTAGE CONTROL EFFORT MINIMIZATION
+In this section, we analyze the multistage control effort minimization without functional constraints. For this problem, we propose easy-to-use optimality conditions for general cases, which are proved to be necessary and sufﬁcient. Leveraging our conditions, the optimal trajectory is directly constructed in linear complexity of time and space, without evaluating the cost functional explicitly or implicitly. Based on them, a novel trajectory class along with linear-complexity spatial–temporal deformation is designed to meet user-deﬁned objectives in various trajectory planning scenarios.
+A. Unconstrained Control Effort Minimization
+When constraint F exists, adjusting the waypoints [28] or control points [33] of a trajectory helps to ensure safety. When constraint G exists, adjusting the time allocation also helps to enforce physical limits [38]. Therefore, spatial and temporal parameters are both vital to a ﬂexible trajectory representation. Then, the natural problem is to generate a smooth trajectory subject to these parameters. We solve linear–quadratic minimum-time (LQMT) problems to generate trajectories from spatial–temporal parameters. Although the LQMT problems have extensive studies and applications, only single-stage problems are considered in the literature [39]–[41]. We study the multistage problems where intermediate points and time vector
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+5
+
+are ﬁxed in advance for multipiece trajectories. Consider an M -stage control effort minimization without F and G
+
+tM
+
+min
+
+v(t)TWv(t)dt
+
+z(t) t0
+
+s.t. z(s)(t) = v(t) ∀t ∈ [t0, tM ]
+
+(18a) (18b)
+
+z[s−1](t0) = z¯o, z[s−1](tM ) = z¯f
+
+(18c)
+
+z[di−1](ti) = z¯i, 1 ≤ i < M
+
+(18d)
+
+ti−1 < ti, 1 ≤ i ≤ M.
+
+(18e)
+
+The time interval [t0, tM ] is split into M stages by M + 1 ﬁxed timestamps, with constant boundary conditions z¯o, z¯f ∈ Rms. Intermediate conditions z¯i ∈ Rmdi with di ≤ s specify the value of z(ti), z˙(ti), . . . , z(di−1)(ti), where di is the number of derivatives ﬁxed at ti. For example, if z(t) is only required to pass a given position at ti, then di = 1 because z¯i contains the zero-order derivative and nothing else.
+Existing works focus on the necessary conditions for special cases of (18). In aerial robotics area, the QP formulation [11] and the closed-form one [28] implicitly or explicitly optimize unknown knot derivatives, taking parameterization as a priori. This extra computation actually makes them less efﬁcient. In control area, a special case where di = 1 is also studied in [42] and [43] via controllability Gramian. The result is for general linear systems with possibly nonpolynomial solutions, while it is less intuitive considering the computational aspect. These necessary conditions can cause potential degeneracy in trajectory representation and sensitivity if further parametric optimization on spatial–temporal parameters is needed.
+
+B. Optimality Conditions
+We propose necessary and sufﬁcient optimality conditions for (18) with all possible settings of di, z¯i, and ti. Thus, an optimal trajectory can be directly constructed from spatial–temporal parameters. Furthermore, the existence and uniqueness of the optimal trajectory are always guaranteed.
+We transform (18) into the Mayer form [23], in which a new state y ∈ Rms+1 augmented by y˜ ∈ R is deﬁned as
+
+y=
+
+z[s−1] y˜
+
+.
+
+(19)
+
+The augmented system y˙ = fˆ(y, v) has the structure
+
+⎛
+
+⎞
+
+y˙ =
+
+A¯ 0T
+
+0 0
+
+0 y + ⎜⎝ v ⎟⎠
+vTWv
+
+(20)
+
+where
+
+A¯ =
+
+0 0m×m
+
+Im(s−1) 0T
+
+∈ Rms×ms.
+
+(21)
+
+We design a running process for the augmented system in M
+stages, of which the ith is Δi = [ti−1, ti]. It is worth noting that state switching occurs in this running process. Strictly
+speaking, the state switching only occurs on y˜ at the beginning of each stage. Denote by y[i] : Δi → Rms+1 the augmented state
+
+trajectory in the ith stage, which consists of two parts: z[[is]−1] and y˜[i]. At each timestamp ti, the state transfers from y[i] to y[i+1], and the part y˜ is reset as
+
+y˜[i+1](ti) = 0, 0 ≤ i < M
+
+(22)
+
+thus switching the partial state from y˜[i](ti) to 0. The z[s−1] part remains continuous between stages, which means
+
+z[[is]−1](ti) = z[[is+−11]](ti), 1 ≤ i < M.
+
+(23)
+
+The conditions in (18c) and (18d) are still satisﬁed, i.e.,
+
+z[[1s]−1](t0) = z¯o, z[[M s−]1](tM ) = z¯f
+
+(24)
+
+z[[id]i−1](ti) = z¯i, 1 ≤ i < M.
+
+(25)
+
+In this process, the cost functional in (18) is converted into the
+
+sum of terminal cost of each stage for the augmented system,
+
+i.e.,
+
+M i=1
+
+y˜[i](ti).
+
+Therefore,
+
+the
+
+optimal
+
+trajectories
+
+for
+
+the
+
+augmented system and the original one are identical in z[s−1].
+
+We utilize the hybrid maximum principle [44] to derive nec-
+
+essary conditions for the optimal solution.
+
+Theorem 1 (Hybrid Maximum Principle): Let t0 < . . . < tM
+
+be real numbers and Δk = [tk−1, tk]. For any collection of
+
+absolute continuous functions xk : Δk → Rnk , deﬁne a vector,
+
+xΣ ∈ Rn¯ , where n¯ = 2
+
+M k=1
+
+nk ,
+
+as
+
+xΣ = xT1 (t0), xT1 (t1), . . . , xTM (tM−1), xTM (tM ) T . (26)
+
+On the time interval Δ = [t0, tM ], consider the problem
+
+min
+uk ,xk
+
+J
+
+(xΣ)
+
+(27a)
+
+s.t. x˙ k(t) = fk(xk(t), uk(t)) uk(t) ∈ Uk ⊆ Rrk
+
+(27b) (27c)
+
+∀t ∈ Δk, k = 1, . . . , M
+
+(27d)
+
+η(xΣ) = 0
+
+(27e)
+
+where fk : Rnk × Rrk → Rnk , J : Rn¯ → R, and η : Rn¯ → Rq are continuously differentiable, and uk : R → Rrk are measurable and bounded on the corresponding Δk.
+Denote an optimal process for (27) by (x∗(t), u∗(t)). Then, there exists a collection (α, γ, ψ1, . . . , ψM ), where α ≥ 0, γ ∈ Rq and ψk : Δk → Rnk are Lipschitz continuous. It generates M Pontryagin functions
+
+Hk(ψk, xk, uk) = ψkTfk(xk, uk), t ∈ Δk
+
+(28)
+
+and a Lagrange function L(xΣ) = αJ(xΣ) + γTη(xΣ). The following conditions are satisﬁed for all k = 1, . . . , M .
+1) Nontriviality condition:
+
+(α, γT) = 0.
+
+(29)
+
+2) Adjoint equations: for almost all t ∈ Δk,
+
+ψ˙ k (t)
+
+=
+
+−
+
+∂Hk ∂xk
+
+(ψk (t),
+
+x∗k (t),
+
+u∗k (t)).
+
+(30)
+
+3) Transversality conditions:
+
+ψk (tk−1 ψk (tk )
+
+)==−LLxxkk((ttkk−)1()x(x∗Σ∗Σ)
+
+)
+
+.
+
+(31)
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+6
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+4) Maximality conditions: for all t ∈ Δk,
+
+Hk(ψk(t), x∗k(t), u∗k(t)) = sup Hk(ψk(t), x∗k(t), uk)
+uk ∈Uk
+
+= 0.
+
+(32)
+
+Proof: The proof can be directly adapted from [44, Th. 4].
+Here, we only consider each system fk to be time invariant and all intervals Δk to be ﬁxed. Besides, no inequality constraints are speciﬁed on xΣ.
+According to Theorem 1, the costate ψ[i] : Δi → Rms+1 in the ith stage is deﬁned as
+
+ψ[i] =
+
+λ[i] μ[i]
+
+= λ[i]1, λ[i]2, . . . , λ[i]s, μ[i] T
+
+(33)
+
+where μ[i] : Δi → R. λ[i]j : Δi → Rm is the jth map in λ[i] : Δi → Rms. The ith Pontryagin function of (20) is
+
+Hi(ψ[i], y[i], v[i]) = ψ[Ti]fˆ(y[i], v[i])
+
+= λT[i]A¯ z[[is]−1] + λT[i]sv[i] + μ[i]v[Ti]Wv[i].
+
+(34)
+
+By applying the adjoint equation (30) for μ[i], we have μ˙ [i] = 0, which means μ[i](t) = μ¯i ∈ R is a constant in Δi. Therefore,
+Hi is always a quadratic function of v[i]
+
+Hi(ψ[i], y[i], v[i]) = λT[i]A¯ z[[is]−1] + λT[i]sv[i] + μ¯iv[Ti]Wv[i]. (35)
+By applying the adjoint equation for λ[i], we obtain
+
+λ˙ [i] = −A¯ Tλ[i]
+
+(36)
+
+which is expanded as
+
+λ˙ [i]j =
+
+0, −λ[i]j−1,
+
+if j = 1 if 2 ≤ j ≤ s .
+
+(37)
+
+It is obvious that λ[i]s(t) is an (s − 1)-degree polynomial. According to maximality conditions (32), the supremum of
+Hi is always 0 in Δi. Thus, the positive deﬁniteness of W implies μ¯i ≤ 0. If μ¯i = 0, then (35) becomes a linear function of v[i]. The zero supremum means that λ[i]s(t) = 0 in Δi. As the result of (36), ψ[i](t) = 0 holds for all t in Δi. In such a case, a contradiction occurs that the nontriviality condition (29)
+and the transversality conditions (31) cannot be satisﬁed at the same time. Therefore, μ¯i < 0 always holds in the whole Δi. The optimal control v[∗i] can be obtained from
+
+∂Hi ∂v[i]
+
+(ψ[i],
+
+y[∗i],
+
+v[∗i])
+
+=
+
+λ[i]s
+
++
+
+2μ¯iWv[∗i]
+
+=
+
+0
+
+(38)
+
+i.e.,
+
+v[∗i](t)
+
+=
+
+−
+
+1 2μ¯i
+
+W−1λ[i]s(t),
+
+∀t ∈ Δi.
+
+(39)
+
+Then, z[∗i] produced by a chain of s-integrators from λ[i]s(t), is a (2s − 1)-degree polynomial.
+To further explore the structures of the solution, we generate the Lagrange function using the cost of augmented system along
+
+with all constraints in (23)–(25). We have
+
+M
+
+M −1
+
+L(yΣ) = α y˜[i](ti) +
+
+γiy˜[i+1](ti)
+
+i=1
+
+i=0
+
+M −1
+
++
+
+(ζiT, σiT)(z[[is]−1](ti) − z[[is+−11]](ti))
+
+i=1
+
++θoT(z[[1s]−1](t0) − z¯o) + θfT(z[[M s−]1](tM ) − z¯f )
+
+M −1
+
++
+
+θiT(z[[id]i−1](ti) − z¯i)
+
+i=1
+
+(40)
+
+where γi ∈ R, ζi ∈ Rmdi , σi ∈ Rm(s−di), θo ∈ Rms, θf ∈ Rms, and θi ∈ Rmdi are all constant coefﬁcients of corresponding constraints, and yΣ is deﬁned as in (26). Following transversality conditions (31), taking the derivative of L w.r.t.
+yΣ gives the boundary values of costates ψ[i] and ψ[i+1], i.e.,
+
+λ[i](ti) = −
+
+ζi + θi σi
+
+, λ[i+1](ti) = −
+
+ζi σi
+
+(41)
+
+μ[i](ti) = μ[i+1](ti+1) = −α.
+
+(42)
+
+Because μ[i+1](t) = μ¯i+1 in Δi+1, we have
+
+μ¯i = −α, 1 ≤ i ≤ M.
+
+(43)
+
+Finally, by substituting (36), (41), and (43) into (39), we obtain that the optimal controls of two consecutive stages satisfy
+
+v∗([ij])(ti) = v∗([ij+) 1](ti), 0 ≤ j < (s − di).
+
+(44)
+
+We ﬁnally know that the optimal control of the problem (18)
+
+is actually s − di − 1 times continuously differentiable at the
+
+timestamp ti. Accordingly, the optimal state trajectory, consisting of M polynomials with 2s − 1 degree, is indeed 2s − di − 1
+
+times continuously differentiable at ti.
+
+Now, we conclude the conditions derived from both (39) and
+
+(44) in the following theorem, which are proved to be necessary
+
+and sufﬁcient optimality conditions of (18).
+
+Theorem 2 (Optimality Conditions): A trajectory, denoted by z∗(t) : [t0, tM ] → Rm, is optimal for the problem (18) if and
+only if the following conditions are satisﬁed. 1) The map z∗(t) : [ti−1, ti] → Rm is parameterized as a (2s − 1)-degree polynomial for any 1 ≤ i ≤ M .
+
+2) The boundary conditions in (18c).
+
+3) The intermediate conditions in (18d).
+
+4)
+
+z∗(t) any 1
+
+is d¯i ≤i
+
+− <
+
+1 times continuously differentiable M where d¯i = 2s − di.
+
+at
+
+ti
+
+for
+
+Moreover, a unique trajectory exists for these conditions.
+
+Proof sketch: The proof of necessity is evident in the analyses
+
+from (33) to (44) that are directly derived from Theorem 1. The
+
+proof of sufﬁciency is sketched as follows: 1) the ﬁrst and fourth
+
+conditions always determine a linear spline space of dimension
+
+2s +
+
+M −1 i=1
+
+di
+
+for
+
+any
+
+sequence
+
+of
+
+di;
+
+2)
+
+the
+
+second
+
+and
+
+third
+
+conditions form a square coefﬁcient matrix on a basis of the
+
+spline space, implying the existence of solution; 3) the matrix is
+
+proved to be nonsingular since ti−1 < ti for each i, giving the
+
+uniqueness of solution; and 4) the existence and uniqueness for
+
+the necessary conditions yield their sufﬁciency. This proof of
+
+sufﬁciency is detailed in Appendix A.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+7
+
+To further explain the optimality conditions, we take the multistage jerk minimization as an example. In this example, the position, velocity, and acceleration are states of the jerk-controlled system (s = 3). There are intermediate points (di = 1) that the trajectory should pass through at certain timestamps. The continuity of state only requires the continuity up to acceleration of the minimum-jerk trajectory, while jerk and snap of the optimal trajectory are also continuous everywhere. Accordingly, if we enforce all these continuity conditions, then Theorem 2 guarantees that only one trajectory exists, which is exactly the optimal one.
+
+C. Minimization Without Cost Functional
+Theorem 2 provides a direct way to construct the unique optimal trajectory. The computation enjoys linear complexity in time and space. It does not even require explicit or implicit evaluation of the cost functional or its gradient.
+Consider an m-dimensional trajectory whose ith piece is denoted by an (N = 2s − 1)-degree polynomial:
+
+pi(t) = cTi β(t − ti−1), t ∈ [ti−1, ti]
+
+(45)
+
+where β(x) = (1, x, . . . , xN )T is the basis and ci ∈ R2s×m are the coefﬁcients. For simplicity, we use the timeline relative to t0 = 0. The trajectory is described by a coefﬁcient matrix c ∈ R2Ms×m and a time vector T ∈ RM >0 deﬁned by
+
+c = cT1 , . . . , cTM T , T = (T1, . . . , TM )T
+
+(46)
+
+where Ti means the duration of the ith piece. Then, we have the
+
+timestamp ti =
+
+i j=1
+
+Tj
+
+and the total duration T
+
+=
+
+T 1. The
+
+M -piece trajectory p : [0, T ] → Rm is deﬁned by
+
+p(t) = pi(t) ∀t ∈ [ti−1, ti)∀i ∈ {1, . . . , M }. (47)
+To compute the unique solution for (18), we directly enforce optimality conditions on the coefﬁcient matrix c. Denote by D0, DM ∈ Rs×m and Di ∈ Rdi×m the speciﬁed derivatives at boundaries and intermediate timestamp ti, respectively. Each column of Di is related to one dimension. Then, conditions at ti are formulated by Ei, Fi ∈ R2s×2s
+
+Ei Fi
+
+ci = Di
+
+ci+1
+
+0d¯i ×m
+
+(48)
+
+Ei = (β(Ti), . . . , β(di−1)(Ti),
+
+(49)
+
+β(Ti), . . . , β(d¯i−1)(Ti))T
+
+Fi = (0, −β(0), . . . , −β(d¯i−1)(0))T.
+
+(50)
+
+Especially, deﬁne F0, EM ∈ Rs×2s as
+
+F0 = (β(0), . . . , β(s−1)(0))T
+
+(51)
+
+EM = (β(TM ), . . . , β(s−1)(TM ))T.
+
+(52)
+
+The linear system for the optimal coefﬁcient matrix is
+
+Mc = b
+
+(53)
+
+where M ∈ R2Ms×2Ms and b ∈ R2Ms×m are
+
+⎛
+
+⎞
+
+F0 0 0 · · · 0
+
+M = ⎜⎜⎜⎜⎜⎜⎜⎜⎝E00...1
+
+F1 E2 ...
+0
+
+0
+F2 ...
+0
+
+··· ··· ...
+···
+
+0 0 ...
+FM −1
+
+⎟⎟⎟⎟⎟⎟⎟⎟⎠
+
+(54)
+
+0 0 0 · · · EM
+
+b = (DT0 , DT1 , 0m×d¯1 , . . . , DTM−1, 0m×d¯M−1 , DTM )T. (55)
+It is essential that the uniqueness in Theorem 2 ensures the nonsingularity of M for any time vector T 0. Consequently, the unique solution c can be obtained via linear equation system (53) with a banded matrix M, i.e., a banded system. As for a nonsingular banded system, its banded PLU factorization always exists [45], which can be employed to compute the solution with O(M ) time and space complexity [46]. Therefore, without the need of cost functional, the unique solution of problem (18) is obtained in the lowest complexity, by directly applying our optimality conditions.
+
+D. MINCO Trajectories With Spatial–Temporal Deformation
+For multicopters, there are often task-speciﬁc requirements apart from feasibility, such as the perception quality in active simultaneous localization and mapping [47] or the occlusion rate in aerial videography [48]. These user-deﬁned requirements majorly need to ﬂexibly and adaptively deform both the spatial and temporal proﬁles of a trajectory. Therefore, we select the intermediate points and the time vector as two salient parameters in (18). Fortunately, the existence and uniqueness of solution guarantee the smoothness of sensitivity for them. An iterative procedure is then designed to conduct the spatial–temporal deformation with the lowest computation complexity per iteration.
+We denote the intermediate points by q = (q1, . . . , qM−1), where qi ∈ Rm is a speciﬁed zero-order derivative at ti. Denote by T = (T1, . . . , TM )T the time vector where Ti ∈ R>0. For any pair of q and T, Theorem 2 naturally determines a trajectory belonging to a class of control effort minimizers, named MINCO hereafter. The MINCO trajectory class, denoted by TMINCO, is deﬁned as
+TMINCO = p(t) : [0, T ] → Rm c = c(q, T) determined
+
+by Theorem2,∀q ∈ Rm×(M−1), T ∈ RM >0 .
+
+The dimension m, the system order s, and initial and termi-
+nal conditions are omitted here for brevity. Intuitively, all the trajectories in TMINCO are compactly parameterized by only q and T. Evaluating an element in TMINCO directly follows our linear-complexity formulation.
+We denote any user-deﬁned objective (or constraint) on a trajectory by a C2 function K(c, T) with available gradient. This objective on TMINCO can be computed as
+
+W(q, T) = K(c(q, T), T).
+
+(56)
+
+To accomplish deformation of TMINCO, the function W together with its gradient ∂W/∂q and ∂W/∂T is needed for a high-
+level optimizer to optimize the objective. Obviously, evaluating
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+8
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+W shares the same complexity as evaluating any trajectory in TMINCO. The key procedure is to compute the gradient. Now, we give a linear-complexity scheme to compute ∂W/∂q and ∂W/∂T from the given ∂K/∂c and ∂K/∂T. We ﬁrst rewrite
+the linear equation system (53) as
+
+M(T)c(q, T) = b(q).
+
+(57)
+
+Without causing ambiguity, we omit parameters in M, b, c, K, and W temporarily for simplicity. Any notation involving c is interpreted as c(q, T). Denote by qi,j the jth entry in qi.
+As for the gradient w.r.t. q, we ﬁrst differentiate both sides of
+(57) w.r.t. qi,j, which gives
+
+∂c = M−1 ∂b .
+
+(58)
+
+∂qi,j
+
+∂qi,j
+
+Then
+
+∂W = Tr ∂qi,j
+
+∂c T ∂K ∂qi,j ∂c
+
+= Tr
+
+M−1 ∂b T ∂K ∂qi,j ∂c
+
+= Tr
+
+∂b T M−T ∂K
+
+(59)
+
+∂qi,j
+
+∂c
+
+where Tr(·) is the trace operation. The deﬁnition of b(q) in (55) implies that ∂b/∂qi,j only has a single nonzero entry 1 at its (2i − 1)s + 1 row and j column. Thus, stacking all the
+resultant scalars gives
+
+∂W = ∂qi
+
+M−T ∂K ∂c
+
+T
+e(2i−1)s+1
+
+(60)
+
+where ej is the jth column of I2Ms. Now that we have already
+conducted the banded PLU factorization for M when we compute c, we can reuse the factorization to avoid inverting MT. Deﬁne a matrix G ∈ R2Ms×m as
+
+MTG
+
+=
+
+∂K .
+
+(61)
+
+∂c
+
+We only need to compute G once to obtain ∂W/∂qi for all 1 ≤ i < M . Denote the factorization of M as M = PLU. Speciﬁcally, L is a banded matrix with zero upper bandwidth and all-ones diagonal entries. U is a banded matrix with zero
+lower bandwidth and nonzero diagonal entries because of the
+nonsingularity of M. The pivoting matrix P simply changes the row order of the operand, satisfying PTP = I. Consequently,
+the transpose also has a banded LUP factorization [45]. Specifically, MT = L¯U¯ PT, where
+
+L¯ = UT (U ◦ I)−1 , U¯ = (I ◦ U) LT
+
+(62)
+
+where the inverse is only done for a diagonal matrix and ◦ is the Hadamard product. Then, G can also be computed in linear complexity through such a factorization. For convenience, we partition G into
+
+G = GT0 , GT1 , . . . , GTM−1, GTM T
+
+(63)
+
+such that G0, GM ∈ Rs×m and Gi ∈ R2s×m for 1 ≤ i < M . After that, the gradient of W w.r.t. q is determined as
+
+∂W = ∂q
+
+GT1 e1, . . . , GTM−1e1
+
+(64)
+
+where e1 is the ﬁrst column of I2s. This operation takes out M − 1 speciﬁc columns in GT.
+As for the gradient w.r.t. T, differentiating both sides of (57) w.r.t. Ti gives
+
+∂M c + M ∂c = 0.
+
+(65)
+
+∂Ti
+
+∂Ti
+
+Thus
+
+∂W = ∂K + Tr ∂Ti ∂Ti
+
+∂c T ∂K ∂Ti ∂c
+
+= ∂K − Tr ∂Ti
+
+∂M c T M−T ∂K
+
+∂Ti
+
+∂c
+
+= ∂K − Tr GT ∂M c .
+
+(66)
+
+∂Ti
+
+∂Ti
+
+The banded structure of M implies that
+
+GT
+
+∂M ∂Ti
+
+c
+
+=
+
+GTi
+
+∂Ei ∂Ti
+
+ci.
+
+(67)
+
+Then, we obtain the gradient w.r.t. Ti computed as
+
+∂W = ∂K − Tr ∂Ti ∂Ti
+
+GTi
+
+∂Ei ∂Ti
+
+ci
+
+(68)
+
+where ∂Ei/∂Ti can be analytically derived from (49). Computing (68) for every 1 ≤ i ≤ M gives ∂W/∂T.
+Finally, we ﬁnish the computation of ∂W/∂q and ∂W/∂T. It can be veriﬁed from both (64) and (68) that the gradient propagation is also done in O(M ) complexity. As for K, we make no assumption on its concrete form. Actually, the smoothness of K is not even needed if only the resultant W is C2. In other words, the linear-complexity gradient propagation enjoys both
+efﬁciency and ﬂexibility. By incorporating it into common opti-
+mizers, we can accomplish the spatial–temporal deformation of TMINCO for a wide range of planning purposes while maintaining the local smoothness of trajectories.
+
+V. GEOMETRICALLY CONSTRAINED FLIGHT TRAJECTORY
+OPTIMIZATION
+In this section, we provide a uniﬁed framework for ﬂight trajectory optimization with different time regularization ρ(T ), spatial constraints F˜, and continuous-time constraints G. This framework indeed relaxes the original problem into TMINCO. The spatial–temporal deformation is utilized to meet various feasibility requirements. Lightweight schemes are especially designed to eliminate geometrical constraints such that the trajectory can be freely deformed. For continuous-time constraints, a time integral penalty functional is proposed to ensure the feasibility without sacriﬁcing the scalability. Finally, our framework transforms the constrained trajectory optimization into a sparse unconstrained one, which can be reliably solved.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+9
+
+Fig. 2. Left: domain of J on an M -piece trajectory with total time ﬁxed as TΣ. The domain is indeed the relative interior of an (M − 1)-simplex in RM >0. Right: contour of ln J with M = 3. The function goes to inﬁnity as the time vector approaches the boundary of the open domain in R2>0.
+
+A. Temporal Constraint Elimination
+Deforming MINCO needs standard optimizers that are often designed for Euclidean spaces. However, the trajectory deﬁnition and cost functional (11) both restrict the domain of T to simple manifolds, on which frequent retractions are needed during optimization. We give explicit diffeomorphisms for T such that surrogate variables are in Euclidean spaces. Thus, common efﬁcient optimizers can be conveniently applied.
+For polynomial splines, the control effort in (11) is a function of c and T, denoted by Jc(c, T). Analytical expressions of Jc, ∂Jc/∂c, and ∂Jc/∂T are available in [28]. Now that TMINCO are polynomial splines with coefﬁcients determined by c(q, T), the cost functional of (11) can be written as
+
+J(q, T) = Jq(q, T) + ρ( T 1)
+
+(69)
+
+where Jq is deﬁned as Jq(q, T) = Jc(c(q, T), T). Obviously,
+
+computing Jq, ∂Jq/∂q, and ∂Jq/∂T from any provided Jc,
+
+∂Jc/∂c, and ∂Jc/∂T can be done in O(M ) complexity, as
+
+already shown in the deformation of TMINCO.
+
+It is natural to optimize T via ∂J/∂T. However, Jq(q, T) has
+
+its deﬁnition over T ∈ RM >0. It becomes unbounded when any Ti approaches zero, and no consecutively repeating points appear
+
+in q. Besides, ρf deﬁned in (13) further restricts the domain of
+
+J to
+
+M −1 i=1
+
+Ti
+
+<
+
+TΣ,
+
+as
+
+shown
+
+in
+
+Fig.
+
+2
+
+.
+
+We use diffeomorphisms to eliminate constraints for ρf and
+
+ρs. Consider the domain of ρf in (13)
+
+Tf = T ∈ RM T 1 = TΣ, T 0 .
+
+(70)
+
+It is clear that J(q, ·) is ﬁnite for a nontrivial q if and only if
+T ∈ RelInt(Tf ), i.e., the relative interior of Tf . Proposition 1: Tf deﬁned by (70) is diffeomorphic to RM−1.
+Denote by τ = (τ1, . . . , τM−1) an element in RM−1. A C∞ diffeomorphism is given by the map below for 1 ≤ i < M :
+
+Ti = 1 +
+
+eτi
+
+M −1
+
+M −1 j=1
+
+eτj
+
+TΣ,
+
+TM
+
+=
+
+TΣ
+
+−
+
+j=1
+
+Tj .
+
+(71)
+
+By exploiting the explicit diffeomorphism (71), we directly minimize the cost function J over RM−1 via τ , because the
+domain constraints are satisﬁed by default.
+
+Optimizing τ requires gradient propagation. We partition the gradient as ∂Jq/∂T = (gaT, gb)T, where ga ∈ RM−1 and gb ∈ R. Differentiating the layer in (71) yields the gradient of J w.r.t. τ
+
+∂J ∂τ
+
+=
+
+(ga − gb1) ◦ e[τ ] 1 + e[τ ] 1
+
+−
+
+gaTe[τ ] − gb e[τ ] 1 1 + e[τ ] 1 2
+
+e[τ ]
+
+(72)
+
+where e[·] is the entrywise exponential map and 1 is an all-ones vector. If an initial guess T is speciﬁed, the corresponding τ
+can be computed via the inverse map of the diffeomorphism, given by τi = ln (Ti/TM ) for 1 ≤ i < M . As for ρs in (12), only T 0 needs to be ensured. It sufﬁces to use T = e[τ] as the diffeomorphism between RM and RM >0.
+For either ρf or ρs, we denote the diffeomorphism by T(τ ). Unconstrained optimization on τ can be directly conducted to minimize J(q, T(τ )). Although T(τ ) does not preserve convexity, the original cost J(q, T) is already nonconvex as given in (57). Thus, the only concern is whether T(τ ) brings new local minima in the space of τ or eliminates local minima
+in the space of T. Proposition 2: Denote by F : DF → R any C2 function with
+a convex open domain DF ∈ RN . Given any C2 diffeomorphism G : RN → DF, deﬁne H : RN → R as H(y) = F (G(y)) for y ∈ RN . For any x ∈ DF and y ∈ RN satisfying x = G(y) or equivalently y = G−1(x), the following statements always hold.
+1) ∇F (x) = 0 if and only if ∇H(y) = 0. 2) ∇2F (x) is positive-deﬁnite (or positive-semideﬁnite) at
+∇F (x) = 0, if and only if ∇2H(y) is positive-deﬁnite (or positive-semideﬁnite) at ∇H(y) = 0.
+Proof: See Appendix B. Proposition 2 conﬁrms that T(τ ) preserves the ﬁrst/second-
+order necessary optimality conditions and second-order sufﬁ-
+cient optimality conditions [49]. It is also applicable to substitute the exponential map in this subsection with any C2 diffeomorphism from R to R>0 for a better numerical condition. In the sense of commonly used optimality conditions, our constraint
+elimination does not produce extra spurious local minima or
+cancel any existing one.
+
+B. Spherical Spatial Constraint Elimination
+We enforce motion safety by conﬁning trajectories into the feasible region F˜. Although F˜ is nonconvex, it is a union of convex primitives that are sequentially connected. If all pieces have been assigned into these primitives, the safety constraint on each piece becomes convex and, thus, can be conveniently encoded in G. Owing to the feature of MINCO, the traverse time for every primitive can be directly optimized. Thus, we ﬁx the piece assignment before optimization, rather than resorting to integer variables during optimization [33]. Consequently, intermediate points should be contained by the overlap between primitives, forming inequalities. For inequality constrained problems (ICPs), general methods successively approximate the constraints via additional parameters. However, we aim to apply the constraints directly and efﬁciently. Therefore, we propose spatial constraint elimination to enforce them exactly, leveraging their geometrical properties.
+Consider the constraint q ∈ P ⊂ Rn, where P is a closed ball. Its dimension satisﬁes n ≤ m since a low-dimensional constraint also exists in Rm. If P is a closed ball PB centered
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+10
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+Fig. 3. Inverse stereographic projection fs maps the Euclidean space Rn onto a sphere without north pole Sn in an (n + 1)-dimensional space. The orthographic projection fo maps Sn onto an n-dimensional ball Bn. The variable ξ moves freely in Rn, while the transformed variable q stays in Bn. Optimization on ξ becomes unconstrained when q is constrained by a ball.
+
+Fig. 4. Constrained minimum q∗ of a convex function J(q) within a 2-D ball. Transformed by fB, the resultant function J(fB(ξ)) becomes nonconvex, but it preserves the local minimum ξ∗ satisfying q∗ = fB(ξ∗) with no additional local minimum introduced.
+
+at point o with radius r
+
+of fB, given by ξi for 1 ≤ i < M as follows:
+
+PB = x ∈ Rn x − o 2 ≤ r .
+
+(73)
+
+We utilize a smooth surjection to map Rn to PB such that optimization over Rn implicitly satisﬁes the constraint PB. As
+illustrated in Fig. 3, the map is a composition of the inverse
+stereographic projection and the orthographic projection. First, we utilize the inverse stereographic projection to map Rn to Sn, where Sn is a unit sphere without north pole, i.e.,
+
+Sn = x ∈ Rn+1 x 2 = 1, xn+1 < 1 .
+
+(74)
+
+The inverse stereographic projection fs is deﬁned as
+
+fs(x)
+
+=
+
+(2xT, xTx − 1)T xTx + 1
+
+∈
+
+Sn
+
+∀x ∈ Rn.
+
+(75)
+
+Note that fs is a diffeomorphism between Rn and Sn [50]. We then project Sn from Rn+1 back in Rn to obtain
+
+Bn = x ∈ Rn x 2 ≤ 1 .
+
+(76)
+
+The map is described by
+
+fo(x) = (x1, . . . , xn)T ∈ Bn ∀x ∈ Sn
+
+(77)
+
+which is indeed a smooth surjection onto Bn. Each point in Bn, except the center, is paired with two points in Sn. The
+composition of fs, fo, and a linear transformation, is a smooth
+surjection
+
+fB (x)
+
+=
+
+o
+
++
+
+2rx xTx +
+
+1
+
+∈
+
+PB
+
+∀x ∈ Rn.
+
+(78)
+
+The map fB introduces a new coordinate, denoted by ξ, such that optimizing ξ over Rn always satisﬁes the constraint on q described by PB. For the ith intermediate point qi, denote by ξi the corresponding new coordinate. Accordingly, denote by ξ the new coordinate for q. Optimizing ξ requires gradient
+propagation for ∂J/∂q. Denote by gi the ith entry ∂J/∂qi in ∂J/∂q. Differentiating the layer fB gives the gradient
+
+∂J ∂ξi
+
+=
+
+2rigi ξiTξi + 1
+
+−
+
+4ri(ξiTgi)ξi (ξiTξi + 1)2
+
+.
+
+(79)
+
+If the optimization needs to start from an initial guess q, the backward evaluation of ξ can be done by using a local inverse
+
+ri − ξi =
+
+ri2 − qi − oi
+
+qi − oi
+
+2 2
+
+2
+2 (qi − oi).
+
+(80)
+
+Similarly, we analyze inﬂuences that the smooth surjection fB imposes on the constrained local minima in PB. Although fB lacks the one-to-one correspondence as diffeomorphisms possess, its components are all well-formed. First, fo only takes the ﬁrst n entries of a point. This operation preserves at least
+the ﬁrst-order necessary conditions for local minima in either Bn or Sn. Second, fs is a diffeomorphism between Sn and Rn, thus satisfying Proposition 2. Therefore, we can also conﬁrm
+that fB does not produce extra spurious local minima or cancel any existing one. As shown in Fig. 4, the constrained minimum
+within a 2-D ball is transformed into an unconstrained minimum.
+
+C. Polyhedral Spatial Constraint Elimination
+Now, we consider the elimination of polyhedral constraints. Speciﬁcally, P is a closed convex polytope PH deﬁned by
+
+PH = x ∈ Rn Ax b
+
+(81)
+
+where Int(PH) = ∅ according to (15). Common optimization algorithms use the H-representation of PH as linear inequality
+constraints. In our framework, we exploit their geometrical
+property to eliminate these constraints so that TMINCO can be freely deformed. To achieve this, we use the V-representation of PH instead, where any q ∈ PH has a (general) barycentric
+coordinate, i.e., a convex combination of vertices. To obtain the
+vertices, we apply the efﬁcient convex hull algorithm [51] to the dual of PH based on an interior point calculated by Seidel’s
+algorithm [52]. Note that this procedure produces negligible overhead in our case (n ≤ 4).
+The procedure to eliminate a polytope constraint is illustrated in Fig. 5. We denote all nˆ + 1 vertices of PH by (v0, . . . , vnˆ ), where vi ∈ Rn for each i. The barycentric coordinate of a point q ∈ PH consists of the weights for these vertices. To obtain a more compact form, deﬁne vˆi = vi − v0 and Vˆ = (vˆ1, . . . , vˆnˆ ); then, the position can be calculated as
+
+q = v0 + Vˆ w
+
+(82)
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+11
+
+Fig. 5. Transformations on a convex polytope. A convex polytope PH with
+nˆ + 1 vertices is indeed a standard nˆ-simplex in the barycentric coordinate. The simplex PwH is then the image of an entrywise square map [·]2 with ball-shaped domain, which can be eliminated as in Fig. 3.
+
+Concretely, the inequality constraints are −w 0. By introducing additional variables x, the equivalent equality constraints are −w + [x]2 = 0, yielding w = [x]2. Such type of constraint
+conversion is proved to preserve ﬁrst-/second-order necessary
+conditions and second-order sufﬁcient conditions for ICPs by
+Bertsekas [55, Sec. 4.3]. We conﬁrm that the additional nonlin-
+earity in fH does not exclude the desired minimum or produce undesired minimum practically.
+Direct constraints on q are eliminated for either PB or PH using a smooth surjection q(ξ). We can conduct unconstrained optimization on ξ to minimize J(q(ξ), T(τ )) hereafter.
+
+where w = (w1, . . . , wnˆ )T ∈ Rnˆ is the last nˆ entries in the barycentric coordinate. The set of coordinates in convex combi-
+nations can also be written as
+
+PwH = w ∈ Rnˆ w 0, w 1 ≤ 1 .
+
+(83)
+
+The main theorem of polytope theory in [37] conﬁrms the equivalence between PwH and PH under (82). The polytope is exactly converted into a standard (nˆ + 1)-simplex by simply adding auxiliary variables and applying a linear map to q. This
+process does not produce additional nonlinearity in the optimiza-
+tion problem except that the dimension of decision variables is
+increased. Therefore, we only consider the decision variables on
+q as the corresponding w hereafter.
+The simplex (83) can be eliminated by nonlinear transformations. We ﬁrst use an entrywise square map [·]2 : Rnˆ → Rnˆ proposed in [53] to eliminate nonnegativity constraints using w = [x]2. Then, the constraint PwH on w is transformed into a closed unit ball Bnˆ on x
+
+Bnˆ = x ∈ Rnˆ x 2 ≤ 1 .
+
+(84)
+
+Consequently, we can utilize the smooth surjection fB in (78) again. The composition of (82), [·]2, and fB yields a smooth surjection fH from Rnˆ onto PH
+
+fH(x)
+
+=
+
+v0
+
++
+
+4Vˆ [x]2 (xTx + 1)2
+
+∈
+
+PH
+
+∀x ∈ Rnˆ .
+
+(85)
+
+A new coordinate ξ is introduced by fH, where any ξ ∈ Rnˆ ensures q ∈ PH. The boundary of PH is also attainable. Similarly, ξ is the new coordinate for q. Optimizing ξ requires gradient propagation. Denote by gi the ith gradient ∂J/∂qi in ∂J/∂q; then, differentiating the layer fH gives
+
+∂J ∂ξi
+
+=
+
+8ξi ◦ Vˆ Tgi (ξiTξi + 1)2
+
+−
+
+16giTVˆ [ξi]2 (ξiTξi + 1)3
+
+ξi.
+
+(86)
+
+If an initial guess q is speciﬁed, the corresponding ξ can be
+computed via the local inverse of fH. The barycentric coordinate of each qi can be obtained using the analytic approach by Warren et al. [54]. After that, the analytic local inverses of [·]2 and fB(·) give us the desired ξi. Another ﬂexible way is to directly minimize the squared distance between fH(ξ) and the given qi. Both the approaches have negligible time consumption but
+promising results. The map [·]2 in fH presents additional nonlinearity into
+optimization. Fortunately, variable transformation via [·]2 is
+a special case of the inequality-to-equality conversion [55].
+
+D. Time Integral Penalty Functional
+After eliminating direct constraints, TMINCO can be freely deformed to meet the continuous-time constraints G. However, enforcing G over the entire trajectory involves inﬁnitely many inequalities that cannot be solved by constrained optimization. It further needs temporal discretization that usually produces a large number of decision variables. To preserve the sparsity of trajectory parameterization, we decouple the resolution of constraint evaluation from the number of decision variables. Inspired by the constraint transcription [56], we transform G into ﬁnite constraints by the integral of constraint violations.
+For a trajectory p : [0, T ] → Rm, we deﬁne
+
+T
+IGk[p] = max [G(p(t), . . . , p(s)(t)), 0]kdt (87)
+0
+where k ∈ R>0 and max[·, 0]k is the composition of the entrywise maximum and an entrywise power function. Speciﬁcally, smoothing is needed if k ≤ 1. The functional-type constraint is then equivalent to equality constraints IGk[p] = 0. Actually, IGk[p] is a function of trajectory parameters, which we adopt as penalty terms. If k = 1, it forms a nonsmooth but exact penalty. If k > 1, it forms a differentiable strictly convex penalty. Thus, either IG3[p] or a smoothing approximation of IG1[p] can be adopted. For simplicity, we utilize IG3[p] hereafter unless otherwise speciﬁed. There are two reasons for choosing a penalty function method.
+First, the integral in (87) can only be evaluated numerically,
+making the constraint approximation inevitable. Second, penalty
+methods have no requirement on a feasible initial guess, which
+is nontrivial to construct. We deﬁne the time integral penalty functional for p(t) as
+
+IG [p] = χTIGk[p]
+
+(88)
+
+where χ ∈ Rn≥g0 is a weight vector. Normally, χ should contain large constants. If no constraint is violated, IG[p] remains zero. Otherwise, if any part on p(t) violates any constraint in G,
+the penalty functional IG[p] grows rapidly. By incorporating IG[p] into the cost functional, continuous-time constraints are
+enforced within an acceptable tolerance.
+Practically, IG[p] can only be evaluated by quadrature. To conduct the quadrature, we ﬁrst deﬁne a sampled function Gτ : R2s×m × R>0 × [0, 1] → Rng as
+
+Gτ (ci, Ti, τ ) = G cTi β(Ti · τ ), . . . , cTi β(s)(Ti · τ ) (89)
+
+where τ ∈ [0, 1] is a normalized stamp. Then, the quadrature for IG[p], denoted by I : R2Ms×m × RM >0 → R>0, is computed as
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+12
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+a weighted sum of the sampled penalty
+
+I(c, T)
+
+=
+
+M i=1
+
+Ti κi
+
+κi
+ω¯j χT
+j=0
+
+max [Gτ
+
+j ci, Ti, κi
+
+, 0]k (90)
+
+where κi controls the resolution. We choose the trapezoidal rule (ω¯0, ω¯1, . . . , ω¯κi−1, ω¯κi ) = (1/2, 1, . . . , 1, 1/2) because of its reliable performance for ill-shaped C2 integrands in our practice. Intuitively, I(c, T) is a differentiable approximation to IG[p], whose precision is adjustable through κi. The value and gradient at most timestamps can be parallelly computed then directly
+combined as one.
+
+E. Trajectory Optimization via Unconstrained NLP
+Due to G and F in (11), the optimal trajectory parameterization is generally hard to know. Unlike traditional methods approximating solutions via a large number of variables [23], we propose to solve a lightweight relaxed optimization via unconstrained NLP, where the spatial–temporal deformation of TMINCO is applied. The relaxation to (11) is deﬁned as
+min J(q(ξ), T(τ )) + I(c(q(ξ), T(τ )), T(τ )) (91)
+ξ,τ
+where J is the time-regularized control effort (69) for TMINCO and I is the quadrature of penalty functional (90). Note that any task-speciﬁc requirement, either objectives or constraints, can be combined in (91) without affecting its structure.
+To generate trajectories for a ﬂat multicopter, we ﬁrst parameterize its ﬂat-output trajectory as TMINCO. After assigning a ﬁxed number of pieces into each Pi, variable transformations are applied to eliminate all direct constraints. User-deﬁned GD are also transformed into G via Ψx and Ψu. Finally, we obtain the cost function (91). Apparently, the gradient propagation is derived for all layers except Ψx and Ψu. One can either apply automatic differentiation (AD) [57] to Ψx and Ψu or derive the gradient propagation analytically by following the reverse-mode AD. The efﬁciency is the same as the ﬂatness map as ensured by the Baur–Strassen theorem [58]. The differentiation is only needed for the given ﬂat dynamics once and for all. With available gradient, the relaxation (91) is then solved by the limitedmemory Broyden–Fletcher–Goldfarb–Shanno algorithm [59].
+VI. APPLICATIONS
+A. Large-Scale Unconstrained Control Effort Minimization
+We benchmark several existing schemes over problem (18), including the QP formulation by Mellinger and Kumar [11], the closed-form solution by Bry et al. [28], and the linearcomplexity scheme by Burke et al. [60]. We implement all these schemes in C++11 without any explicit hardware acceleration. Mellinger’s scheme is implemented using OSQP [61]. Bry’s solution is evaluated by both a dense solver and a sparse one [62]. Burke’s scheme is reimplemented here for fairness, which is faster than the original one [60]. The benchmark is conducted on an Intel Core i7-8700 CPU under Linux.
+The performance is reported in Fig. 6. Both jerk s = 3 and snap s = 4 are minimized, as deﬁned in (18). Mellinger’s scheme [11] only performs better than the dense evaluation of Bry’s closed-form solution [28] on middle-scale problems (101 < M < 103). Burke’s scheme [60] beneﬁts from its linear
+
+Fig. 6. Computation time tcomp. under different piece numbers M . The top and middle ﬁgures give the performance for jerk minimization (s = 3) and snap minimization (s = 4), respectively. The bottom ﬁgure shows the efﬁciency of two linear-complexity schemes for very large-scale problems.
+complexity; thus, it can solve large-scale problems (104 < M < 106). Our scheme improves the computation speed by orders of magnitude against the others at any problem scale while retaining O(M ) complexity.
+In conclusion, our optimality conditions provide a practical way to directly construct the solution of problem (18), which possesses simplicity, efﬁciency, stability, and scalability. The trajectory class TMINCO can serve as a reliable submodule of our optimization framework.
+B. Trajectory Generation Within Safe Flight Corridors
+As a special case of the problem (11), trajectory generation within 3-D safe ﬂight corridors (SFCs) has been widely adopted in real-world applications, such as [31], [63], and [64]. The SFCs are usually generated by the front end of a trajectory planning framework as an abstraction of the concerned conﬁguration space, such as the parallel convex cluster inﬂation [31], the regional inﬂation by line search [38], the safe-region RRT* expansion [64], or the iterative regional inﬂation by semideﬁnite programming [65]. We assume that an SFC, either polyhedronshaped or ball-shaped, is already obtained here as in (14) and (15). Optimizing dynamically feasible trajectories within SFCs is usually taken as a back end of such kind of frameworks.
+As is illustrated in Fig. 7, we consider two kinds of SFCs. Each convex primitive is assigned with K trajectory pieces; thus, M = MP K. The ith trajectory piece pi(t) : [0, Ti] → R3 is assigned to P i/K . The intermediate point assignment of
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+13
+
+Fig. 7. Piece assignment for a trajectory within different kinds of safe ﬂight corridors in Rn. Each geometrical primitive is assigned with K pieces. An intermediate point qi is assigned to P i/K ∩ P (i+1)/K . For ball-shaped corridors, a point is further anchored to an (n − 1)-dimensional disk if it is assigned to the intersection of two n-dimensional balls.
+
+Fig. 9. Benchmark on computation efﬁciency. The Proposed one outperforms other methods by orders of magnitudes. Methods from Tordesillas and Deits suffer from combinatorial explosion, but they are faster than Patterson on smallscale problems. Methods not supporting time or interval optimization consume less computation time at the sacriﬁce of quality.
+
+Fig. 8. Optimized trajectories within the different kinds of 3-D SFCs. The speed proﬁle is colored according to its magnitude. The proposed method generates smooth trajectories within randomly generated SFCs. The speed persistently attains the maximum even if SFCs are narrow and twisted.
+
+TMINCO is also determined. Applying the constraint elimination,
+direct constraints on T and q are automatically satisﬁed, such as T ∈ R>0 for ρs(T ) = kρT , T 1 < TΣ for ρf , as well as qi ∈ P i/K ∩ P (i+1)/K for all i. Constraints G are speciﬁed as follows to ensure both safety and dynamic limits:
+
+⎧
+
+⎪⎨pi(t) ∈ P i/K
+
+∀t ∈ [0, Ti]∀1 ≤ i ≤ M
+
+⎪⎩
+
+p(i1)(t) p(i2)(t)
+
+2 ≤ vm2 ax 2 ≤ a2max
+
+∀t ∈ [0, Ti]∀1 ≤ i ≤ M ∀t ∈ [0, Ti]∀1 ≤ i ≤ M
+
+(92)
+
+where vmax and amax are dynamic limits. Then, the trajectory generation in F˜ can be accomplished by solving the unconstrained NLP in (91). We show some optimization results in Fig. 8 for randomly generated SFCs. Both the polyhedron-shaped and ball-shaped SFCs are handled.
+To further evaluate the performance of our method, we benchmark several existing methods over polyhedron-shaped SFCs. Technical details for all the methods are listed as follows.
+1) Proposed : Jerk energy minimization is conducted with either linear time regularization or ﬁxed total time. Constraints in (92) are enforced.
+
+2) Patterson [24]: The LQMT problem of a jerk-controlled system is solved using Gauss pseudospectral method. Each trajectory phase is conﬁned within one polytope. Dynamic limits are enforced through path constraints.
+3) Gao [31]: A geometrical curve is optimized via QP formed by jerk energy cost and linear safety constraints on control points of Bézier curves. Its temporal proﬁle is then optimized by an SOCP for TOPP under (92).
+4) Deits [30]: The jerk energy and interval allocation of a trajectory is optimized by an MISOCP. Safety constraints and dynamic limits on the L1-norm of trajectory derivatives are exactly enforced through SOS conditions. Each trajectory piece is a three-degree polynomial.
+5) Deits: Details are the same as Deits except that intervals are allocated heuristically. No integer variable exists.
+6) Tordesillas [33]: Details are the same as Deits except that safety is ensured by linear constraints on control points of Bézier curves. An mixed-integer QP is solved instead. The total time is determined by a well-designed algorithm.
+7) Mellinger [11]: A trajectory is optimized in a QP formed by quadratic cost on jerk and linear safety constraints on sampled points. Its time allocation is generated with trapezoidal velocity proﬁles. Dynamic limits in (92) are enforced by time scaling [38].
+8) Sun [35]: A trajectory is optimized in a bilevel framework. The low-level QP is exact the same as Tordesillas except that six-degree polynomials are used. Its time allocation is optimized in the upper level optimization using analytical sensitivity of the low-level one.
+A method is asterisked if it supports optimizing time allocation or interval allocation. Dynamic limits are treated as the same for either L1 or L2-norm. Thus, constraints are indeed much tighter on methods from the Proposed , Gao , Mellinger, and Patterson , which restrict the L2-norm of derivatives. As for total time, Deits and Sun need preassigned values; thus, we set their total time using trapezoidal velocity proﬁles. Patterson∗ handles the original problem directly, taking advantage of the exponential convergence of global collocation [24]. Therefore, we take its trajectory as the ground truth.
+The benchmark is conducted in randomly generated environments, one of which is shown in Fig. 10. The corridor size MP
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+14
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+Fig. 10. Geometrical proﬁles of trajectories generated by different methods in a random environment. The trajectory from the Proposed one is closer to the ground truth from Patterson than all other specialized ones.
+
+ranges from 2 to 64, where ten SFCs are generated for each size. The facet number of PiH ranges from 8 to 30. We set K = 1, kρ = 1024.0, vmax = 5.0 m/s, amax = 7.0 m/s2, κi = 16, the timeout as 3 min, and the relative tolerance as 10−4. Static boundary conditions are assumed. As for programs, methods from the Proposed and Mellinger are both implemented in C++11 with a single thread for sequential computing. The general-purpose solver [24] is directly adopted for Patterson . A C++11 reimplementation of the original MATLAB one [30] is adopted for both Deits and Deits. Methods from Gao , Tordesillas , and Sun are taken from their open-source implementations. Besides, the commercial solver Gurobi [66] is used by Deits , Deits, and Tordesillas with six threads enabled for parallel computing. The commercial solver MOSEK [67] is used by both Gao and Sun .
+The computation efﬁciency is provided in Fig. 9. Clearly, Deits and Tordesillas have to optimize integer variables, thus possessing approximately exponential complexity as MP grows. Nonetheless, Tordesillas achieves acceptable performance for small MP by using a more conservative but easier constraints than Deits . Methods from Deits and Mellinger achieve satisfactory performance by tackling time allocation or interval allocation heuristically. Methods from Gao and Sun perform well in their scalability, while the overhead for small MP does not suit real-time applications. The method from Patterson suits ofﬂine scenarios, where computation time is far less important than solution quality. The Proposed method improves the speed by more than an order of magnitude, while retaining optimization on time allocation.
+The geometrical proﬁle of trajectories is provided in Fig. 10. Methods that do not optimize time or interval allocation are more likely to deviate from the ground truth. Trajectories by Deits and Tordesillas also deviate a lot from the ground truth because of the limited resolution of intervals. The success rates, relative control effort, and ﬂight durations are all given in Fig. 11. Interval-allocation-based methods have relatively low success rates. All the control efforts are normalized by that of the Proposed one, whose total time is ﬁxed accordingly for fairness. Clearly, heuristic time or interval allocation causes relatively high control effort. Besides, the ﬂight duration from the Proposed method is the closest to the ground truth.
+To explore the temporal proﬁle, we also test four complete methods in a long-distance ﬂight, as shown in Fig. 12. The
+
+Fig. 11. Benchmark on success rates, relative control effort, and ﬂight durations. Methods from Deits and Tordesillas have relatively low success rates because they optimize interval allocation, which involves integer variables. Methods from Deits and Mellinger have relatively large control effort because optimization on time or interval allocation is not supported. Note that some methods need preassigned total ﬂight duration.
+Fig. 12. Trajectory proﬁles with large weight on time regularization. Only the Proposed one and the ground truth from Patterson generate persistently tight trajectories, considering the continuous-time constraints on norms of derivatives. (a) Trajectories from different methods within a long SFC of the ofﬁce. (b) Velocity and acceleration magnitude for different methods.
+trajectory from Gao is less aggressive than the others. The trajectory from Tordesillas has discontinuous jerk since threedegree polynomials are used. The results from the Proposed one have nearly the same quality as the ground truth. Proﬁting from the effectiveness of the penalty functional, our method can also achieve the maximum speed persistently.
+In simulations, our method achieves comparable trajectory quality to the collocation-based method [24] in both the geometrical and temporal proﬁles, while having superior computational speed against all benchmarked ones.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+15
+
+Fig. 13. (a) Hardware settings of the vehicle. This subﬁgure shows our autonomous multicopter equipped with an onboard computer and a LiDAR. (b) Onboard camera image. This subﬁgure gives a snapshot of the ﬁrst-person view during our high-speed ﬂight experiment in a garage.
+
+C. SE(3) Motion Planning in Quotient Space
+
+In dense obstacle environments, safe motions often do not
+
+exist for narrow spaces unless a multicopter agilely adjusts
+
+its attitude to avoid collisions. Therefore, we consider SE(3)
+
+motion planning in our framework. An important property for
+
+planning in SE(3) as a manifold with structure R3 × SO(3) is
+
+the necessary condition that a feasible pose for a rigid body at
+
+least contains a feasible translation for a dimensionless point.
+
+The subspace R3 is referred to as a quotient space [69]. Ex-
+
+ploiting such a quotient-space decomposition [70], we consider
+
+the rotational safety based on a translational trajectory, instead
+
+of handling them jointly. Therefore, we can relax assumptions for (14) such that F˜ is just a free region in the quotient space
+
+without considering multicopter’s actual size.
+
+We consider simpliﬁed quadcopter dynamics whose conﬁgu-
+
+ration is deﬁned by its translation p and rotation R
+
+⎧
+
+⎨ p˙ = v
+
+⎩
+
+m¯ v˙ = −m¯ g¯e3 R˙ = Rωˆ
+
++
+
+Rf˜e3
+
+(93)
+
+where ei is the ith column of I3, g¯ is the gravitational acceleration, f˜is the thrust, ω is the body rate input, and m¯ is the vehicle mass. The hat map ˆ· : R3 → R3×3 is deﬁned by aˆb = a × b for all a, b ∈ R3. Moreover, we model the geometrical shape of a
+symmetric multicopter as its outer Löwner–John ellipsoid [37]
+
+E(t) = R(t)Qx + p(t) x 2 ≤ 1
+
+(94)
+
+Fig. 14. Experimental validation of our framework through extreme ﬂights. The left ﬁgures show long-distance high-speed ﬂights in an underground garage. A 343.57-m trajectory is computed in 0.29 s. The right ﬁgures show aggressive yet robust SE(3) maneuvers through narrow windows repeated for 12 times. The ﬂight speed and tilt angle in our experiments reach 12.0 m/s and 90◦, respectively. Details can be found in the attached multimedia. (a) High-speed ﬂights in the garage. (b) SE(3) motions through windows. (c) Global trajectory planning results. (d) SE(3) trajectory planning results.
+We conduct experimental validation of our framework by enabling high-speed autonomous ﬂights of a multicopter in an underground garage. All computations are performed by an onboard computer with an Intel Core i7-8550 U CPU, which is shown in Fig. 13. We utilize FAST-LIO2 [68] for highly robust LiDAR-based localization. Polyhedron-shaped safe ﬂight corridors are generated by following [31]. Our method generates a 343.57-m global trajectory in only 0.29 s in the ﬁrst track. The planning results are provided in Fig. 14(c). We believe this computation time validates our framework’s efﬁciency even for long-distance trajectory planning. In this experiment, the vehicle speed reaches 12.0 m/s while ensuring its safety among obstacles and keeping a low thrust-to-weight ratio. We further compare planning results for different parameters on vmax. It turns out that our method can always squeeze the capability of vmax and amax if kρ is large. More details about this experiment are given in the attached multimedia.
+
+where Q = Diag{re, re, he}. re and he are the radius and the height of the multicopter, respectively.
+A feasible motion satisﬁes the safety and dynamic limits. By safety, we mean E(t) ⊂ F˜, ∀t ∈ [0, T ], where T is the total time
+of the motion. However, this safety constraint is indeed hard to enforce. We further make an assumption on F that all PiH or their intersections are able to contain at least one ellipsoid of the
+multicopter. This assumption can be reasonably satisﬁed when F˜ is generated incrementally. As a result, we can ensure safety
+through
+
+∀t ∈ [0, T ], ∃1 ≤ i ≤ Mp, s.t.E(t) ⊂ PiH.
+
+(95)
+
+By dynamic limits, we mean the velocity, thrust, and body rate
+
+should have reasonable magnitude
+
+⎧
+
+⎪⎨ p(1)(t) 2 ≤ vm2 ax ∀t ∈ [0, T ]
+
+⎪⎩fmωi(nt≤)
+
+f˜(t) ≤ fmax
+
+2 2
+
+≤
+
+ωm2 ax
+
+∀t ∈ [0, T ] . ∀t ∈ [0, T ]
+
+(96)
+
+Given a quotient-space trajectory p(t) : [0, T ] → R3, state-
+control trajectories of p, v, R, and ω are all algebraically computed by ﬂatness maps Ψx and Ψu of the dynamics (93). The concrete forms of the algebraic maps are detailed in [11] with
+ﬁxes on the body rate [14] for simple quadcopters and, thus, are omitted here. Consequently, the entire SE(3) trajectory is also obtained. Denote by R(t) its rotational part. To generate p(t) in F˜, we follow the methodology of our previous experiment but
+with different constraints here. The ith trajectory piece pi(t) : [0, Ti] → R3 is assigned to
+the polytope PjH deﬁned in (17) with j = i/K . We denote by Ei(t) the ellipsoid induced by pi(t) and the corresponding Ri(t) as is deﬁned in (94). As proposed by Wu et al. [71], ensuring
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+16
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+Fig. 15. SFC layout for a narrow gap, the SE(3) trajectories under different widths of gaps, and the control inputs for different motions. As the gap becomes narrower, larger angular rates and higher thrust are needed for a safe ﬂight. The proposed method persistently enforces limits on these control inputs under different settings while retaining millisecond-level computation time. (a) SFC layout. (b) φgap = 30◦. (c) φgap = 45◦. (d) φgap = 60◦. (e) φgap = 75◦. (f) φgap = 85◦. (g) Magnitude of angular velocity and the normalized thrust for different SE(3) trajectories.
+TABLE I COMPUTATION TIMES AND ROLL ANGLES FOR DIFFERENT GAPS
+
+safety by conﬁning the vehicle ellipsoid in a polyhedron also has an analytical form. Speciﬁcally
+
+Ei(t) ∈ PjH, j = i/K ∀t ∈ [0, Ti]
+
+(97)
+
+is equivalent to
+
+[Aj Ri (t)Q]2 1
+
+1 2
+
++ Ajpi(t) − bj
+
+0,
+
+j = i/K ∀t ∈ [0, Ti]
+
+(98a) (98b)
+
+where 1 is an all-ones vector with an appropriate length and
+
+[·]2
+
+and
+
+[·]
+
+1 2
+
+are
+
+entrywise
+
+square
+
+and
+
+square
+
+root,
+
+respectively.
+
+Finally, we obtained the state-control constraint GD in (8) for the considered dynamics in (93). We choose to minimize s = 3
+
+because it is the highest derivative order for ﬂatness of (93) and
+
+also helpful in smoothing the angular rate.
+
+We validate our framework in simulations where a relatively
+
+large quadcopter is required to ﬂy through a narrow gap with
+
+much smaller width, as shown in Fig. 15. The settings are re = 0.5 m, he = 0.1 m, fmin/m¯ = 5.0 m/s2, fmax/m¯ = 18.5 m/s2, vmax = 6.5 m/s, and ωmax = 5.2 rad/s. Intuitively, the quad-
+copter can only achieve no more than 1 revolution/s, making
+
+it less agile than small quadcopters [72] that can achieve 5 revo-
+
+lution/s. The computation times, required roll angles, and SE(3)
+
+motions for different dgap are shown in Table I and Fig. 15(b)–(f).
+
+Fig. 16. Sizes of the quadcopter and the narrow window. (a) Custom-made quadcopter. (b) Window.
+As the gap becomes narrower, the required roll angle becomes larger and the feasible space becomes smaller in view of dynamic limits. Our method is still able to ﬁnd all the feasible motions. The superior computation speed makes it possible to solve SE(3) planning at a high frequency (at least 100 Hz). Constraint functions are visualized in Fig. 15(g). The body rate and thrust satisfy dynamic limits all the time. The continuous-time tightness of fmin for φgap ∈ {60◦, 75◦, 85◦} shows the effectiveness of our penalty functional.
+We evaluate the performance of our planner in a real-world experiment, where a quadcopter ﬂies through several narrow windows. Sizes of the quadcopter and windows are given in Fig. 16. The quadcopter weights 794.2 g. The safety margin of the short side is only 5.4 cm, implying that the feasible motion space is extremely small. The settings are re = 20.0 cm, he = 4.6 cm, vmax = 4.0 m/s, fmin/m¯ = 3.0 m/s2, fmax/m¯ =
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+17
+
+Fig. 17. Experiment results for three SE(3) planning scenarios. (a) Interactive scenario. (b) Flying through two consecutive windows. (c) Flying through three consecutive windows. (d) SE(3) planning for two windows. (e) SE(3) planning for three windows.
+
+18.0 m/s2, ωmax = 6.0 rad/s, and K = 2. The ﬂying space is a restricted volume of 6.5 × 6.0 × 2.0 m3. All poses of narrow windows and the quadcopter are provided by a motion capture system running at 100 Hz. The obstacle-free region F˜ is geometrically computed for multiple narrow windows in the free volume. The planner is run on an offboard computer, where a human operator arbitrarily chooses the goal position. We adopt the control algorithm by Faessler et al. [14] for onboard SE(3) trajectory tracking.
+The ﬁrst scenario contains consecutive windows with roll angles ranging from 30◦ to 90◦. The quadcopter has to ﬂy through them and reach a randomly selected goal, as shown in Fig. 17(b)–(e). The second scenario is an interactive one where a human operator randomly holds a narrow window for real-time planning, as given in Fig. 17(a). The third scenario requires the quadcopter persistently ﬂy back and forth through multiple windows for a long duration, as shown in Fig. 14(b) and (d). Our planner guides the quadcopter to ﬂy back and forth through windows for about 20.0 s, while ensuring the safety and physical limits all the time. More details about this experiment are given in the attached multimedia.
+In this experiment, the short distance between consecutive windows, the small acceleration/deceleration space, and the limited vehicle maneuverability are challenges that our planner must confront. We believe that these results constitute a strong evidence for its constraint ﬁdelity, motion quality, computation efﬁciency, and robustness. However, we do observe the limitation of optimization-based methods. For example, if two 90◦ windows are asymmetrically placed, a multicopter has to pass them in sequence. Each window only allows two roll angles ±90◦. The combinations are four locally optimal maneuvers, but only one can be the global optimum. Thus, the other three are shallow local minima inevitable for local methods.
+VII. DISCUSSION AND CONCLUSION
+A. Extensions
+Proﬁting from the ﬂexibility and efﬁciency, our framework has many applicative and algorithmic extensions. First, no
+
+assumption is ever made on concrete forms of vehicle dynamics and GD. More accurate dynamics, such as the rotor drag [14], can be adopted to fully exploit physical limits via real-time high-ﬁdelity planning and control. Time-dependent constraints for moving obstacles can also be supported by GD. Second, our framework is inherently parallelizable to further squeeze its performance. Computation-demanding operations on IG[p] are independent at each timestamp; thus, parallelization can effectively speedup our optimization. Moreover, it is possible to extend our methodology to other vehicle types whose ﬂat-output space overlaps the conﬁguration space. An example is the ﬁxedwing aircraft in [28], whose ﬂights are mainly restricted by the trajectory curvature. Bry et al. [28] propose Dubins-polynomial trajectories for this restriction, while the curvature constraint is a special case of G for MINCO.
+To demonstrate the extendibility, we apply our framework to a swarm of multicopters to enable their autonomous navigation in unknown environments. All the details of the formulation (11) and real-world ﬂights are given in a technical report [73].
+B. Limitations
+Our framework, like most optimization-based ones, focuses on local solutions of trajectory planning, thus suffering from shallow local minima. This can be alleviated by interleaving sampling-based or graph-search-based strategies into our framework, as proposed in [74]–[76]. A major limitation of the framework originates from MINCO itself. If G exists, optimal solutions cannot, in general, be represented by polynomial splines, let alone MINCO. Thus, optimizing MINCO is just a relaxation to the original problem. However, our results show that MINCO can still represent high-quality solutions comparable to the ground truth, but with several orders of magnitudes faster computing. There are also limitations caused by the penalty functional. To achieve zero constraint violations, an unbounded smoothing factor or penalty weight and an unbounded quadrature resolution are both required. However, small constraint violations are empirically acceptable for multicopter navigation. As a reward, this method does not need initial feasible guesses.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+18
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+C. Conclusion
+In this article, we proposed a ﬂexible multicopter trajectory planning framework powered by several core features, such as the MINCO trajectory based on our optimality conditions, constraint elimination schemes based on smooth maps, the penalty functional method based on constraint transcription, and the backward differentiation of the ﬂatness maps from ﬂat outputs. All these components enjoyed the efﬁciency and generality originating from low complexity and less preliminary assumptions. We performed extensive benchmarks against many kinds of multicopter trajectory planning methods to show the speedup over orders of magnitude and the top-level solution quality. A variety of applications demonstrated the versatility of our framework. We also presented further discussions about several unlisted applications or extensions as future work.
+
+APPENDIX
+
+A. Proof of Sufﬁciency in Theorem 2
+
+Proof: We consider the space of M -piece polynomial 2s-
+
+order splines deﬁned over [t0, tM ], where consecutive pieces on
+
+any x : [t0, tM ] → R satisfy x(i−j)1(ti) = x(ij)(ti) for 0 ≤ j < d¯i
+
+and 1 ≤ i < M . In (18), di ≤ s holds for each i. For brevity, we
+
+deﬁne Di,j as Di,j = i · s +
+
+j k=1
+
+dk .
+
+According
+
+to
+
+[77,
+
+Th.
+
+4.4], this spline space is actually a linear space of dimension
+
+D¯ = D2,M−1.
+
+Moreover, an explicit basis of the space exists. Based on the
+
+original partition t0 < t1 < . . . < tM , we deﬁne an extended partition t¯1 ≤ t¯2 ≤ · · · ≤ t¯M¯ of length M¯ = D4,M−1 as
+
+⎧
+
+⎪⎨t0, if 1 ≤ i ≤ D2,0
+
+t¯i = ⎪⎩ttjM, ,
+
+if D2,j−1 < i ≤ D2,j . if D2,M−1 < i ≤ M¯
+
+(99)
+
+Based on this extended partition, [77, Th. 4.9] explicitly constructs D¯ functions {Bi(t) : [t0, tM ] → R}Di¯=1, which form a basis for the considered spline space.
+Now, we consider (18c) and (18d) in the spanned linear space.
+These conditions specify derivative values on timestamps of the original partition to be interpolated by the basis {Bi(t)}Di¯=1. We only need the speciﬁed orders along with their timestamps
+instead of the speciﬁed derivative values. Denote by τi the ith speciﬁed timestamps, where
+
+⎧ ⎪⎨t0, τi = ⎪⎩ttjM, ,
+
+if 1 ≤ i ≤ D1,0
+if D1,j−1 < i ≤ D1,j . if D1,M−1 < i ≤ D¯
+
+(100)
+
+Denote by νi the speciﬁed order at τi, written as
+
+⎧ ⎪⎨i − 1,
+
+νi
+
+=
+
+⎪⎩ii
+
+− −
+
+1 1
+
+− −
+
+D1,j−1, D1,M −1 ,
+
+if 1 ≤ i ≤ D1,0
+if D1,j−1 < i ≤ D1,j . if D1,M−1 < i ≤ D¯
+
+(101)
+
+Then, the conditions (18c) and (18d) generate a linear equation
+
+system on the basis, whose coefﬁcient matrix is
+
+B
+
+=
+
+⎛ ⎜⎜⎜⎜⎝
+
+B1(ν1)(τ1) B1(ν2)(τ2)
+...
+
+B2(ν1)(τ1) · · ·
+
+B2(ν2)(τ2) · · ·
+
+...
+
+...
+
+BD(¯ν1)(τ1) BD(¯ν2)(τ2)
+...
+
+⎞ ⎟⎟⎟⎟⎠
+
+.
+
+(102)
+
+B1(νD¯ )(τD¯ ) B2(νD¯ )(τD¯ ) · · · BD(¯νD¯ )(τD¯ )
+
+Since B is a square matrix, there always exists a solution for all conditions in Theorem 2 in each dimension.
+According to [77, Th. 4.67], B is nonsingular if and only if
+
+τi ∈ δi =
+
+[t¯i, t¯i+2s), (t¯i, t¯i+2s),
+
+if νi + αi − 2s ≥ 0 if νi + αi − 2s < 0
+
+holds for any i = 1, . . . , D¯ , where αi is deﬁned as
+
+αi = {maxj : t¯i = · · · = t¯i+j−1}.
+
+(103) (104)
+
+We show that (103) is always true in our case. It is obvious that αi can be computed as
+
+αi =
+
+D2,0 − i + 1, D2,j − i + 1,
+
+if 1 ≤ i ≤ D2,0
+
+.
+
+if D2,j−1 < i ≤ D2,j
+
+(105)
+
+Combining (101) and (105), we know that νi < s and αi ≤ s always hold for i > s, which means
+
+νi + αi − 2s = 0, νi + αi − 2s < 0,
+
+if 1 ≤ i ≤ s if s < i ≤ D¯ .
+
+(106)
+
+Thus, the interval δi is computed as
+
+δi =
+
+[t¯i, t¯i+2s), (t¯i, t¯i+2s),
+
+if 1 ≤ i ≤ s if s < i ≤ D¯ .
+
+(107)
+
+Consequently, we have
+
+τi = t0 ∈ [t0, t1) ⊆ [t¯i, t¯i+2s) = δi, 1 ≤ i ≤ s. (108)
+When i > s, we denote t¯i = tk, t¯i+2s = tl and τi = tj. As shown in (99) and (100), we have
+
+D2,k−1 < i, (i + 2s) ≤ D2,l, D1,j−1 < i ≤ D1,j . (109)
+Owing to the fact that di ≤ s holds for any 1 ≤ i < M , the following two inequalities always hold:
+D2,k−1 < i ≤ D1,j = (D2,j − s) ≤ D2,j−1 (110) D2,j = (D1,j + s) ≤ (D1,j−1 + 2s) < (i + 2s) ≤ D2,l.
+(111)
+
+Inequalities (110) and (111) imply k < j and j < l; thus
+τi = tj ∈ (tk, tl) = (t¯i, t¯i+2s) = δi, s < i ≤ D¯ (112)
+always holds. Combining (108) and (112) gives (103). Therefore, the coefﬁcient matrix B on basis is always nonsingular for settings on the original problem, implying the existence and uniqueness of solution.
+The optimality conditions guarantee one unique solution in each decoupled dimension, which gives its sufﬁciency.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+WANG et al.: GEOMETRICALLY CONSTRAINED TRAJECTORY OPTIMIZATION FOR MULTICOPTERS
+
+19
+
+B. Proof of Proposition 2
+
+Proof: Denote by J the Jacobian of G. For any x ∈ DF and y ∈ RN , satisfying x = G(y) or y = G−1(x), we have
+
+∇H(y) = J(y)T∇F (x).
+
+(113)
+
+Then, the nonsingularity of J implies that the ﬁrst statement always holds. Denote by Ki the Hessian of the ith entry in G. If x and y are stationary points, the Hessian of H is
+
+∇2 H (y)
+
+=
+
+J(y)T∇2F (x)J(y)
+
++
+
+N i=1
+
+∂F (x) ∂xi
+
+Ki
+
+(y)
+
+= J(y)T∇2F (x)J(y).
+
+(114)
+
+Then, the nonsingular J implies that ∇2F (x) and ∇2H(y) are congruent [45]. Thus, the second statement holds.
+
+ACKNOWLEDGMENT
+The authors would like to thank Shaohui Yang for his profound insight into the experiment design and applications of this framework, Hongkai Ye and Yuwei Wu for their help in the benchmark, and Yuman Gao, Tiankai Yang, and Neng Pan for the hardware platform for high-speed ﬂights.
+
+REFERENCES
+[1] M. Ryll, J. Ware, J. Carter, and N. Roy, “Efﬁcient trajectory planning for high speed ﬂight in unknown environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2019, pp. 732–738.
+[2] H. Oleynikova et al., “An open-source system for vision-based microaerial vehicle mapping, planning, and ﬂight in cluttered environments,” J. Field Robot., vol. 37, no. 4, pp. 642–666, 2020.
+[3] J. Zhang, C. Hu, R. G. Chadha, and S. Singh, “Falco: Fast likelihood-based collision avoidance with extension to human-guided navigation,” J. Field Robot., vol. 37, no. 8, pp. 1300–1313, 2020.
+[4] L. Campos-Macías, R. Aldana-López, R. de la Guardia, J. I. Parra-Vilchis, and D. Gómez-Gutiérrez, “Autonomous navigation of MAVs in unknown cluttered environments,” J. Field Robot., vol. 38, no. 2, pp. 307–326, 2021.
+[5] X. Zhou, Z. Wang, H. Ye, C. Xu, and F. Gao, “EGO-Planner: An ESDF-free gradient-based local planner for quadrotors,” IEEE Robot. Autom. Lett., vol. 6, no. 2, pp. 478–485, Apr. 2021.
+[6] P. Foehn et al., “AlphaPilot: Autonomous drone racing,” Auton. Robots, vol. 46, pp. 307–320, 2022.
+[7] M. Fliess, J. Lévine, P. Martin, and P. Rouchon, “Flatness and defect of non-linear systems: Introductory theory and examples,” Int. J. Control, vol. 61, no. 6, pp. 1327–1361, 1995.
+[8] M. J. Van Nieuwstadt and R. M. Murray, “Real-time trajectory generation for differentially ﬂat systems,” Int. J. Robust Nonlinear Control, vol. 8, no. 11, pp. 995–1020, 1998.
+[9] P. Martin, R. M. Murray, and P. Rouchon, “Flat systems, equivalence and trajectory generation,” California Inst. Technol., Pasadena, CA, USA, Tech. Rep. CDS 2003-008, 2003.
+[10] J.-C. Ryu and S. K. Agrawal, “Differential ﬂatness-based robust control of mobile robots in the presence of slip,” Int. J. Robot. Res., vol. 30, no. 4, pp. 463–475, 2011.
+[11] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom., 2011, pp. 2520–2525.
+[12] M. Watterson and V. Kumar, “Control of quadrotors using the Hopf ﬁbration on SO(3),” in Proc. Int. Symp. Robot. Res., 2019, pp. 199–215.
+[13] J. Ferrin, R. Leishman, R. Beard, and T. McLain, “Differential ﬂatness based control of a rotorcraft for aggressive maneuvers,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2011, pp. 2688–2693.
+[14] M. Faessler, A. Franchi, and D. Scaramuzza, “Differential ﬂatness of quadrotor dynamics subject to rotor drag for accurate tracking of highspeed trajectories,” IEEE Robot. Autom. Lett., vol. 3, no. 2, pp. 620–626, Apr. 2018.
+
+[15] B. Mu and P. Chirarattananon, “Trajectory generation for underactuated multirotor vehicles with tilted propellers via a ﬂatness-based method,” in Proc. IEEE/ASME Int. Conf. Adv. Intell. Mechatronics, 2019, pp. 1365– 1370.
+[16] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces,” IEEE Trans. Robot. Autom., vol. 12, no. 4, pp. 566–580, Aug. 1996.
+[17] S. M. LaValle, “Rapidly-exploring random trees: A new tool for path planning,” Iowa State Univ., Ames, IA, USA, Tech. Rep. TR 98-11, 1998.
+[18] L. E. Kavraki, M. N. Kolountzakis, and J.-C. Latombe, “Analysis of probabilistic roadmaps for path planning,” IEEE Trans. Robot. Autom., vol. 14, no. 1, pp. 166–171, Feb. 1998.
+[19] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” Int. J. Robot. Res., vol. 30, pp. 846–894, 2011.
+[20] L. Janson, E. Schmerling, A. Clark, and M. Pavone, “Fast marching tree: A fast marching sampling-based method for optimal motion planning in many dimensions,” Int. J. Robot. Res., vol. 34, no. 7, pp. 883–921, 2015.
+[21] Y. Li, Z. Littleﬁeld, and K. E. Bekris, “Asymptotically optimal samplingbased kinodynamic planning,” Int. J. Robot. Res., vol. 35, no. 5, pp. 528–564, 2016.
+[22] J. D. Gammell, T. D. Barfoot, and S.S. Srinivasa, “Informed sampling for asymptotically optimal path planning,” IEEE Trans. Robot., vol. 34, no. 4, pp. 966–984, Aug. 2018.
+[23] J. T. Betts, Practical Methods for Optimal Control and Estimation Using Nonlinear Programming. Philadelphia, PA, USA: SIAM, 2010.
+[24] M. A. Patterson and A. V. Rao, “GPOPS-II: A MATLAB software for solving multiple-phase optimal control problems using hp-adaptive gaussian quadrature collocation methods and sparse nonlinear programming,” ACM Trans. Math. Softw., vol. 41, no. 1, 2014, Art. no. 1.
+[25] B. Houska, H. J. Ferreau, and M. Diehl, “ACADO toolkit—An opensource framework for automatic control and dynamic optimization,” Optimal Control Appl. Methods, vol. 32, no. 3, pp. 298–312, 2011.
+[26] P. E. Gill, W. Murray, and M. A. Saunders, “SNOPT: An SQP algorithm for large-scale constrained optimization,” SIAM Rev., vol. 47, no. 1, pp. 99–131, 2005.
+[27] A. Wächter and L. T. Biegler, “On the implementation of an interior-point ﬁlter line-search algorithm for large-scale nonlinear programming,” Math. Program., vol. 106, no. 1, pp. 25–57, 2006.
+[28] A. Bry, C. Richter, A. Bachrach, and N. Roy, “Aggressive ﬂight of ﬁxedwing and quadrotor aircraft in dense indoor environments,” Int. J. Robot. Res., vol. 34, no. 7, pp. 969–1002, 2015.
+[29] A. J. Barry et al., “Flying between obstacles with an autonomous knifeedge maneuver,” in Proc. IEEE Int. Conf. Robot. Autom., 2014, pp. 2559– 2559.
+[30] R. Deits and R. Tedrake, “Efﬁcient mixed-integer planning for UAVs in cluttered environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2015, pp. 42–49.
+[31] F. Gao, L. Wang, B. Zhou, X. Zhou, J. Pan, and S. Shen, “Teach-repeatReplan: A complete and robust system for aggressive ﬂight in complex environments,” IEEE Trans. Robot., vol. 36, no. 5, pp. 1526–1545, Oct. 2020.
+[32] D. Verscheure, B. Demeulenaere, J. Swevers, J. De Schutter, and M. Diehl, “Time-optimal path tracking for robots: A convex optimization approach,” IEEE Trans. Autom. Control, vol. 54, no. 10, pp. 2318–2327, Oct. 2009.
+[33] J. Tordesillas, B. T. Lopez, and J. P. How, “FASTER: Fast and safe trajectory planner for ﬂights in unknown environments,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2019, pp. 1934–1940.
+[34] J. Tordesillas and J. P. How, “MINVO basis: Finding simplexes with minimum volume enclosing polynomial curves,” 2020, arXiv:2010.10726.
+[35] W. Sun, G. Tang, and K. Hauser, “Fast UAV trajectory optimization using bilevel optimization with analytical gradients,” in Proc. Amer. Control Conf., 2020, pp. 82–87.
+[36] D. P. Bertsekas, Dynamic Programming and Optimal Control. Belmont, MA, USA: Athena Scientiﬁc, 1995.
+[37] C. D. Toth, J. O’Rourke, and J. E. Goodman, Handbook of Discrete and Computational Geometry. Boca Raton, FL, USA: CRC Press, 2017.
+[38] S. Liu et al., “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-D complex environments,” IEEE Robot. Autom. Lett., vol. 2, no. 3, pp. 1688–1695, Jul. 2017.
+[39] E. Verriest and F. Lewis, “On the linear quadratic minimum-time problem,” IEEE Trans. Autom. Control, vol. 36, no. 7, pp. 859–863, Jul. 1991.
+[40] M. W. Mueller, M. Hehn, and R. D’Andrea, “A computationally efﬁcient motion primitive for quadrocopter trajectory generation,” IEEE Trans. Robot., vol. 31, no. 6, pp. 1294–1310, Dec. 2015.
+[41] S. Liu, N. Atanasov, K. Mohta, and V. Kumar, “Search-based motion planning for quadrotors using linear quadratic minimum time control,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017, pp. 2872–2879.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+
+This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
+
+20
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+[42] Z. Zhang, J. Tomlinson, and C. Martin, “Splines and linear control theory,” Acta Appl. Math., vol. 49, no. 1, pp. 1–34, 1997.
+[43] M. Egerstedt and C. Martin, Control Theoretic Splines: Optimal Control, Statistics, and Path Planning. Princeton, NJ, USA: Princeton Univ. Press, 2009.
+[44] A. V. Dmitruk and A. M. Kaganovich, “The hybrid maximum principle is a consequence of Pontryagin maximum principle,” Syst. Control Lett., vol. 57, no. 11, pp. 964–970, 2008.
+[45] R. A. Horn and C. R. Johnson, Matrix Analysis. Cambridge, U.K.: Cambridge Univ. Press, 2012.
+[46] G. H. Golub and F. V. Loan, Matrix Computations. Baltimore, MD, USA: Johns Hopkins Univ. Press, 2013.
+[47] Z. Zhang and D. Scaramuzza, “Perception-aware receding horizon navigation for MAVs,” in Proc. IEEE Int. Conf. Robot. Autom., 2018, pp. 2534– 2541.
+[48] T. Nägeli, J. Alonso-Mora, A. Domahidi, D. Rus, and O. Hilliges, “Realtime motion planning for aerial videography with dynamic obstacle avoidance and viewpoint optimization,” IEEE Robot. Autom. Lett., vol. 2, no. 3, pp. 1696–1703, Jul. 2017.
+[49] J. Nocedal and S. Wright, Numerical Optimization. New York, NY, USA: Springer, 2006.
+[50] J. Lee, Introduction to Smooth Manifolds. New York, NY, USA: Springer, 2012.
+[51] C. B. Barber, D. P. Dobkin, and H. Huhdanpaa, “The Quickhull algorithm for convex hulls,” ACM Trans. Math. Softw., vol. 22, no. 4, pp. 469–483, 1996.
+[52] R. Seidel, “Small-dimensional linear programming and convex hulls made easy,” Discrete Comput. Geometry, vol. 6, no. 3, pp. 423–434, 1991.
+[53] F. S. Sisser, “Elimination of bounds in optimization problems by transforming variables,” Math. Program., vol. 20, no. 1, pp. 110–121, 1981.
+[54] J. Warren, S. Schaefer, A. N. Hirani, and M. Desbrun, “Barycentric coordinates for convex sets,” Adv. Comput. Math., vol. 27, no. 3, pp. 319–338, 2007.
+[55] D. P. Bertsekas, Nonlinear Programming. Belmont, MA, USA: Athena Scientiﬁc, 2016.
+[56] L. S. Jennings and K. L. Teo, “A computational algorithm for functional inequality constrained optimization problems,” Automatica, vol. 26, no. 2, pp. 371–375, 1990.
+[57] A. Griewank and A. Walther, Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation. Philadelphia, PA, USA: SIAM, 2008.
+[58] W. Baur and V. Strassen, “The complexity of partial derivatives,” Theor. Comput. Sci., vol. 22, no. 3, pp. 317–330, 1983.
+[59] D. C. Liu and J. Nocedal, “On the limited memory BFGS method for large scale optimization,” Math. Program., vol. 45, no. 1–3, pp. 503–528, 1989.
+[60] D. Burke, A. Chapman, and I. Shames, “Generating minimum-snap quadrotor trajectories really fast,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2020, pp. 1487–1492.
+[61] B. Stellato, G. Banjac, P. Goulart, A. Bemporad, and S. Boyd, “OSQP: An operator splitting solver for quadratic programs,” Math. Program. Comput., vol. 12, pp. 637–672, 2020.
+[62] J. W. Demmel, S. C. Eisenstat, J. R. Gilbert, X. S. Li, and J. W. Liu, “A supernodal approach to sparse partial pivoting,” SIAM J. Matrix Anal. Appl., vol. 20, no. 3, pp. 720–755, 1999.
+[63] W. Hönig, J. A. Preiss, T. S. Kumar, G. S. Sukhatme, and N. Ayanian, “Trajectory planning for quadrotor swarms,” IEEE Trans. Robot., vol. 34, no. 4, pp. 856–869, Aug. 2018.
+[64] F. Gao, W. Wu, W. Gao, and S. Shen, “Flying on point clouds: Online trajectory generation and autonomous navigation for quadrotors in cluttered environments,” J. Field Robot., vol. 36, no. 4, pp. 710–733, 2019.
+[65] R. Deits and R. Tedrake, “Computing large convex regions of obstaclefree space through semideﬁnite programming,” in Proc. Int. Workshop Algorithmic Found. Robot., 2015, pp. 109–124.
+[66] Gurobi Optimizer Reference Manual, Gurobi Optimization LLC, Beaverton, OR, USA, 2020. [Online]. Available: https://www.gurobi.com
+[67] MOSEK Optimizer API for C, MOSEK ApS, Copenhagen, Denmark, 2020. [Online]. Available: https://www.mosek.com
+[68] W. Xu, Y. Cai, D. He, J. Lin, and F. Zhang, “FAST-LIO2: Fast direct LiDAR-inertial odometry,” IEEE Trans. Robot., early access, doi: 10.1109/TRO.2022.3141876.
+[69] A. Orthey and M. Toussaint, “Rapidly-exploring quotient-space trees: Motion planning using sequential simpliﬁcations,” in Proc. Int. Symp. Robot. Res., 2019, pp. 1–16.
+[70] A. Orthey, A. Escande, and E. Yoshida, “Quotient-space motion planning,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2018, pp. 8089–8096.
+
+[71] Y. Wu, Z. Ding, C. Xu, and F. Gao, “External forces resilient safe motion planning for quadrotor,” IEEE Robot. Autom. Lett., vol. 6, no. 4, pp. 8506–8513, Oct. 2021.
+[72] A. Kushleyev, D. Mellinger, C. Powers, and V. Kumar, “Towards a swarm of agile micro quadrotors,” Auton. Robots, vol. 35, no. 4, pp. 287–300, 2013.
+[73] X. Zhou, Z. Wang, X. Wen, J. Zhu, C. Xu, and F. Gao, “Decentralized spatial-temporal trajectory planning for multicopter swarms,” 2021, arXiv:2106.12481.
+[74] M. Zucker et al., “CHOMP: Covariant Hamiltonian optimization for motion planning,” Int. J. Robot. Res., vol. 32, no. 9, pp. 1164–1193, 2013.
+[75] L. Campos-Macías, D. Gómez-Gutiérrez, R. Aldana-López, R. de la Guardia, and J. I. Parra-Vilchis, “A hybrid method for online trajectory planning of mobile robots in cluttered environments,” IEEE Robot. Autom. Lett., vol. 2, no. 2, pp. 935–942, Apr. 2017.
+[76] R. Natarajan, H. Choset, and M. Likhachev, “Interleaving graph search and trajectory optimization for aggressive quadrotor ﬂight,” IEEE Robot. Autom. Lett., vol. 6, no. 3, pp. 5357–5364, Jul. 2021.
+[77] L. Schumaker, Spline Functions: Basic Theory. Cambridge, U.K.: Cambridge Univ. Press, 2007.
+Zhepei Wang received the B.Eng. degree in control science and engineering in 2017 from Zhejiang University, Hangzhou, China, where he is currently working toward the Ph.D. degree in control science and engineering.
+His research interests include motion planning, discrete and computational geometry, numerical optimization, and autonomous navigation of unmanned vehicles.
+Xin Zhou received the B.Eng. degree in electrical engineering and automation from the China University of Mining and Technology, Xuzhou, China, in 2019. He is currently working toward the Ph.D. degree in control engineering with Zhejiang University, Hangzhou, China.
+His research interests include motion planning and mapping for aerial swarm robotics.
+Chao Xu received the Ph.D. degree in mechanical engineering from Lehigh University, Bethlehem, PA, USA, in 2010.
+He is currently a Professor of Cyber-Systems and Robotics, the Associate Dean of the College of Control Science and Engineering, and the Founding Dean of the Huzhou Institute of Zhejiang University, Huzhou, China. He founded the Field Autonomous System and Computing Lab, Zhejiang University, Hangzhou, China. His research interests include robot mechanics and control. Dr. Xu is the Managing Editor for Journal of Industrial and Management Optimization and the Founding Managing Editor for IET Cyber-Systems and Robotics.
+Fei Gao received the Ph.D. degree in electronic and computer engineering from the Hong Kong University of Science and Technology, Hong Kong, in 2019.
+He is currently an Assistant Professor with the College of Control Science and Engineering, Zhejiang University, Hangzhou, China, where he codirects the Field Autonomous System and Computing Lab and leads the Flying Autonomous Robotics Group. His research interests include aerial robots, swarms, autonomous navigation, motion planning, and localization and mapping.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 09,2022 at 14:10:32 UTC from IEEE Xplore. Restrictions apply.
+

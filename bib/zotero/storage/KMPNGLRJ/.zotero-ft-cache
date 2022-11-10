@@ -1,0 +1,1905 @@
+1
+Keyframe-Based Visual-Inertial Odometry Using Nonlinear Optimization
+Stefan Leutenegger∗, Simon Lynen∗, Michael Bosse∗, Roland Siegwart∗, and Paul Furgale∗ ∗ Autonomous Systems Lab (ASL), ETH Zurich, Switzerland
+Abstract Combining visual and inertial measurements has become popular in mobile robotics, since the two sensing modalities offer complementary characteristics that make them the ideal choice for accurate Visual-Inertial Odometry or Simultaneous Localization and Mapping (SLAM). While historically the problem has been addressed with ﬁltering, advancements in visual estimation suggest that non-linear optimization offers superior accuracy, while still tractable in complexity thanks to the sparsity of the underlying problem. Taking inspiration from these ﬁndings, we formulate a rigorously probabilistic cost function that combines reprojection errors of landmarks and inertial terms. The problem is kept tractable and thus ensuring real-time operation by limiting the optimization to a bounded window of keyframes through marginalization. Keyframes may be spaced in time by arbitrary intervals, while still related by linearized inertial terms. We present evaluation results on complementary datasets recorded with our custom-built stereo visual-inertial hardware that accurately synchronizes accelerometer and gyroscope measurements with imagery. A comparison of both a stereo and monocular version of our algorithm with and without online extrinsics estimation is shown with respect to ground truth. Furthermore, we compare the performance to an implementation of a state-of-the-art stochasic cloning sliding-window ﬁlter. This competititve reference implementation performs tightly-coupled ﬁltering-based visual-inertial odometry. While our approach declaredly demands more computation, we show its superior performance in terms of accuracy.
+I. INTRODUCTION Visual and inertial measurements offer complementary properties which make them particularly suitable for fusion, in order to address robust and accurate localization and mapping, a primary need for any mobile robotic system. The rich representation of structure projected into an image, together with the accurate short-term estimates by gyroscopes and accelerometers contained in an IMU have been acknowledged to complement each other, with promising use-cases in airborne (Mourikis and Roumeliotis, 2007; Weiss et al., 2012) and automotive (Li and Mourikis, 2012a) navigation. Moreover, with the availability of these sensors in most smart phones, there is great interest and research activity in effective solutions to visual-inertial SLAM (Li et al., 2013).
+
+(a) Side view of the ETH main building.
+
+(b) 3D view of the building.
+
+Fig. 1. ETH main building indoor reconstruction of both structure and pose as resulting from our suggested visual-inertial odometry framework (stereo variant in this case, including online camera extrinsics calibration). The stereo-vision plus IMU sensor was walked handheld for 470 m through loops on three ﬂoors as well as through staircases.
+
+Historically, there have been two main concepts towards approaching the visual-inertial estimation problem: batch nonlinear optimization methods and recursive ﬁltering methods. While the former jointly minimizes the error originating from integrated IMU measurements and the (reprojection) errors from visual terms (Jung and Taylor, 2001), recursive algorithms
+
+2
+commonly use the IMU measurements for state propagation while updates originate from the visual observations (Chai et al., 2002; Roumeliotis et al., 2002).
+Batch approaches offer the advantage of repeated linearization of the inherently non-linear cost terms involved in the visual-inertial state estimation problem and thus they limit linearization errors. For a long time, however, the lack of computational resources made recursive algorithms a favorable choice for online estimation. Nevertheless, both paradigms have recently shown improvements over and compromises towards the other, so that recent work (Leutenegger et al., 2013; Nerurkar et al., 2013; Indelman et al., 2012) showed batch based algorithms reaching real-time operation and ﬁltering based methods providing results of nearly equal quality (Mourikis and Roumeliotis, 2007; Li et al., 2013) to batch-based methods. Leaving aside computational demands, batch based methods promise results of higher accuracy compared to ﬁltering approaches, given the inherent algorithmic differences as discussed in detail later in this article.
+Apart from the separation into batch and ﬁltering, the visual-inertial fusion approaches found in the literature can be divided into two other categories: loosely-coupled systems independently estimate the pose by a vision only algorithm and fuse IMU measurements only in a separate estimation step, limiting computational complexity. Tightly-coupled approaches in contrast include both the measurements from the IMU and the camera into a common problem where all states are jointly estimated, thus considering all correlations amongst them. Comparisons of both approaches, however, show (Leutenegger et al., 2013) that these correlations are key for any high precision Visual-Inertial Navigation System (VINS), which is also why all high accuracy visual-inertial estimators presented recently have implemented a tightly-coupled VINS: for example Mourikis and Roumeliotis (2007) proposed an Extended Kalman Filter (EKF) based real-time fusion using monocular vision, named Multi-State Constraint Kalman Filter (MSCKF). This work performs impressively with open loop errors below 0.5% of the distance traveled. We therefore compare our results to a competitive implementation of this sliding window ﬁlter with on-the-ﬂy feature marginalization as published by Mourikis et al. (2009). For simpler reference we denote this algorithm by “MSCKF” in the rest of the article, keeping in mind that the available reference implementation does not include all of the possible modiﬁcations from (Li and Mourikis, 2012a,b; Li et al., 2013; Hesch et al., 2013).
+In this article, which extends our previous work (Leutenegger et al., 2013), we propose a method that respects the aforementioned ﬁndings: we advocate tightly-coupled fusion for best exploitation of all measurements and nonlinear optimization where possible rather than ﬁltering, in order to reduce suboptimality due to linearization. Furthermore, the optimization approach allows for employing robust cost functions which may drastically increase accuracy in the presence of outliers that may occasionally occur mostly in the visual part, even after application of sophisticated rejection schemes.
+We devise a cost function that combines visual and inertial terms in a fully probabilistic manner. We adopt the concept of keyframes due to its successful application in classical vision-only approaches: it is implemented using partial linearization and marginalization, i.e. variable elimination—a compromise towards ﬁltering that is made for real-time compliance and tractability. The keyframe paradigm accounts for drift-free estimation also when slow or no motion at all is present: rather than using an optimization window of time-successive poses, our kept keyframes may be spaced arbitrarily far in time, keeping visual constraints—while still incorporating an IMU term. Our formulation of relative uncertainty between keyframes takes inspiration from RSLAM (Mei et al., 2011), although our parameterization uses global coordinates. We provide a strictly probabilistic derivation of IMU error terms and the respective information matrix, relating successive image frames without explicitly introducing states at IMU-rate. At the system level, we developed both the hardware and the algorithms for accurate real-time SLAM, including robust keypoint matching, bootstrapping and outlier rejection using inertial cues.
+Figure 1 shows the output of our stereo visual-inertial odometry algorithm as run on an indoor dataset: the stereo-vision plus IMU sensor was walked for 470 m through several ﬂoors and staircases in the ETH main building. Along with the state consisting of pose, speed, and IMU biases, we also obtain an impression of the environment represented as a sparse map of 3D landmarks. Note that map and path are automatically aligned with gravity thanks to tightly-coupled IMU fusion.
+In relation to the conference paper (Leutenegger et al., 2013), we make the following main additional contributions: • After having shown the superior performance of the suggested method compared to a loosely-coupled approach, we
+present extensive evaluation results with respect to a stochastic cloning sliding window ﬁlter (following the MSCKF implementation of Mourikis et al. (2009), which includes ﬁrst-estimate Jacobians) in terms of accuracy on different motion proﬁles. Our algorithm consistently outperforms the ﬁltering-based method, while it admittedly incurs higher computational cost. To the best of our knowledge, such a direct comparison of visual-inertial state estimation algorithms as suggested by different research groups is novel to the ﬁeld.
+
+3
+• Our framework has been extended to be used with a monocular camera setup. We present the necessary adaptations concerning the estimation and bootstrapping parts. The monocular version was needed for fair comparison with the reference implementation of the MSCKF algorithm which is currently only published in a monocular form. The result is a generic N -camera (N ≥ 1) visual-inertial odometry framework. In the stereo-version, the performance will gradually transform into the monocular case when the ratio between camera baseline and distance to structure becomes small.
+• We present the formulation for online camera extrinsics estimation that may be applied after standard intrinsics calibration. Evaluation results demonstrate the applicability of this method, when initializing with inaccurate camera pose estimates with respect to the IMU.
+• We make an honest attempt to present our work to a level of detail that would allow the reader to re-implement our framework.
+• Various new datasets featuring individual characteristics in terms of motion, appearance, and scene depth were recorded with our new hardware iteration ranging from hand-held indoor motion to bicycle riding. The comprehensive evaluation demonstrates superior performance compared to our previously published results, owing to better calibration and hardware synchronization available, as well as to algorithmic and software-level adaptations.
+The remainder of this work is structured as follows: in Section II we provide a more detailed overview of how our work relates to existing literature and differentiates itself. Section III introduces the notations and deﬁnitions used throughout this article. The nonlinear error terms from camera and IMU measurements are described in-depth in Section IV, which is then followed by an overview of frontend processing and initialization in Section V. As a last key element of the method, Section VI introduces how the keyframe concept is applied by marginalization. Section VII describes the experimental setup, evaluation scheme and presents extensive results on the different datasets.
+II. RELATED WORK The vision-only algorithms which form the foundation for today’s VINS can be categorized into batch Structure-fromMotion (SfM) and ﬁltering based methods. Due to computational constraints, for a long time, Vision-based real-time odometry or SLAM algorithms such as those presented in Davison (2003) were only possible using a ﬁltering approach. Subsequent research (Strasdat et al., 2010), however, has shown that nonlinear optimization based approaches, as commonly used for ofﬂine SfM, can provide better accuracy for a similar computational work when compared to ﬁltering approaches, given that the structural sparsity of the problem is preserved. Henceforth, it has been popular to maintain a relatively sparse graph of keyframes and their associated landmarks subject to non-linear optimizations (Klein and Murray, 2007). The earliest results in VINS originate from the work of Jung and Taylor (2001) for (spline based) batch and of Chai et al. (2002); Roumeliotis et al. (2002) for ﬁltering based approaches. Subsequently, a variety of ﬁltering based approaches have been published based on EKFs (Kim and Sukkarieh, 2007; Mourikis and Roumeliotis, 2007; Li and Mourikis, 2012a; Weiss et al., 2012; Lynen et al., 2013), Iterated EKFs (IEKFs) (Strelow and Singh, 2004, 2003) and Unscented Kalman Filters (UKFs) (Shin and El-Sheimy, 2004; Ebcin and Veth, 2007; Kelly and Sukhatme, 2011) to name a few, which over the years showed an impressive improvement in precision and a reduction computational complexity. Today such 6 DoF visual-inertial estimation systems can be run online on consumer mobile devices (Li and Mourikis, 2012c; Li et al., 2013). In order to limit computational complexity, many works follow the loosely coupled approach. Konolige et al. (2011) integrate IMU measurements as independent inclinometer and relative yaw measurements into an optimization problem using stereo vision measurements. In contrast, Weiss et al. (2012) use vision-only pose estimates as updates to an EKF with indirect IMU propagation. Similar approaches can be followed for loosely coupled batch based algorithms such as in Ranganathan et al. (2007) and Indelman et al. (2012), where relative stereo pose estimates are integrated into a factor-graph with non-linear optimization including inertial terms and absolute GPS measurements. It is well known that loosely coupled approaches are inherently sub-optimal since they disregard correlations amongst internal states of different sensors. A notable contribution in the area of ﬁltering based VINS is the work of Mourikis and Roumeliotis (2007) who proposed an EKF based real-time fusion using monocular vision, called the Multi-State Constraint Kalman Filter (MSCKF) which performs nonlinear-triangulation of landmarks from a set of camera poses over time before using them in the EKF update. This contrasts with other works that only use visual constraints between pairwise camera poses (Bayard and Brugarolas, 2005). Mourikis and Roumeliotis (2007) also show how the correlations between errors of the landmarks and the camera locations—which are introduced by using the estimated camera poses for triangulation—can be eliminated and thus result
+
+4
+in an estimator which is consistent and optimal up to linearization errors. Another monocular visual-inertial ﬁlter was proposed by Jones and Soatto (2011), presenting results on a long outdoor trajectory including IMU to camera calibration and loop closure. Li and Mourikis (2013) showed that further increases in the performance of the MSCKF are attainable by switching between the landmark processing model, as used in the MSCKF, and the full estimation of landmarks, as employed by EKF-SLAM.
+Further improvements and extensions to both loosely and tightly-coupled ﬁltering based approaches include an alternative rotation parameterization (Li and Mourikis, 2012b), inclusion of rolling shutter cameras (Jia and Evans, 2012; Li et al., 2013), ofﬂine (Lobo and Dias, 2007; Mirzaei and Roumeliotis, 2007, 2008) and online (Weiss et al., 2012; Kelly and Sukhatme, 2011; Jones and Soatto, 2011; Dong-Si and Mourikis, 2012) calibration of the relative position and orientation of camera and IMU.
+In order to beneﬁt from increased accuracy offered by re-linearization in batch optimization, recent work focused on approximating the batch problem in order to allow real-time operation. Approaches to keep the problem tractable for onlineestimation can be separated into three groups (Nerurkar et al., 2013): Firstly, incremental approaches, such as the factor-graph based algorithms by Kaess et al. (2012); Bryson et al. (2009), apply incremental updates to the problem while factorizing the associated information matrix of the optimization problem or the measurement Jacobian into square root form (Bryson et al., 2009; Indelman et al., 2012). Secondly, ﬁxed-lag smoother or sliding-window ﬁlter approaches (Dong-Si and Mourikis, 2011; Sibley et al., 2010; Huang et al., 2011) consider only poses from a ﬁxed time interval in the optimization. Poses and landmarks which fall outside the window are marginalized with their corresponding measurements being dropped. Forming non-linear constraints between different optimization parameters in the marginalization step however destroys the sparsity of the problem, such that the window size has to be kept fairly small for real-time performance. The smaller the window, however, the smaller the beneﬁt of repeated re-linearization. Thirdly, keyframe based approaches preserve sparsity by maintaining only a subset of camera poses and landmarks and discard (rather than marginalize) intermediate quantities. Nerurkar et al. (2013) present an efﬁcient ofﬂine MAP algorithm which uses all information from non-keyframes and landmarks to form constraints between keyframes by marginalizing a set of frames and landmarks without impacting the sparsity of the problem. While this form of marginalization shows small errors when compared to the full batch MAP estimator, we target a version with a ﬁxed window size suitable for online and real-time operations. In this article and our previous work (Leutenegger et al., 2013) we therefore drop measurements from non-keyframes and marginalize the respective state. When keyframes drop out of the window over time, we marginalize the respective states and some landmarks commonly observed to form a (linear) prior for a remaining sub-part of the optimization problem. Our approximation scheme strictly keeps the sparsity of the original problem. This is in contrast to e.g. Sibley et al. (2010), who accept some loss of sparsity due to marginalization. The latter sliding window ﬁlter, in a visual-inertial variant, is used for comparison in Li and Mourikis (2012a): it proves to perform better than the original MSCKF, but interestingly, an improved MSCKF variant using ﬁrst-estimate Jacobians yields even better results. We aim at performing similar comparisons between an MSCKF implementation—that includes the use ﬁrst estimate Jacobians—and our keyframe as well as optimization based algorithm.
+Apart from the differentiation between batch and ﬁltering approaches, it has been a major interest to increase the estimation accuracy by studying the observability properties of VINS. There is substantial work on the observability properties given a particular combination of sensors or measurements (Martinelli, 2011; Weiss, 2012) or only using data from a reduced set of IMU axes (Martinelli, 2014). Global unobservability of yaw and position, as well as growing uncertainty with respect to an initial pose of reference are intrinsic to the visual-inertial estimation problem (Hesch et al., 2012b; Huang et al., 2013; Hesch et al., 2013). This property is therefore of particular interest when comparing ﬁltering approaches to batch-algorithms: the representation of pose and its uncertainty in a global frame of reference usually becomes numerically problematic as the uncertainty for parts of the state undergoes unbounded growth, while remaining low for the observable sub parts of the state. Our batch approach therefore uses a formulation of relative uncertainty of keyframes to avoid expressing global uncertainty.
+Unobservability of the VINS problem poses a particular challenge to ﬁltering approaches where repeated linearization is typically not possible: Huang et al. (2009) have shown that these linearization errors may erroneously render parts of the estimated state numerically observable. Hesch et al. (2012a) and others (Huang et al., 2011; Kottas et al., 2012; Hesch et al., 2012b, 2013; Huang et al., 2013) derived formulations allowing to choose the linearization points of the VINS system in a way such that the observability properties of the linearized and non-linear system are equal. In our proposed algorithm, we employ ﬁrst-estimate Jacobians, i.e. whenever linearization of a variable is employed, we ﬁx the linearization point for
+
+5
+
+any subsequent linearization involving that particular variable.
+
+III. NOTATION AND DEFINITIONS
+
+A. Notation
+
+ifnraWmfreaemseeims→−pFrleoApyreitssheewntrfeiodttlelobnwyainsagphonosomittaiootginoennveeotchutrosorutrgAahrnoPsuf,ot rotmrhiaAstirowPnorwmk:haet→−FrnixAinTdAheoBnmototehgsaetnaetorraeunfsesrfceoonromcredsifntrhaaetmesec.oAAor;dtiranaanptsoefionrretmpParetisoreennptbraeteistoewnneteeondf
+
+homogeneous as qAB = [ T
+
+points from , η]T ∈ S3,
+
+→−FaBndtoη
+
+→−FrepAr.esItesntriontgatitohne
+
+matrix part is written as CAB imaginary and real parts. We
+
+; the corresponding quaternion is written adopt the notation introduced in Barfoot
+
+et al. (2011): concerning the quaternion multiplication qAC = qAB ⊗ qBC , we introduce a left-hand side compound
+
+operator [.]+ and a right-hand side operator [.]⊕ that output matrices such that qAC = [qAB ]+ qBC = [qBC ]⊕ qAB .
+
+Taking velocity as an example of a physical quantity represented AvBC , i.e. the velocity of frame →−F B with respect to →−F C .
+
+in
+
+frame
+
+→−F A
+
+that
+
+relates
+
+frame
+
+→−F B
+
+and
+
+→−F C ,
+
+we
+
+write
+
+B. Frames
+
+The performance of the proposed method is evaluated using an IMU and camera setup schematically depicted in Figure 2.
+
+It is used both in monocular and stereo mode, where we want to emphasize that our methodology is generic enough to
+
+handle an N -camera camera frames, →−F Ci
+
+setup. Inside the tracked body that is represented relative to an inertial (subscripted with i = 1, . . . N ), and the IMU-sensor frame, →−F S.
+
+frame,
+
+→−F W ,
+
+we
+
+distinguish
+
+→−F C1 →−F S
+
+→−F C2
+
+→−F W
+
+Fig. data
+
+2. is
+
+Coordinate frames involved in the hardware setup used: two cameras acquired in −→F S . The algorithms estimate the position and orientation
+
+are placed as of −→F S with
+
+a stereo setup respect to the
+
+with respective world (inertial)
+
+ffrraammees,−→F−→FWC.i ,
+
+i
+
+∈
+
+{1,
+
+2}.
+
+IMU
+
+C. States
+
+The variables to be estimated comprise the robot states at the image times (index k) xkR and landmarks xL. xR holds the
+
+robot position in the inertial frame W rS, the body orientation quaternion qW S, the velocity expressed in the sensor frame
+
+SvW S (written in short as Sv ), as well as the biases of the gyroscopes bg and the biases of the accelerometers ba. Thus,
+
+xR is written as:
+
+xR :=
+
+W rS T , qTW S , S v T , bTg , bTa
+
+T
+
+∈
+
+3
+R
+
+× S3
+
+×
+
+9
+R
+
+.
+
+(1)
+
+Furthermore, we use a partition into the pose states xT := [W rST , qTW S ]T and the speed/bias states xsb := [Sv T , bTg , bTa ]T .
+
+The jth landmark component to one.
+
+is
+
+represented
+
+in
+
+homogeneous
+
+(World)
+
+coordinates:
+
+xLj
+
+:=
+
+W lj
+
+∈
+
+R4.
+
+At
+
+this
+
+point,
+
+we
+
+set
+
+the
+
+fourth
+
+Optionally, we may include camera extrinsics estimation as part of an online calibration process. Camera extrinsics
+
+tdoenaotﬁerdstx-oCrid:e=r
+
+G[SaruCsisTia,nqTSpCroi c]eTsscaanlloewithinegr
+
+be to
+
+treated as constant track changes that
+
+entities to be calibrated or time-varying states subjected may occur e.g. due to temperature-induced mechanical
+
+deformation of the setup.
+
+6
+
+In general the states live in a manifold, therefore we use a perturbation in tangent space g and employ the group
+
+operator , that is not commutative in general, the exponential exp and logarithm log. Now, we can deﬁne the perturbation
+
+δx := x
+
+x−1
+
+around
+
+the
+
+estimate
+
+x.
+
+We
+
+use
+
+a
+
+minimal
+
+coordinate
+
+representation
+
+δχ
+
+∈
+
+dim
+R
+
+g
+
+.
+
+A
+
+bijective
+
+mapping
+
+Φ
+
+:
+
+dim g
+R
+
+→
+
+g
+
+transforms
+
+from
+
+minimal
+
+coordinates
+
+to
+
+tangent
+
+space.
+
+Thus
+
+we
+
+obtain
+
+the
+
+transformations
+
+from
+
+and
+
+to
+
+minimal coordinates:
+
+δx = exp(Φ(δχ)),
+
+(2)
+
+δχ = Φ−1(log(δx)).
+
+(3)
+
+Concretely,
+
+we
+
+use
+
+the
+
+minimal
+
+(3D)
+
+axis-angle
+
+perturbation
+
+of
+
+orientation
+
+δα
+
+∈
+
+3
+R
+
+which
+
+can
+
+be
+
+converted
+
+into
+
+its
+
+quaternion equivalent δq via the exponential map:
+
+δq := exp
+
+1 2
+
+δα
+
+0
+
+=
+
+sinc
+
+δα 2
+
+δα 2
+
+cos
+
+δα 2
+
+.
+
+(4)
+
+Therefore, using the group operator ⊗, we write qW S = δq ⊗ qW S . Note that linearization of the exponential map around δα = 0 yields:
+
+δq ≈
+
+1 2
+
+δα
+
+1
+
+1 =ι+
+2
+
+I3 01×3
+
+δα,
+
+(5)
+
+where ι denotes the identity quaternion. We obtain the minimal robot error state vector
+
+δχR = δpT , δαT , δvT , δbTg , δbTa T ∈ R15.
+
+(6)
+
+Analogously to the robot state decomposition xT and xsb, we use the pose error state δχT := [δpT , δαT ]T and the
+
+speed/bias error state δχsb := [δvT , δbTg , δbTa ]T .
+
+As
+
+landmark
+
+perturbation,
+
+we
+
+use
+
+a
+
+simple
+
+Euclidean
+
+version
+
+δβ
+
+∈
+
+3
+R
+
+that
+
+is
+
+applied
+
+as
+
+δl := [δβT , 0]T
+
+by
+
+addition.
+
+IV. BATCH VISUAL SLAM WITH INERTIAL TERMS In this section, we present our approach of incorporating inertial measurements into batch visual SLAM. In visual odometry and SLAM, a nonlinear optimization is formulated to ﬁnd the camera poses and landmark positions by minimizing the reprojection error of landmarks observed in camera frames. Figure 3 shows the respective graph representation inspired by (Thrun and Montemerlo, 2006): it displays measurements as edges with square boxes and estimated quantities as round nodes. As soon as inertial measurements are introduced, they not only create temporal constraints between successive poses,
+
+Many landmarks
+
+Many landmarks
+
+pose Speed / IMU biases
+Many keypoint measurements IMU measurements
+
+t
+
+t
+
+Fig. 3. Graphs of the state variables and measurements involved in the visual SLAM problem (left) versus visual-inertial SLAM (right): incorporating inertial measurements introduces temporal constraints, and necessitates a state augmentation by the robot speed as well as IMU biases.
+
+but also between successive speed and IMU bias estimates of both accelerometers and gyroscopes by which the robot state vector is augmented.
+We seek to formulate the visual-inertial localization and mapping problem as one joint optimization of a cost function J(x) containing both the (weighted) reprojection errors er and the (weighted) temporal error term from the IMU es:
+
+IK
+
+K−1
+
+J(x) :=
+
+eir,j,kT Wir,j,keir,j,k +
+
+eks T Wks eks ,
+
+(7)
+
+i=1 k=1 j∈J (i,k)
+
+k=1
+
+visual
+
+inertial
+
+7
+
+where i is the camera index of the assembly, k denotes the camera frame index, and j denotes the landmark index. The indices of landmarks visible in the kth frame and the ith camera are written as the set J (i, k). Furthermore, Wir,j,k represents the information matrix of the respective landmark measurement, and Wks the information of the kth IMU error.
+Throughout our work, we employ the Google Ceres optimizer (Agarwal et al., n.d.) integrated with our real-time capable C++ software infrastructure.
+In the following, we will present the reprojection error formulation. Afterwards, an overview on IMU kinematics combined with bias term modeling is given, upon which we base the IMU error term.
+
+A. Reprojection Error Formulation We use a rather standard formulation of the reprojection error adapted with minor modiﬁcations from Furgale (2011):
+
+eir,j,k = zi,j,k − hi TCkiS TSkW W lj .
+
+(8)
+
+Hereby hi(·) denotes the camera projection model (which may include distortion) and zi,j,k stands for the measurement image coordinates. We also provide the Jacobians here, since they are not only needed for efﬁcient solving, but also play a central role in the marginalization step explained in Section VI:
+
+∂ eir,j,k ∂δχTk
+
+=
+
+Jr,i
+
+T
+
+k Ci
+
+S
+
+CkSW W lj4 CkSW [W lj1:3 − W rkS W lj4]× ,
+
+01×3
+
+01×3
+
+∂ eir,j,k ∂δχLj
+
+=
+
+−Jr,i
+
+T
+
+k Ci
+
+S
+
+CkSW 01×3
+
+,
+
+(9) (10)
+
+∂ eir,j,k ∂δχCik
+
+= Jr,i
+
+CkCiS
+
+j
+S l4
+
+01×3
+
+CkCiS
+
+j
+[S l1:3
+
+−
+
+S
+
+rkCi
+
+S
+
+j
+l4
+
+]×
+
+01×3
+
+,
+
+(11)
+
+where Jr,i denotes the Jacobian matrix of the projection hi(·) into the ith camera (including distortion) with respect to a landmark in homogeneous landmarks and variables with an overbar represent our current guess. Our framework currently supports radial-tangential as well as equidistant distortion models.
+
+B. IMU Kinematics and Bias Model Before being able to formulate the nonlinear IMU term, we overview the differential equations that describe IMU
+kinematics and bias evolution. The model is commonly used in estimation with IMUs originating from (Savage, 1998) using similar simpliﬁcations for MEMS-IMUs as in (Shin and El-Sheimy, 2004).
+1) Nonlinear Model: Under the assumption that the measured effects of the Earth’s rotation are small compared to the gyroscope accuracy, we can write the IMU kinematics combined with simple dynamic bias models as:
+
+W r˙S = CW S S v ,
+
+1
+
+q˙ W S
+
+=
+
+Ω 2
+
+(S ω
+
+)
+
+qW S
+
+,
+
+Sv˙ = S˜a + wa − ba + CSW W g − (Sω ) × Sv ,
+
+(12)
+
+b˙ g = wbg ,
+
+b˙ a
+
+=
+
+1 −
+τ
+
+ba
+
++
+
+wba ,
+
+awrheearecctehleeroemlemeteerntms eoafsuwre:m=en[wtsTga,nwdTaW, wgTbgre, pwrTbeas]eTntasretheeaEchartuhn’scogrrreavlaitteadtioznearlo-amcceealneraGtiaounssviaenctowrh. iTtehenogiyseropbroiacsesmseosd.eSle˜ad as random walk, and in contrast, the accelerometer bias is modeled as a bounded random walk with time constant τ > 0. The matrix Ω is formed from the estimated angular rate Sω = Sω˜ + wg − bg, with gyro measurement Sω˜ :
+
+Ω (Sω ) :=
+
+−S ω 0
+
+⊕
+.
+
+(13)
+
+8
+
+2) Linearized Model of the Error States: The linearized version of the above equation around xR will play a major role in the marginalization step. We therefore review it here brieﬂy: the error dynamics take the form
+
+δχ˙ R ≈ Fc(xR)δχR + G(xR)w,
+
+(14)
+
+where G is straight-forward to derive and:
+
+ 03×3
+
+ 03×3
+
+Fc
+
+=
+
+ 
+
+
+
+03×3
+
+ 03×3
+
+03×3
+
+CW S S v ×
+03×3 −CSW [W g]×
+03×3 03×3
+
+CW S 03×3 −[Sω ]× 03×3 03×3
+
+03×3 CW S −[Sv ]× 03×3 03×3
+
+03×3 
+
+03×3 
+
+
+
+−I3
+
+ 
+
+03×3 
+
+−
+
+1 τ
+
+I3
+
+(15)
+
+where [.]× denotes the skew-symmetric cross-product matrix associated with a vector. Overbars generally stand for evaluation of the respective symbols with current estimates.
+
+C. Formulation of the IMU Measurement Error Term Figure 4 illustrates the difference in measurement rates with camera measurements taken at time steps k and k + 1,
+as well as faster IMU-measurements that are not necessarily synchronized with the camera measurements. Note also the
+
+k
+
+Camera measurements
+
+k+1
+
+∆t0
+
+∆tr
+
+original IMU measurements
+
+pk
+
+p
+
+p+1
+
+∆tR
+
+pk+1
+
+r=0
+
+resampled IMU measurements zrs
+
+t r=R
+
+Fig. 4. Different rates of IMU and camera: one IMU term uses all accelerometer and gyro readings between successive camera measurements.
+
+introduction of a local time index r = 0, . . . , R between camera measurements, along with respective time increments ∆tr.
+
+We need the IMU error term eks (xkR, xkR+1, zks ) to be a function of robot states at steps k and k+1 as well as of all the IMU measurements in-between these time instances (comprising accelerometer and gyro readings) summarized as zks . Hereby we have to assume an approximate normal conditional probability density f for given robot states at camera measurements
+
+k and k + 1:
+
+f eks |xkR, xkR+1 ≈ N 0, Rks .
+
+(16)
+
+We are employing the propagation equations above to formulate a prediction ˆxkR+1 xkR, zks with associated con-
+ditional covariance P δˆxkR+1|xkR, zks . The respective computation requires numeric integration; as common in related literature (Mourikis and Roumeliotis, 2007), we applied the classical Runge-Kutta method, in order to obtain discrete time nonlinear state transition equations fd(xkR) and the error state transition matrix Fd(xkR). The latter is found by integrating δχ˙ R = Fc(xR)δχR over ∆tr keeping δχR symbolic.
+Using the prediction, we can now formulate the IMU error term as:
+
+ W ˆrkS+1 − W rSk+1 
+
+eks
+
+xkR, xkR+1, zks
+
+= 2 
+
+qˆkW+S1 ⊗ qkW+S1 −1
+
+1:3
+
+ 
+
+∈
+
+15
+R
+
+.
+
+ˆxksb+1 − xksb+1
+
+(17)
+
+This is simply the difference between the prediction based on the previous state and the actual state—except for orientation, where we use a simple multiplicative minimal error.
+
+9
+
+Next, upon application of the error propagation law, the associated information matrix Wks is found as:
+
+Wks = Rks −1 =
+
+∂
+
+∂eks δχˆ kR+1
+
+P
+
+δχˆ kR+1|xkR, zks
+
+∂eks T ∂δχˆ kR+1
+
+−1
+.
+
+(18)
+
+The
+
+Jacobian
+
+∂ eks ∂δχˆ kR+1
+
+is
+
+straightforward
+
+to
+
+obtain
+
+but
+
+non-trivial,
+
+since
+
+the
+
+orientation
+
+error
+
+will
+
+be
+
+nonzero
+
+in
+
+general:
+
+∂eks ∂δχˆ kR+1
+
+ =
+
+
+I3 03×3 09×3
+
+03×3 qˆkW+S1 ⊗ qkW+S1 −1 ⊕
+1:3,1:3
+09×3
+
+03×9 
+
+03×9
+
+. 
+
+I9
+
+(19)
+
+Finally, the Jacobians with respect to δχkR and δχkR+1 will be needed for efﬁcient solution of the optimization problem. While differentiating with respect to δχkR+1 is straightforward (but non-trivial), some attention is given to the other Jacobian. Recall that the IMU error term (17) is calculated by iteratively applying the prediction. Differentiation with respect to the state δχkR thus leads to application of the chain rule, yielding
+
+∂eks ∂δχkR
+
+=
+
+∂eks ∂δχˆ kR+1
+
+Fd(¯ˆxRR
+
+,
+
+∆tR)Fd
+
+(¯ˆxRR−1,
+
+∆tR−1
+
+)
+
+.
+
+.
+
+.
+
+Fd(¯ˆx1R
+
+,
+
+∆t1)Fd(xkR,
+
+∆t0).
+
+(20)
+
+V. FRONTEND OVERVIEW This section overviews the image processing steps and data association along with outlier detection and initialization of landmarks and states.
+
+A. Keypoint Detection, Matching, and Variable Initialization Our processing pipeline employs a customized multi-scale SSE-optimized Harris corner detector (Harris and Stephens,
+1988) followed by BRISK descriptor extraction (Leutenegger et al., 2011). The detection scheme favors a uniform keypoint distribution in the image by gradually suppressing corners with weaker corner response close to a stronger corner. BRISK would allow automatic orientation detection—however, better matching results are obtained by extracting descriptors oriented along the gravity direction that is projected into the image. This direction is globally observable thanks to IMU fusion.
+As a ﬁrst step to initialization and matching, we propagate the last pose using acquired IMU measurements in order to obtain a preliminary uncertain estimate of the states.
+Assume a set of past frames (including keyframes) as well as a local map consisting of landmarks with sufﬁciently well known 3D position is available at this point (see V-B for details). As a ﬁrst stage of establishing correspondences, we perform a 3D-2D matching step. Given the current pose prediction, all landmarks that should be visible are considered for brute-force descriptor matching. Outliers are only rejected afterwards. This scheme may seem illogical to the reader who might intuitively want to apply the inverse order in the sense of a guided matching strategy; however, owing to the super-fast matching of binary descriptors, it would actually be more expensive to ﬁrst look at image-space consistency. The outlier rejection consists of two steps: ﬁrst of all, we use the uncertain pose predictions in order to perform a Mahalanobis test in image coordinates. Second, an absolute pose RANSAC provided in OpenGV (Kneip and Furgale, 2014) is applied.
+Next, 2D-2D matching is performed in order to associate keypoints without 3D landmark correspondences. Again, we use brute-force matching ﬁrst, followed by triangulation, in order to initialize landmark positions and as a ﬁrst step to rejecting outlier pairings. Both stereo-triangulation across stereo image pairs (in the non-mono case) is performed, as well as between the current frame and any previous frame available. Only triangulations with sufﬁciently low depth uncertainty are labeled to be initialized—the rest will be treated as 2D measurements in subsequent matching. Finally, a relative RANSAC step (Kneip and Furgale, 2014) is performed between the current frame and the newest keyframe. The respective pose guess is furthermore used for bootstrapping in the very beginning.
+Figure 5 illustrates a typical detection and matching result in the stereo case. Note the challenging illumination with overexposed sky due to facing towards the sun.
+
+10
+
+Fig. 5. Visualization of typical data association on a bicycle dataset: current stereo image pair (bottom) with match lines to the newest keyframe (top). Green stands for a 3D-2D match, yellow for 2D-2D match, blue for keypoints with left-right stereo match only, and red keypoints are left unmatched.
+KF1
+
+KF 2
+
+KF 3
+
+KF 4
+
+Temporal/IMU window
+
+Fig. 6. Frames kept for matching and subsequent optimization in the stereo case: in this example, M = 3 keyframes and S = 4 most current frames are used.
+
+B. Keyframe Selection For the subsequent optimization, a bounded set of camera frames is maintained, i.e. poses with associated image(s)
+taken at that time instant; all landmarks co-visible in these images are kept in the local map. As illustrated in Figure 6, we distinguish two kinds of frames: we introduce a temporal window of the S most recent frames including the current frame; and we use a number of M keyframes that may have been taken far in the past. For keyframe selection, we use a
+
+11
+
+simple heuristic: if the hull of projected and matched landmarks covers less than some percentage of the image (we use around 50%), or if the ratio of matched versus detected keypoints is small (below around 20%), the frame is inserted as keyframe.
+VI. KEYFRAMES AND MARGINALIZATION In contrast to the vision-only case, it is not obvious how nonlinear temporal constraints from the IMU can reside in a bounded optimization window containing keyframes that may be arbitrarily far spaced in time. In the following, we ﬁrst provide the mathematical foundations for marginalization, i.e. elimination of states in nonlinear optimization, and apply them to visual-inertial odometry.
+
+A. Mathematical Formulation of Marginalization in Nonlinear Optimization A Gauss-Newton system of equations is constructed from all the error terms, Jacobians and information matrices, taking
+the form Hδχ = b. Let us consider a set of states to be marginalized out, xµ, the set of all states related to those by error terms, xλ, and the set of remaining states, xρ. Due to conditional independence, we can simplify the marginalization step and only apply it to a sub-problem:
+
+Hµµ Hλ1µ
+
+Hµλ1 Hλ1 λ1
+
+δχµ δχλ
+
+=
+
+bµ bλ1
+
+(21)
+
+Application of the Schur complement operation yields:
+
+H∗λ1λ1 := Hλ1λ1 − Hλ1µH−µµ1Hµλ1 , b∗λ1 := bλ1 − Hλ1µH−µµ1bµ,
+
+(22a) (22b)
+
+where The
+
+be∗λq1uaatniodnHs ∗λin1λ(122a)redneoscnrliibneeaar
+
+functions of xλ and xµ. single step of marginalization.
+
+In
+
+our
+
+keyframe-based
+
+approach,
+
+we
+
+must
+
+apply
+
+the
+
+marginalization step repeatedly and incorporate the resulting information as a prior in our optimization while our state
+
+estimate continues to change. Hence, we ﬁx the linearization point around x0, the value of x at the time of marginalization. The ﬁnite deviation ∆χ := Φ−1(log(x x−0 1))) represents state updates that occur after marginalization, where x is our current estimate for x. In other words, x is composed as
+
+x = exp (Φ(δχ)) exp (Φ(∆χ)) x0 .
+
+(23)
+
+=x
+This generic formulation allows us to apply prior information on minimal coordinates to any of our state variables— including unit length quaternions. Introducing ∆χ allows the right hand side to be approximated (to ﬁrst order) as
+
+b + ∂b ∆χ = b − H∆χ.
+
+(24)
+
+∂∆χ x0
+
+Again using the partition into µ and λ, we can now write (24) as the right-hand side of the Gauss-Newton system (22b)
+
+as:
+
+bµ bλ1
+
+=
+
+bµ,0 bλ1,0
+
+−
+
+Hµµ Hλ1µ
+
+Hµλ1 Hλ1 λ1
+
+∆χµ ∆χλ
+
+.
+
+(25)
+
+In this form, i.e. plugging in (25), the right-hand side (22) becomes
+
+b∗λ1 = bλ1,0 − Hλ1µH−µµ1bµ,0 −H∗λ1λ1 ∆χλ1 .
+
+(26)
+
+b∗λ1 ,0
+The marginalization procedure thus consists of applying (22a) and (26). In the case where marginalized nodes comprise landmarks at inﬁnity (or sufﬁciently close to inﬁnity), or landmarks visible
+only in one camera from a single pose, the Hessian blocks associated with those landmarks will be (numerically) rankdeﬁcient. We thus employ the pseudo-inverse H+µµ, which provides a solution for δχµ given δχλ with a zero-component into null space direction.
+
+12
+
+The formulation described above introduces a ﬁxed linearization point for both the states that are marginalized xµ, as well as the remaining states xλ. This will also be used as as point of reference for all future linearizations of terms involving these states: this procedure is referred to as using “ﬁrst estimates Jacobians” and was applied in Dong-Si and Mourikis (2011), with the aim of minimizing erroneous accumulation of information. After application of (22), we can remove the nonlinear terms consumed and add the marginalized H∗λ1λ1 and b∗λ1 as summands to construct the overall Gauss-Newton system. The contribution to the chi-square error may be written as χ2λ1 = b∗λT1 H∗λ+1λ1 b∗λ1 .
+
+B. Marginalization Applied to Keyframe-Based Visual-Inertial SLAM The initially marginalized error term is constructed from the ﬁrst M + 1 frames xkT, k = 1, . . . , M + 1 with respective
+speed and bias states as visualized graphically in Figure 7. The M ﬁrst frames will all be interpreted as keyframes and the marginalization step consists of eliminating the corresponding speed and bias states. Note that before marginalization,
+
+Many landmarks
+
+x1T
+
+x2T
+
+x3T
+
+x4T
+
+x5T
+
+x6T
+
+x1sb
+
+x2sb
+
+x3sb
+
+x4sb
+
+x5sb
+
+x6sb
+
+Keyframe pose Non-keyframe pose Speed/bias Node(s) to be marginalized
+Many keypoint measurements IMU terms
+
+Marginalization window
+
+Temporal/IMU frames
+t
+
+Fig. 7. Graph showing the initial marginalization on the ﬁrst M + 1 frames: speed and bias states outside the temporal window of size S = 3 are marginalized out.
+
+we transform all error terms relating variables to be marginalized into one linear error term according to (25), which will persist and form a part of any subsequent marginalization step.
+When a new frame xcT (current frame, index c) is inserted into the optimization window, we apply a marginalization operation. In the case where the oldest frame in the temporal window (xcT−S) is not a keyframe, we will drop all its landmark measurements and then marginalize it out together with the oldest speed and bias states. In other words, all states are marginalized out, but no landmarks. Figure 8 illustrates this process. Dropping landmark measurements is suboptimal;
+
+Many landmarks
+
+xkT 1
+
+xkT 2
+
+xkT 3
+
+Marginalization window
+
+xcT-3 xcT-2 xcT-1 xcT
+xcsb-3 xcsb-2 xcsb-1 xcsb Temporal/IMU frames
+t
+
+Keyframe pose Non-keyframe pose
+Speed/bias Node(s) to be marginalized
+Many keypoint measurements
+IMU terms Term after previous marginalization Dropped term
+
+Fig. 8. Graph illustration with M = 3 keyframes and an IMU/temporal node size S = 3. A regular frame is slipping out of the temporal window. All corresponding keypoint measurements are dropped and the pose as well as speed and bias states are subsequently marginalized out.
+
+however, it keeps the problem sparse for efﬁcient solutions. In fact, visual SLAM with keyframes successfully proceeds analogously: it drops entire frames with their landmark measurements.
+In the case of xcT−S being a keyframe, the information loss of simply dropping all keypoint measurements would be more signiﬁcant: all relative pose information between the oldest two keyframes encoded in the common landmark observations would be lost. Therefore, we additionally marginalize out the landmarks that are visible in xkT1 but not in the most recent
+
+13
+
+keyframe or newer frames. This means, respective landmark observations in the keyframes k1, . . . kM−1 are included in the linearized error term prior to landmark marginalization. Figure 9 depicts this procedure graphically.
+
+Landmarks visible in KF1 but not KF4
+
+xkT 1
+
+xkT 2
+
+Marginalization window
+
+Many landmarks
+
+xkT 3
+
+xcT-3 xcT-2 xcT-1 xcT
+
+xcsb-3 xcsb-2 xcsb-1 xcsb Temporal/IMU frames
+t
+
+Keyframe pose Non-keyframe pose
+Speed/bias Node(s) to be marginalized
+Many keypoint measurements
+IMU terms Term after previous marginalization Dropped term
+
+Fig. 9. Graph for marginalization of xcT−3 being a keyframe: the ﬁrst (oldest) keyframe (xkT1 ) will be marginalized out. Hereby, landmarks visible exclusively in xkT1 to xTkM−1 will be marginalized as well.
+
+The sparsity of the problem is again preserved; we show the sparsity of the Hessian matrix in Figure 10, along with further explanations on how measurements are dropped and landmarks may be marginalized.
+
+oldest KF (KF1) pose δxkT 1
+
+KF2 pose
+
+δxkT 2
+
+KF3 pose
+
+δxkT 3
+
+pose c − 3
+
+δxcT-3
+
+speed/bias c − 3
+
+δxcsb-3
+
+pose c − 2
+
+δxcT-2
+
+speed/bias c − 2 pose c − 1
+
+δxcsb-2 δxcT-1
+
+speed/bias c − 1 current pose c current speed/bias c landmark 1 landmark 2 landmark 3 landmark 4
+
+δxcsb-1 δxcT δxcsb δβ1 δδδβββ234
+
+Fig. 10. Example sparsity pattern of the Hessian matrix (gray means non-zero) for a simple case with only four landmarks. In case of marginalization of frame c − 3, the observations of landmarks 2,3, and 4 in frame c − 3 would be removed prior to marginalization, in order to prevent ﬁll-in. In case of marginalization of the oldest keyframe KF1, the proposed strategy would marginalize out landmark 1, remove the observations of landmarks 2 and 3 in KF1, and leave landmark 4, since it is not observed in KF1.
+
+The above explanations did not include extrinsics calibration nodes. The framework, owing to its generic nature, is
+
+nevertheless extended to handle this case in a straightforward manner: in fact, the extrinsics poses will also be added
+
+to the linear term, as soon as landmarks are marginalized out. In Section VII, we present results on online-estimation
+
+opfostseimblpeo. rAalltyemstpaotircalerxetlraintisviecspxoCsei ,
+
+i ∈ {1, 2}; error has to
+
+treating them as states, be inserted in this case
+
+i.e. to
+
+instances inserted at every frame, is equally model allowed changes of the extrinsics over
+
+time. Furthermore, marginalization of extrinsics nodes along with poses will be required in this case.
+
+C. Priors and Fixation of Variables As described previously, our framework allows for a purely relative representation of information that applies to the
+optimization window. This formulation constitutes a fundamental advantage over classical ﬁltering approaches, where
+
+14
+
+uncertainty is kept track of in an absolute manner, i.e. in a global frame of reference: with the absolute formulation, naturally, uncertainty will grow and increasingly incorrectly be represented through some form of linear propagation, leading to inconsistencies if not speciﬁcally addressed.
+Furthermore, a ﬁlter will always need priors for all states when initializing, where they might be completely unknown and potentially bias the estimate. Our presented framework does conceptually not need any priors. For more robust initialization particularly of the monocular version, however, we actually apply (rather weak) zero-mean uncorrelated priors to speed and biases. For speed we use a standard deviation of 3 m/s, which is tailored to the setups as presented in the results. For gyro bias, we applied a prior with standard deviation 0.1 rad/s and for accelerometer bias 0.2 m/s2, which relates to the IMU parameters described in Section VII-A1.
+Inherently, the vision-only problem has 6 Degrees of Freedom (DoF) that are unobservable and need to be held ﬁxed during optimization, i.e. the absolute pose. The combined visual-inertial problem has only 4 unobservable DoF, since gravity renders two rotational DoF observable.
+In contrast to our previously published results (Leutenegger et al., 2013), we forgo ﬁxation of absolute yaw and position: underlying optimization algorithms such as Levenberg-Marquardt will automatically cater to not taking steps along unobservable directions. Forced ﬁxation of yaw may introduce errors, in case the orientation is not very accurately estimated.
+Due to numeric noise, positive-semideﬁniteness of the left-hand side linearized subpart H∗λ1λ1 has to be enforced at all times. To ensure this, we apply an Eigen-decomposition H∗λ1λ1 = UΛUT before optimization, and reconstruct H∗λ1λ1 as H∗λ1λ1 = UΛ UT , where Λ is obtained from Λ by setting all Eigenvalues below a threshold to zero.
+VII. RESULTS Throughout literature, a plethora of motion tracking algorithms has been suggested; how they perform in relation to eachother, however, is often unclear, since results are typically shown on individual datasets with differing motion characteristics as well as sensor qualities. In order to make a strong argument for our presented work, we will thus compare it to a stateof-the art visual-inertial stochastic cloning sliding-window ﬁlter which follows the MSCKF derivation of Mourikis et al. (2009).
+
+A. Evaluation Setup
+
+In the following, we provide a short overview of the hardware and settings used for dataset acquisition, as well as of
+
+the hardware and algorithms used for evaluation.
+
+1) Sensor Unit Overview: The custom-built visual-inertial sensor is described in detail in Nikolic et al. (2014). In essence,
+
+the assembly as shown in Figure 11 consists of an ADIS16448 MEMS IMU and two embedded WVGA monochrome
+
+cameras with an 11 cm baseline that are all rigidly connected by an aluminum frame. An FPGA board performs hardware
+
+synchronization between imagery and IMU up to the level of pre-triggering the cameras according to the variable shutter
+
+opening times. Furthermore, the FPGA may perform keypoint detection, in order to save CPU usage for subsequent
+
+algorithms. The data is streamed to a host computer via Gigabit Ethernet. The datasets used in this work were collected at
+
+an IMU rate of 800Hz, while the camera frame rate was set to 20 Hz (although the hardware would allow up to 60 Hz). 2) Sensor Characteristics: We have taken the IMU noise parameters from the ADIS16448 datasheet1 and veriﬁed them
+
+in stand-still. In order to account for unmodeled and dynamic effects, slightly more conservative numbers as listed in
+
+Table I were used. Concerning image keypoints, we applied a detection standard deviation of 0.8 pixels. Note that the
+
+keypoints were extracted on the highest resolution image of the pyramid only. Again, this is slightly higher than what error
+
+statistics of our sub-pixel resolution Harris corner detector would suggest.
+
+An intrinsics and extrinsics Furgale et al. (2013).
+
+calibration
+
+(distortion
+
+coefﬁcients
+
+and
+
+TSCi
+
+)
+
+was
+
+obtained
+
+using
+
+the
+
+method
+
+described
+
+in
+
+1ADIS16448 MEMS IMU datasheet available at http://www.analog.com/en/mems-sensors/mems-inertial-measurement-units/adis16448/products/product.html as of March 2014.
+
+15
+
+Fig. 11. Visual-inertial sensor front and side view. Stereo imagery is hardware-synchronized with the IMU measurements and transmitted to a host computer via gigabit Ethernet.
+
+TABLE I IMU CHARACTERISTICS
+
+Rate gyros
+
+Accelerometers
+
+σg σbg
+
+1.2e-3 2.0e-5
+
+√ rraadd//((ss2√HHz)z)
+
+σa σba
+
+8.0e-3 5.5e-5
+
+mm//((ss23√√HHzz))
+
+τ ∞s
+
+3) Quantitative Evaluation Procedures: Deﬁning the system boundaries of a speciﬁc algorithm along with its inputs and
+
+outputs poses some trade-offs. We chose to feed all algorithms with the same correspondences (i.e. keypoint measurements
+
+with landmark IDs per image) as they were generated by our stereo-algorithm. Each algorithm evaluated from there was
+
+left with the freedom to apply its own outlier rejection and landmark-triangulation. Obviously, all algorithms were provided
+
+with the same IMU measurements. To ensure fairness, we furthermore apply the same keypoint detection uncertainty as
+
+well as IMU noise densities, and gravity acceleration across all algorithms. Note that all parameters were left unchanged
+
+throughout all datasets and for all algorithms, including keypoint detection and matching thresholds.
+
+We adopt the evaluation scheme of Geiger et al. (2012): for many starting times, the ground truth and estimated trajectories
+
+are aligned and the error is evaluated for increasing distances traveled from there.
+
+Consider winhoerrede→−Fr tVo
+
+the ground-truth trajectory denotes the body frame of
+
+TGpV and estimated trajectory T the ground truth trajectory. Let
+
+p WS
+dp
+
+both resampled at the same rate be the (scalar) distance traveled
+
+indexed by p, since start-up;
+
+obtain a statistical characterization we choose many starting pose indices ps such that they are spaced by a
+
+speciﬁc traveled distance. Relative to those starting poses, we deﬁne the error transformation as
+
+∆T
+
+(∆d)
+
+=
+
+T
+
+p W
+
+S TSV
+
+TGpV
+
+−1TGpsW
+
+,
+
+∀p
+
+>
+
+ps,
+
+(27)
+
+Where ∆d = dp − dps . The many errors ∆T (∆d) can now be accumulated in bins of distance traveled, in order to obtain error statistics.
+At this point, we have to distinguish between the availability of 6D ground truth from the indoor Vicon motion tracking
+
+16
+
+system2 or 3D (DGPS) obtained using a Leica Viva GS143 ground truth.
+
+In the 6D-case, we ﬁrst have to estimate the transformation
+
+body frame ps becomes
+In the 3D
+
+→−tFgrrivoSiu.anlTldyh-teTruaGptlhsW igcna=mseeT,nGhpt soVowfTeSe−vsVe1triTm, W wpasteSor−ha1wv.oertlod
+
+frame →−F W set CGV =
+
+baentdwgeeronutnhde-trtruatchkwedorbldodfyrafmraem→−Fe G→−F aVt
+
+and the starting
+
+estimation time index
+
+I. We furthermore neglect the offset between GPS antenna
+
+and IMU center (this is in the order of centimeters) and set TS−V1 = I. Now the alignment of the world frames TGpsW
+
+is solved for as an SVD-based trajectory alignment, where the (small but large enough) segment used in this process is
+
+obviously discarded for evaluation.
+
+B. Evaluation on Complementary Datasets In the following, we will present evaluation results on three datasets. In order to cover different conditions, care was taken
+to record datasets with different lengths, distances to structure, speeds, dynamics, as well as with differences in illumination and number of moving objects. The main characteristics are summarized in Table II. We compare both our monocular version (aslam-mono) and the stereo variant (aslam) to the (monocular) sliding window ﬁlter reference implementation (msckf-mono). Our algorithm used M = 7 keyframes and S = 3 most current frames in all datasets, while the sliding window ﬁlter was set up to maintain 5 pose clones. Note that the following trajectory reconstructions do not include sigma-
+TABLE II DATASET CHARACTERISTICS.
+
+Name Vicon Loops Bicycle Trajectory Handheld around ETH Main Building
+
+Length 1200 m 7940 m 620 m
+
+Duration 14 min 23 min
+6:40 min
+
+Max. Speed 2.0 m/s 13.1 m/s 2.2 m/s
+
+Ground Truth Vicon 6D @200 Hz DGPS 3D @1 Hz DGPS 3D @1 Hz
+
+bounds; this is related to the fact that the presented framework only uses relative information and thus global uncertainty is not represented. We do not use priors or a global ﬁxation on the unobservable subspace (e.g. very ﬁrst position and yaw angle). While we consider this formulation a major advantage of our approach, it comes at the cost of not being able to simply plot uncertainty bounds. In fact, the global uncertainty could be recovered by linking the relative information to a pose graph containing all keyframe poses ever recorded; the ﬁrst position and yaw angle would be ﬁxed of given a prior. Due to uncertainty growth over time, the current global pose covariance, however, looses its meaning, since linear error propagation trough a transformation chain will be increasingly inaccurate.
+1) Vicon Loops: A trajectory was recorded with the handheld sensor inside our Vicon room. Consequently, the path is very much limited in spatial extent, while only close structure is observed. Full 6D ground-truth is available from external motion tracking at 200 Hz. The sequence lasts almost 14 minutes, walking mostly in circles no faster than 2.0 m/s. We show the overhead plot, altitude proﬁle along with absolute errors as a function of distance traveled in Figure 12. Note that all algorithms achieve below 0.1% of median position error per distance traveled at the end of the 1200 m long path; this is, however, not only caused by the high accuracy of the algorithms. In fact, yaw drift, which is clearly present, doesn’t become manifest as much in position error as in the other datasets that cover larger distances. The differences between the algorithms do not show extreme differences, but some subtleties may nonetheless be identiﬁed: while all manage to estimate the World z-direction (aligned with acceleration due to gravity), the computationally more expensive algorithms proposed in this work expectedly show a slightly better performance in terms of yaw drift. We furthermore provide the plots of both gyro and accelerometer biases in Figure 13. Note that despite their different natures, all algorithms converge to tracking very similar values.
+2) Bicycle Trajectory: The sensor was mounted onto a helmet and worn for a bicycle ride of 7.9 kilometers from ETH Ho¨nggerberg into the city of Zurich and back to the starting point. Figure 14 illustrates the setup. Speeds up to 13 m/s were reached during the 23 minute long course. Post-processed DGPS ground truth is available at 1 Hz, and all measurements with a position uncertainty beyond 1 m were discarded. Figure 15 displays reconstructed trajectories as compared to ground-truth and reports the statistics on the position error normalized by distance traveled. As expected, the
+2Vicon motion tracking system, see http://www.vicon.com/ as of March 2014. 3Leica Viva GS14 GNSS recorder http://www.leica-geosystems.com/en/Leica-Viva-GS14 102200.htm as of March 2014.
+
+17
+
+Translation error [m]
+
+y [m]
+
+4
+
+2
+
+aslam
+
+aslam-mono
+
+msckf-mono
+
+Vicon ground truth
+
+0
+
+−2
+
+−4
+
+−2
+
+0
+
+2
+
+x [m]
+
+(a) Overhead plot of the vicon dataset.
+
+Orient. err. [◦]
+
+2
+
+1.5
+
+1
+
+0.5
+
+0 60 180 300 420 540 660 780 900 1020 1140 Distance traveled [m]
+
+30
+
+aslam
+
+aslam-mono
+
+20
+
+msckf-mono
+
+10
+
+0 60 180 300 420 540 660 780 900 1020 1140 Distance traveled [m]
+1.5
+
+1
+
+0.5
+
+0 60 180 300 420 540 660 780 900 1020 1140 Distance traveled [m]
+
+World z-dir. err. [◦]
+
+(b) Error statistics in terms of median, 5th, and 95th percentiles: norm of position error (top), norm of error axis angle vector (middle), and angle between ground truth down axis and estimator down axes (bottom).
+
+3 aslam
+
+aslam-mono
+
+2
+
+msckf-mono
+
+Vicon ground truth
+
+1
+
+z [m]
+
+0
+
+0
+
+50 100 150 200 250 300 350 400 450 500 550 600 650 700 750 800
+
+t [s]
+
+(c) Altitude proﬁles, i.e. z-components of estimator outputs represented in −→F G. Fig. 12. Vicon dataset evaluation: while differences in position errors between the different algorithms and variants are not very signiﬁcant, yaw drift of the msckf is clearly higher.
+
+stereo-version shows a notably better performance than the monocular one. Both outperform the reference implementation of the MSCKF, which clearly suffers from more yaw drift. It is furthermore worth mentioning that aslam-mono and aslam accumulate less drift in altitude, where a clear advantage of the stereo algorithm becomes visible.
+3) Handheld around ETH Main Building: This second outdoor loop was recorded with the handheld sensor while walking around the main building of central ETH (no faster than 2.2 m/s). The path length amounts to 620 m. The
+
+18
+
+gyr bias z [rad/s] gyr bias y [rad/s] gyr bias x [rad/s]
+
+0.02 0.01
+0 −0.01 −0.02
+0 0.02 0.01
+0 −0.01 −0.02
+0 0.02 0.01
+0 −0.01 −0.02
+0
+
+200
+
+400
+
+600
+
+800
+
+200
+
+400
+
+600
+
+800
+
+aslam aslam-mono msckf-mono
+
+200
+
+400
+
+600
+
+800
+
+time since startup [s]
+
+acc bias z [m/s2]
+
+acc bias y [m/s2]
+
+acc bias x [m/s2]
+
+0.2 0.1
+0 −0.1 −0.2
+0 0.2 0.1
+0 −0.1 −0.2
+0 0.2 0.1
+0 −0.1 −0.2
+0
+
+200
+
+400
+
+600
+
+800
+
+200
+
+400
+
+600
+
+800
+
+aslam aslam-mono msckf-mono
+
+200
+
+400
+
+600
+
+800
+
+time since startup [s]
+
+(a) Gyro bias estimates.
+
+(b) Accelerometer bias estimates.
+
+Fig. 13. Evolution of bias estimates by the different algorithms: despite the different characteristics of the algorithms, they converge to and track similar values.
+
+Fig. 14. Simon Lynen ready for dataset collection on a bicycle at ETH with sensor and GNSS ground-truth recorder mounted to a helmet.
+imagery is characterized by varying depth of the observed structure, and includes some pedestrians walking by. Figure 16 summarizes the results. Again, both our approaches outperform the reference implementation of the MSCKF. Qualitatively, the yaw error seems to contribute the least to the position error; rather the position drift appears to originate from (locally) badly estimated scale. Interestingly, the stereo version of our algorithm seems to perform slightly worse in this respect.
+
+y [m]
+
+500 0
+−500
+
+DGPS ground truth aslam aslam-mono msckf-mono
+
+−1000 0
+
+500
+
+1000
+
+1500
+
+2000
+
+x [m]
+
+(a) Overhead plot of the reconstructed bicycle ride trajectories.
+
+50
+
+Translation error [%]
+
+19
+8 aslam aslam-mono msckf-mono
+6
+4
+2
+0 400 1200 2000 2800 3600 4400 5200 6000 6800 Distance traveled [m]
+(b) Relative position error statistics: median, 5th, and 95th percentiles.
+
+0
+
+z [m]
+
+−50 −100
+0
+
+DGPS ground truth aslam aslam-mono msckf-mono
+100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 t [s]
+
+(c) Altitude proﬁle of bicycle ride. Fig. 15. Trajectories and evaluation of the Bicycle Trajectory dataset: the ﬁltering approach msckf-mono accumulates the largest yaw error that becomes manifest also in position error. As expected, our stereo variant performs the best, which is also apparent in the altitude evolution.
+
+We suspect small errors in the stereo calibration to cause this behavior, concretely a slight mismatch of relative camera orientation. This issue is further investigated in Section VII-C1.
+C. Parameter Studies With focus on the proposed algorithm, studies are provided that investigate the sensitivity on the performance with
+respect to a selected set of parameters. 1) Online Extrinsics Calibration: In the following experiment, we assess the performance of our online IMU to camera
+extrinsics estimation scheme. We assume a starting point of calibrated intrinsics, for which off-the-shelf tools exist; and
+
+20
+
+5
+
+aslam
+
+aslam-mono
+
+0
+
+msckf-mono
+
+4
+
+Translation error [%]
+
+y [m]
+
+−50 −100
+
+DGPS ground truth aslam aslam-mono msckf-mono
+
+−150
+
+0
+
+50
+
+100
+
+x [m]
+
+(a) Overhead plot of the reconstructed trajectories.
+
+3
+2
+1
+0 120 200 280 360 440 520 Distance traveled [m]
+(b) Relative position error statistics: median, 5th, and 95th percentiles.
+
+4
+
+DGPS ground truth
+
+aslam
+
+aslam-mono
+
+2
+
+msckf-mono
+
+z [m]
+
+0
+
+−2 0 20 40 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400 t [s]
+(c) Altitude proﬁle. Fig. 16. Evaluation results for the ETH Main Building dataset: interestingly, the stereo version of our algorithm is outperformed by the mono variant. The cause is further investigated in Section VII-C1.
+
+we furthermore take rough extrinsics as available in a straightforward manner e.g. from a Computer Aided Design (CAD) software. For the problem to be best constrained, we run the stereo algorithm. In order to obtain a well-deﬁned optimization problem, we apply a weak prior to all extrinsic translations (10 mm standard deviation) as well as orientation (0.6◦ standard deviation).
+Using the ETH Main Building dataset as introduced above, Figure 17 displays a respective comparison in terms of estimation accuracy of pre-calibration, online-calibration and post-calibration to the result as shown above with the original calibration. Remarkably, the very rough extrinsics guess generates mostly scale mismatch, while the orientation seems
+
+21
+
+5
+
+aslam
+
+aslam-pre-calib
+
+0
+
+aslam-online-calib
+
+4
+
+aslam-after-online-calib
+
+Translation error [%]
+
+y [m]
+
+−50 −100
+
+DGPS ground truth aslam aslam-pre-calib aslam-online-calib aslam-after-online-calib
+
+−150
+
+0
+
+50
+
+100
+
+x [m]
+
+(a) Overhead plot of the extrinsics calibration.
+
+3
+2
+1
+0 120 200 280 360 440 520 Distance traveled [m]
+(b) Relative error statistics of the extrinsics calibration: median, 5th, and 95th percentiles.
+
+4
+
+DGPS ground truth
+
+aslam
+
+aslam-pre-calib
+
+2
+
+aslam-online-calib
+
+aslam-after-online-calib
+
+0
+
+z [m]
+
+−2 0 20 40 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400 t [s]
+(c) Altitude proﬁle. Fig. 17. Evaluation results for the extrinsics calibration. Compared to the original estimate (aslam), a reconstruction with ﬁxed roughly aligned extrinsics (aslam-pre-calib) yields expectedly rather poor results. Estimates during online calibration (aslam-online-calib) that use the rough alignment as starting guess manages to even outperform the original result. Freezing the online estimates to the ﬁnal values and re-running the process (aslam-after-online-calib) results in equivalent performance as with online calibration turned on.
+
+consistent. In fact, the scale is not simply wrong due to incorrect baseline setting—since the baseline is known and set to a much higher accuracy than the 10% scale error. Interestingly, the estimates during online calibration are signiﬁcantly more accurate than with ﬁxed original calibration. In fact the scale mismatch is completely removed. Moreover, taking the frozen ﬁnal online estimates and re-running the process results in no signiﬁcant change as compared to the online estimation—suggesting that online extrinsics calibration may be safely left switched on, at least in the stereo case. In such a case, however, noise would need to be injected into the estimation process, in order to allow for the extrinsics to (slowly)
+
+22
+
+drift. Figure 18 addresses the remaining question of whether or not the extrinsics converge, and if the respective estimates
+correspond to the original calibration. Clearly, the estimates of the IMU to camera orientations converge fast to a stable
+
+Left camera (i=0)
+0.02
+0.01
+
+Right camera (i=1)
+
+0.02 x-deviation
+
+y-deviation
+
+0.01
+
+z-deviation
+
+0
+
+0
+
+Position deviation [m]
+
+Position deviation [m]
+
+−0.01 0
+0.5
+
+−0.01
+
+100
+
+200
+
+300
+
+400
+
+0
+
+t [s]
+
+0.5
+
+100
+
+200
+
+300
+
+400
+
+t [s]
+
+Orientation deviation [◦]
+
+Orientation deviation [◦]
+
+0
+
+0
+
+−0.5
+
+−0.5
+
+−1 0
+
+−1
+
+100
+
+200
+
+300
+
+400
+
+0
+
+t [s]
+
+100
+
+200
+
+300
+
+400
+
+t [s]
+
+Fig. 18. Position differences of online calibrated extrinsics translation w.r.t. original (top) and axis-angle difference of online calibrated extrinsics orientation w.r.t. original (bottom) for left and right cameras.
+
+estimate, while the camera positions with respect to the IMU that are less well observable are subjected to more mobility. 2) Inﬂuence of Keyframe and Keypoint Numbers: We claim that the proposed algorithm offers scalability in terms of
+tailoring it according to the trade-off between accuracy and processing constraints. In this context, we analyze the inﬂuence of two main parameters on the performance: on the one hand, we can play with the number of pose variables to be estimated, and on the other hand we have the choice of average number of landmark observations per image by adjusting the keypoint detection threshold.
+Taking the ETH Main Building dataset and running the mono-version of our algorithm, we show the quantitative results for different keyframe number M settings in Figure 19. In the same comparison, we furthermore varied the number of frames connected by nonlinear IMU terms S and provide the full-batch solution as a gold standard reference. Note that the full-batch problem was initialized with the original version or our algorithm and run to convergence. At the low end of the frame number (M = 4), we see a clear performance drawback, whereas large numbers of keyframes M = 12 do not seem to increase accuracy. Another interesting ﬁnding is that increasing S to account for more nonlinear error terms does not become manifest in less error. Also note that the full-batch optimization doesn’t increase the overall accuracy of the solution—indicating that the approximations in terms of linearization, marginalization, as well as measurement dropping as described here are forming a suite of reasonable choices.
+Note that in the overall complexity of the algorithm, the number of keyframes M contributes with O(M 3) when it comes to solving the respective dense part of the linear system of equations. . .
+Finally, we also investigate the inﬂuence of the keypoint detection threshold u that directly affects keypoint density in image space. Figure 20 summarizes the respective quantitative results, again processing the ETH Main Building dataset with the monocular version of our algorithm. Interestingly, all versions perform similarly on shorter ranges, despite the large variety in average keypoints per image, i.e. 45.3, 110.3, and 239.2. A slight trend suggesting that more keypoints result in better pose estimates is only visible for longer traveled distances. Note that increasing the detection threshold inevitably not only decreases execution time, but also comes at the expense of environment representation richness in terms
+
+Translation error [%]
+
+23
+
+3 aslam-mono M=4, S=3
+
+aslam-mono M=7, S=3 (original)
+
+aslam-mono M=7, S=6
+
+2
+
+aslam-mono M=12, S=3
+
+aslam-mono batch
+
+1
+
+0 120 200 280 360 440 520 Distance traveled [m]
+Fig. 19. Comparison of different frame number (N keyframes and S IMU frames) settings with respect to the full batch solution (initialized with the result from N = 7, S = 3).
+3 aslam-mono u=80 aslam-mono u=50 aslam-mono u=33 (original)
+2
+
+Translation error [%]
+
+1
+
+0 120 200 280 360 440 520 Distance traveled [m]
+Fig. 20. Comparison of different keypoint detection thresholds u ∈ {80, 50, 33} settings. The corresponding mean number of keypoints per image are 45.3, 110.3, and 239.2 in this dataset.
+of landmark density. VIII. CONCLUSION
+We have introduced a framework of tightly-coupled fusion of inertial measurements and image keypoints in a nonlinear optimization problem that applies linearization and marginalization in order to achieve keyframing. As an output, we obtain poses, velocities, and IMU biases as a time series, as well as a 3D map of sparse landmarks. The proposed algorithm is bounded in complexity, as the optimization includes a ﬁxed number of poses. The keyframing, in contrast to a ﬁxed-lag smoother, allows for arbitrary temporal extent of estimated camera poses jointly observed landmarks. As a result, our framework achieves high accuracy, while still being able to operate at real-time. We showed extensive evaluation of both a stereo and a mono version of the proposed algorithm on complementary datasets with varied type of motion, lighting conditions, and distance to structure. In this respect, we made the effort to compare our results to the output of a state-ofthe-art visual-inertial sliding-window ﬁlter, which follows the MSCKF algorithm and is fed with the same IMU data and keypoints with landmark associations. While admittedly being computationally more demanding, our approach consistently outperforms the ﬁlter. In further studies we showed how online-calibration of camera extrinsics can be incorporated into our framework: results on the stereo version indicate how slight miscalibration can become manifest in scale error; online calibration, even starting from a very rough initial guess, removes this effect. Finally, we also address scalability of the proposed method in the sense of tailoring to hardware characteristics, and how the setting of number of frames as well
+
+24
+as detected keypoints affect accuracy. Interestingly, employing larger numbers of keyframes, such as 12, doesn’t show a signiﬁcant advantage over the standard setting of 7, at least in exploratory motion mode. Furthermore, we don’t observe a dramatic performance decrease when reducing average numbers of keypoints per image from 240 to 45.
+The way is paved for deployment of our algorithm on various robotic platforms such as Unmanned Aerial Systems. In this respect, we are planning to release our proposed framework as an open-source software package. Moreover, we will explore inclusion of other, platform-speciﬁc sensor feeds, such as wheel odometry, GPS, magnetometer or pressure measurements—with the aim of increasing accuracy and robustness of the estimation process, both primary requirements for successful deployment of robots in challenging real environments.
+ACKNOWLEDGMENTS The research leading to these results has received funding from the European Commission’s Seventh Framework Programme (FP7/2007-2013) under grant agreement n◦285417 (ICARUS), as well as n◦600958 (SHERPA) and n◦269916 (V-charge). Furthermore, the work was partly sponsored by Willow Garage. The authors would like to thank Janosch Nikolic, Pascal Gohl, Michael Burri, and Joern Rehder from ASL/ETH for their invaluable support with hardware and dataset recording and calibration efforts. Finally, special thanks go to Vincent Rabaud and Kurt Konolige from Willow Garage (at the time) for their valuable inputs.
+REFERENCES Agarwal, S., Mierle, K. and Others (n.d.), ‘Ceres solver’, https://code.google.com/p/ceres-solver/. Barfoot, T., Forbes, J. R. and Furgale, P. T. (2011), ‘Pose estimation using linearized rotations and quaternion algebra’,
+Acta Astronautica 68(12), 101 – 112. Bayard, D. S. and Brugarolas, P. B. (2005), An estimation algorithm for vision-based exploration of small bodies in space,
+in ‘American Control Conference, 2005. Proceedings of the 2005’, IEEE, pp. 4589–4595. Bryson, M., Johnson-Roberson, M. and Sukkarieh, S. (2009), Airborne smoothing and mapping using vision and inertial
+sensors, in ‘Robotics and Automation, 2009. ICRA’09. IEEE International Conference on’, IEEE, pp. 2037–2042. Chai, L., Hoff, W. A. and Vincent, T. (2002), ‘Three-dimensional motion and structure estimation using inertial sensors
+and computer vision for augmented reality’, Presence: Teleoperators and Virtual Environments 11(5), 474–492. Davison, A. (2003), Real-time simultaneous localisation and mapping with a single camera, in ‘Computer Vision, 2003.
+Proceedings. Ninth IEEE International Conference on’, pp. 1403–1410 vol.2. Dong-Si, T.-C. and Mourikis, A. I. (2011), Motion tracking with ﬁxed-lag smoothing: Algorithm and consistency analysis,
+in ‘Robotics and Automation (ICRA), 2011 IEEE International Conference on’, IEEE, pp. 5655–5662. Dong-Si, T.-C. and Mourikis, A. I. (2012), Estimator initialization in vision-aided inertial navigation with unknown camera-
+imu calibration, in ‘Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on’, IEEE, pp. 1064– 1071. Ebcin, S. and Veth, M. (2007), Tightly-coupled image-aided inertial navigation using the unscented kalman ﬁlter, Technical report, DTIC Document. Furgale, P. (2011), Extensions to the Visual Odometry Pipeline for the Exploration of Planetary Surfaces, PhD thesis, University of Toronto, Institute for Aerospace Studies. Furgale, P., Rehder, J. and Siegwart, R. (2013), Uniﬁed temporal and spatial calibration for multi-sensor systems, in ‘Intelligent Robots and Systems (IROS), 2013 IEEE/RSJ International Conference on’, pp. 1280–1286. Geiger, A., Lenz, P. and Urtasun, R. (2012), Are we ready for autonomous driving? the KITTI vision benchmark suite, in ‘Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)’. Harris, C. and Stephens, M. (1988), A combined corner and edge detector, in ‘Proceedings of the 4th Alvey Vision Conference’, pp. 147–151. Hesch, J. A., Kottas, D. G., Bowman, S. L. and Roumeliotis, S. I. (2012a), ‘Observability-constrained vision-aided inertial navigation’, University of Minnesota, Dept. of Comp. Sci. & Eng., MARS Lab, Tech. Rep 1. Hesch, J. A., Kottas, D. G., Bowman, S. L. and Roumeliotis, S. I. (2012b), Towards consistent vision-aided inertial navigation, in ‘Proceedings of the International Workshop on the Algorithmic Foundations of Robotics (WAFR)’. Hesch, J. A., Kottas, D. G., Bowman, S. L. and Roumeliotis, S. I. (2013), Towards consistent vision-aided inertial navigation, in ‘Algorithmic Foundations of Robotics X’, Springer, pp. 559–574.
+
+25
+Huang, G., Kaess, M. and Leonard, J. J. (2013), ‘Towards consistent visual-inertial navigation’, Computer Science and Artiﬁcial Intelligence Laboratory, Massachusetts Institute of Technology, Cambridge, MA, Tech. Rep .
+Huang, G. P., Mourikis, A. I. and Roumeliotis, S. I. (2009), A ﬁrst-estimates jacobian ekf for improving slam consistency, in ‘Experimental Robotics’, Springer, pp. 373–382.
+Huang, G. P., Mourikis, A. I. and Roumeliotis, S. I. (2011), An observability-constrained sliding window ﬁlter for slam, in ‘Intelligent Robots and Systems (IROS), 2011 IEEE/RSJ International Conference on’, IEEE, pp. 65–72.
+Indelman, V., Williams, S., Kaess, M. and Dellaert, F. (2012), Factor graph based incremental smoothing in inertial navigation systems, in ‘Information Fusion (FUSION), International Conference on’.
+Jia, C. and Evans, B. L. (2012), Probabilistic 3-d motion estimation for rolling shutter video rectiﬁcation from visual and inertial measurements., in ‘MMSP’, pp. 203–208.
+Jones, E. S. and Soatto, S. (2011), ‘Visual-inertial navigation, mapping and localization: A scalable real-time causal approach’, International Journal of Robotics Research (IJRR) 30(4), 407–430.
+Jung, S.-H. and Taylor, C. J. (2001), Camera trajectory estimation using inertial sensor measurements and structure from motion results, in ‘Computer Vision and Pattern Recognition, 2001. CVPR 2001. Proceedings of the 2001 IEEE Computer Society Conference on’, Vol. 2, IEEE, pp. II–732.
+Kaess, M., Johannsson, H., Roberts, R., Ila, V., Leonard, J. J. and Dellaert, F. (2012), ‘isam2: Incremental smoothing and mapping using the bayes tree’, The International Journal of Robotics Research 31(2), 216–235.
+Kelly, J. and Sukhatme, G. S. (2011), ‘Visual-inertial sensor fusion: Localization, mapping and sensor-to-sensor selfcalibration’, International Journal of Robotics Research (IJRR) 30(1), 56–79.
+Kim, J. and Sukkarieh, S. (2007), ‘Real-time implementation of airborne inertial-slam’, Robotics and Autonomous Systems 55(1), 62–71.
+Klein, G. and Murray, D. (2007), Parallel tracking and mapping for small ar workspaces, in ‘Mixed and Augmented Reality, 2007. ISMAR 2007. 6th IEEE and ACM International Symposium on’, IEEE, pp. 225–234.
+Kneip, L. and Furgale, P. T. (2014), OpenGV: A uniﬁed and generalized approach to real-time calibrated geometric vision, in ‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’.
+Konolige, K., Agrawal, M. and Sola, J. (2011), Large-scale visual odometry for rough terrain, in ‘Robotics Research’, Springer, pp. 201–212.
+Kottas, D. G., Hesch, J. A., Bowman, S. L. and Roumeliotis, S. I. (2012), On the consistency of vision-aided inertial navigation, in ‘Proceedings of the International Symposium on Experimental Robotics (ISER)’.
+Leutenegger, S., Chli, M. and Siegwart, R. (2011), BRISK: Binary robust invariant scalable keypoints, in ‘Proceedings of the IEEE International Conference on Computer Vision (ICCV)’.
+Leutenegger, S., Furgale, P., Rabaud, V., Chli, M., Konolige, K. and Siegwart, R. (2013), Keyframe-based visual-inertial slam using nonlinear optimization, in ‘Proceedings of Robotics: Science and Systems (RSS)’.
+Li, M., Kim, B. H. and Mourikis, A. I. (2013), Real-time motion tracking on a cellphone using inertial sensing and a rolling-shutter camera, in ‘Robotics and Automation (ICRA), 2013 IEEE International Conference on’, IEEE, pp. 4712– 4719.
+Li, M. and Mourikis, A. I. (2012a), Improving the accuracy of ekf-based visual-inertial odometry, in ‘Robotics and Automation (ICRA), 2012 IEEE International Conference on’, IEEE, pp. 828–835.
+Li, M. and Mourikis, A. I. (2012b), Improving the accuracy of ekf-based visual-inertial odometry, in ‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’.
+Li, M. and Mourikis, A. I. (2012c), Vision-aided inertial navigation for resource-constrained systems, in ‘Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on’, IEEE, pp. 1057–1063.
+Li, M. and Mourikis, A. I. (2013), ‘Optimization-based estimator design for vision-aided inertial navigation’, Robotics p. 241.
+Lobo, J. and Dias, J. (2007), ‘Relative pose calibration between visual and inertial sensors’, The International Journal of Robotics Research 26(6), 561–575.
+Lynen, S., Achtelik, M. W., Weiss, S., Chli, M. and Siegwart, R. (2013), A robust and modular multi-sensor fusion approach applied to mav navigation, in ‘Intelligent Robots and Systems (IROS), 2013 IEEE/RSJ International Conference on’, IEEE, pp. 3923–3929.
+Martinelli, A. (2011), ‘State estimation based on the concept of continuous symmetry and observability analysis: The case
+
+26
+of calibration’, Robotics, IEEE Transactions on 27(2), 239–255. Martinelli, A. (2014), ‘Visual-inertial structure from motion: observability vs minimum number of sensors’, ICRA 2014 . Mei, C., Sibley, G., Cummins, M., Newman, P. M. and Reid, I. D. (2011), ‘Rslam: A system for large-scale mapping in
+constant-time using stereo’, International Journal of Computer Vision pp. 198–214. Mirzaei, F. M. and Roumeliotis, S. I. (2007), IMU-camera calibration: Bundle adjustment implementation, Technical report,
+Department of Computer Science and Engineering, Univerisy of Minnesota. Mirzaei, F. M. and Roumeliotis, S. I. (2008), ‘A kalman ﬁlter-based algorithm for imu-camera calibration: Observability
+analysis and performance evaluation’, Robotics, IEEE Transactions on 24(5), 1143–1156. Mourikis, A. I. and Roumeliotis, S. I. (2007), A multi-state constraint Kalman ﬁlter for vision-aided inertial navigation, in
+‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’. Mourikis, A. I., Trawny, N., Roumeliotis, S. I., Johnson, A. E., Ansar, A. and Matthies, L. (2009), ‘Vision-aided inertial
+navigation for spacecraft entry, descent, and landing’, Robotics, IEEE Transactions on 25(2), 264–280. Nerurkar, E. D., Wu, K. J. and Roumeliotis, S. I. (2013), C-klam: Constrained keyframe-based localization and mapping,
+in ‘In Proc. of the Workshop on ”Multi-View Geometry in Robotics” at the Robotics: Science and Systems (RSS)’. Nikolic, J., Rehder, J., Michael Burri, P. G., Leutenegger, S., Furgale, P. T. and Siegwart, R. (2014), A synchronized visual-
+inertial sensor system with fpga pre-processing for accurate real-time slam, in ‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’. Ranganathan, A., Kaess, M. and Dellaert, F. (2007), Fast 3d pose estimation with out-of-sequence measurements, in ‘Proc. of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)’. Roumeliotis, S. I., Johnson, A. E. and Montgomery, J. F. (2002), Augmenting inertial navigation with image-based motion estimation, in ‘Robotics and Automation, 2002. Proceedings. ICRA’02. IEEE International Conference on’, Vol. 4, IEEE, pp. 4326–4333. Savage, P. G. (1998), ‘Strapdown inertial navigation integration algorithm design part 2: Velocity and position algorithms’, Journal of Guidance, Control, and Dynamics 21(2), 208–221. Shin, E.-H. and El-Sheimy, N. (2004), An unscented kalman ﬁlter for in-motion alignment of low-cost imus, in ‘Position Location and Navigation Symposium, 2004. PLANS 2004’, IEEE, pp. 273–279. Sibley, G., Matthies, L. and Sukhatme, G. (2010), ‘Sliding window ﬁlter with application to planetary landing’, Journal of Field Robotics 27(5), 587–608. Strasdat, H., Montiel, J. M. M. and Davison, A. J. (2010), Real-time monocular SLAM: Why ﬁlter?, in ‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’. Strelow, D. and Singh, S. (2003), ‘Online motion estimation from image and inertial measurements’. Strelow, D. and Singh, S. (2004), ‘Motion estimation from image and inertial measurements’, The International Journal of Robotics Research 23(12), 1157–1195. Thrun, S. and Montemerlo, M. (2006), ‘The GraphSLAM algorithm with applications to large-scale mapping of urban structures’, International Journal of Robotics Research (IJRR) 25(5), 403–430. Weiss, S., Achtelik, M., Lynen, S., Chli, M. and Siegwart, R. (2012), Real-time onboard visual-inertial state estimation and self-calibration of MAVs in unknown environments, in ‘Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)’. Weiss, S. M. (2012), Vision based navigation for micro helicopters, PhD thesis, Diss., Eidgeno¨ssische Technische Hochschule ETH Zu¨rich, Nr. 20305, 2012.
+

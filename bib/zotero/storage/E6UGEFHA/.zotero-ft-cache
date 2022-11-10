@@ -1,0 +1,877 @@
+922
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+FASTER: Fast and Safe Trajectory Planner for Navigation in Unknown Environments
+Jesus Tordesillas , Student Member, IEEE, Brett T. Lopez , Student Member, IEEE, Michael Everett , Student Member, IEEE, and Jonathan P. How , Fellow, IEEE
+
+Abstract—Planning high-speed trajectories for UAVs in unknown environments requires algorithmic techniques that enable fast reaction times to guarantee safety as more information about the environment becomes available. The standard approaches that ensure safety by enforcing a “stop” condition in the free-known space can severely limit the speed of the vehicle, especially in situations where much of the world is unknown. Moreover, the ad-hoc time and interval allocation scheme usually imposed on the trajectory also leads to conservative and slower trajectories. This work proposes FASTER (Fast and Safe Trajectory Planner) to ensure safety without sacriﬁcing speed. FASTER obtains highspeed trajectories by enabling the local planner to optimize in both the free-known and unknown spaces. Safety is ensured by always having a safe back-up trajectory in the free-known space. The MIQP formulation proposed also allows the solver to choose the trajectory interval allocation. FASTER is tested extensively in simulation and in real hardware, showing ﬂights in unknown cluttered environments with velocities up to 7.8 m/s, and experiments at the maximum speed of a skid-steer ground robot (2 m/s).
+Index Terms—Convex decomposition, path planning, trajectory optimization, UAV.
+
+Acronyms: UAV (Unmanned Aerial Vehicle), MIQP (MixedInteger Quadratic Program), RRT (Rapidly-Exploring Random Tree), VIO (Visual-Inertial Odometry), FOV (Field of view).
+Crr oFSdAiem:SuTlEatRio:nhttwpso:r/l/dgsit:huhbt.tcposm:///gmitiht-uabc.lc/ofams/tejtrorde/planning_
+worlds_gazebo Video: https://youtu.be/fkkkgomkX10
+Manuscript received March 9, 2021; revised June 17, 2021; accepted July 19, 2021. Date of publication October 28, 2021; date of current version April 5, 2022. The work of Jesus Tordesillas was supported by the La Caixa fellowship. This work was supported in part by the Defense Advanced Research Projects Agency (DARPA) as part of the Fast Lightweight Autonomy (FLA) Program under Grant HR0011-15-C-0110. The hardware was supported by the Boeing Research and Technology. This article was recommended for publication by Associate Editor S. Shen and Editor P. Robuffo Giordano upon evaluation of the reviewers’ comments. (Corresponding author: Jesus Tordesillas.)
+Jesus Tordesillas, Michael Everett, and Jonathan P. How are with the Aerospace Controls Laboratory, Massachusetts Institute of Technology, Cambridge, MA 02139 USA (e-mail: jtorde@mit.edu; mfe@mit.edu; jhow@mit.edu).
+Brett T. Lopez is with the Jet Propulsion Laboratory, California Institute of Technology, Pasadena, CA 02141 USA (e-mail: brett.t.lopez@jpl.nasa.gov).
+This article has supplementary material provided by the authors and color versions of one or more ﬁgures available at https://doi.org/10.1109/TRO.2021. 3100142.
+Digital Object Identiﬁer 10.1109/TRO.2021.3100142
+
+Fig. 1. Safety and Speed tradeoff. O is the occupied-known space ( ), and U is the unknown space ( ). A and E are, respectively, the start and goal locations of the local plan.
+I. INTRODUCTION
+D ESPITE its numerous applications, high-speed UAV navigation through unknown environments is still an open problem. The desired high speeds together with partial observability of the environment and limits on payload weight make this task especially challenging for aerial robots. Safe operation, in addition to ﬂying fast, is also critical but difﬁcult to guarantee since the vehicle must repeatedly generate collisionfree, dynamically feasible trajectories in real-time with limited sensing. Similar to the model predictive control literature, safety is guaranteed by ensuring a feasible solution exists indeﬁnitely.
+If we consider R3 = F ∪ O ∪ U where F , O, U are disjoint sets denoting free-known, occupied-known, and unknown space, respectively, the following hierarchical planning architecture is commonly used: a global planner ﬁrst ﬁnds the shortest piece-wise linear path from the UAV to the goal, avoiding the known obstacles O. Then, a local planner ﬁnds a dynamically feasible trajectory in the direction given by this global plan. This local planner should ﬁnd a fast and safe trajectory that leads the UAV to the goal. These two requirements of safety and speed represent the following tradeoff: on the one hand, safety argues for short trajectories completely contained in F
+
+1552-3098 © 2021 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+923
+
+Fig. 2. Interval and time allocation when using a convex decomposition ( ). A and E are, respectively, the start and goal locations of the local plan.
+and end points not necessarily near the global plan. As a ﬁnal stop condition is needed to guarantee safety, short trajectories are generally much slower than long trajectories because the braking maneuver propagates backwards from the end to the initial state of the trajectory. On the other hand, speed argues for longer planned trajectories (usually extending farther than F) and end points near the global plan.
+The typical way to solve the speed versus safety tradeoff is to ensure safety by planning only in F, and then impose a ﬁnal stop condition near the global plan. This can be achieved by either generating motion primitives that do not intersect O ∪ U [1]–[4], or by constructing a convex representation of F to be used in an optimization [5]–[7]. The main limitation of these works is that safety is guaranteed at the expense of higher speeds, especially in scenarios where F is small compared to O ∪ U . This article presents an optimization-based approach that solves this limitation by solving for two optimal trajectories at every planning step (see Fig. 1). The ﬁrst trajectory is in U ∪ F and ensures a long planning horizon with an end point on the global plan. The second trajectory is in F, starts from a point along the ﬁrst trajectory, and it may deviate from the global plan. Only a portion of the ﬁrst trajectory is actually implemented by the UAV (therefore satisfying the speed requirement), while the second trajectory guarantees safety, since it is contained in F and available at the start of every replanning step. This second trajectory is only implemented if the optimization problem becomes infeasible in the next replanning steps.
+A second limitation, specially for the optimization-based approaches that use convex decomposition, is the choice of the interval and time allocation method. The interval allocation decides in which polyhedron each interval of the trajectory will be located, whereas the time allocation deals with the time spent on each interval (see Fig. 2). In order to simplify the interval allocation, a common choice is to set the number of intervals to be the same as the number of polyhedra found, forcing each interval to be in one speciﬁc polyhedron. This forces the optimizer to select the end points of each trajectory segment within the overlapping area of two consecutive polyhedra and, therefore, possibly leading to more conservative or longer trajectories. Moreover, since a different time for each interval has to be found, the time allocation calculation is harder, leading to higher replanning times when using optimization techniques to allocate this time, and to nonsmooth or infeasible trajectories when imposing an ad-hoc time allocation. To overcome this limitation, FASTER allows the solver to decide the interval allocation by using a number of intervals greater than the number
+
+of polyhedra found [8] and by allocating the same time for all the intervals. This time allocation method is efﬁciently found through a line search algorithm initialized with the solution at the previous replanning iteration.
+The planning framework proposed is called FASTER − FAst and Safe Trajectory PlannER, and is an extension of our two published conference papers [4], [9]. In summary, this work has the following contributions:
+• A framework that ensures feasibility of the entire collision avoidance algorithm and guarantees safety without reducing the nominal ﬂight speed by allowing the local planner to plan in F ∪ U while always having a Safe Trajectory in F.
+• Reduced conservatism of the time and interval allocation compared to prior ad-hoc approaches by efﬁciently ﬁnding the time allocated from the result of the previous replanning iteration and then allowing the optimizer to choose the interval allocation.
+• Extension of our previous work [4] by proposing a way to compute very cheaply a heuristic of the cost-to-go needed by the local planner to decide which direction is the best one to optimize toward.
+• Simulation and hardware experiments showing agile ﬂights in completely unknown cluttered environments, with velocities up to 7.8 m/s, two times faster than previous state-of-the-art methods [4], [9]. FASTER is also tested on a skid-steer robot, showing hardware experiments at the top speed of the robot (2 m/s).
+In particular, the new contributions of this version with respect to the conference papers [4], [9] are as follows:
+1) Theoretical analysis: Feasibility theorem that guarantees safety for FASTER.
+2) Simulation: Cluttered ofﬁce simulation, which presents a major challenge in terms of both clutterness for obstacle avoidance and limited visibility.
+3) Hardware: Duplication of the ﬂight volume, achieving velocities up to 7.8 m/s.
+4) Extension: Skid-steer robot. Moreover, we also perform a deeper analysis of the role of the Safe Trajectory in terms of safety and speed, a comparison of the performance of the interval allocation versus the time allocation, and a comparison between the ﬂight corridors associated with the safe and whole trajectories.
+II. RELATED WORK
+Different methods have been proposed in the literature for planning, mapping, and the integration of these two (see Fig. 3).
+Planning for UAVs can be classiﬁed according to the speciﬁc formulation of the optimization problem and the operating space of the local planner.
+As far as the optimization problem itself is concerned, most of the current state-of-the-art methods exploit the differential ﬂatness of the quadrotors, and, using an integrator model, minimize the squared norm of a derivative of the position to ﬁnd a dynamically feasible smooth trajectory [10]–[12]. When there are obstacles present, some methods include them as constraints
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+924
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+Fig. 3. Classiﬁcation of the state-of-the-art techniques for planning, mapping, and the integration between these two.
+in an optimization problem, while others take these obstacles into account either after the optimization or during a searchbased algorithm.
+There are approaches where the obstacle constraints (and sometimes also the input constraints) are either checked after solving the optimization problem, or imposed during a searchbased algorithm: some of them use stitched polynomial trajectories that pass through several waypoints obtained running RRT-based methods [10], [12], [13], while others use closedform solutions or motion-primitive libraries [1]–[3], [14]–[17]. These methods are usually limited to short trajectories unable to perform complex maneuvers around obstacles. Sometimes these primitives are also used to search over the state space [18]–[20], often beneﬁting from ESDF representations to guide the search. However, the search-based methods are usually computationally expensive, especially in cluttered environments.
+The other approach is to include the obstacles directly as constraints in an optimization problem. This can be done in the cost function by penalizing the distance to the obstacles [21], [22], but this usually leads to computationally expensive distance ﬁelds representations and/or nonconvex optimization problems. Another option is to encode the shape of the obstacles in the constraints using successive convexiﬁcation [23]–[25] or a convex decomposition of the environment [6], [26]–[30]. The convergence of successive convexiﬁcation typically depends on the initial guess, and is usually not suitable for real-time planning in unknown cluttered environments. The convex decomposition approach is usually done by decomposing the free-known space as a series of P overlapping polyhedra [5]–[7]. As the trajectory is usually decomposed of N third (or higher)-degree polynomials, to guarantee that the Whole Trajectory is inside the polyhedra, Bézier Curves [7], [31], or the sum-of-squares condition [5], [8] are often used. Moreover, for a trajectory there is both an interval (in which polyhedron each interval is) and a time allocation (how much time is assigned to each interval) problem. For the interval allocation, a usual decision is to use N = P intervals, and force each interval to be inside
+
+its corresponding polyhedron [7]. However, this sometimes can be very conservative, since the solver can only choose to place the two extreme points of each interval in the overlapping area of two consecutive polyhedra. Another option, but sometimes with higher computation times, is to use binary variables [5], [8] to allow the solver to choose the speciﬁc interval allocation. For the time allocation, different techniques have been proposed. One way is to impose a ﬁxed time allocation using a speciﬁc velocity proﬁle [6], which can be conservative, or cause infeasibility in the optimization problem if the overlapping area of the polyhedra is not large enough. Other options are to use line search or gradient descent to iteratively obtain these times [10], [12], [32], to use alternating minimization between the spatial and temporal trajectory [33], or to implement a neural network trained ofﬂine [34]. Another option is to decouple the spatial and the temporal trajectory [35], but, as noted in this work, this may cause infeasibility if the initial and ﬁnal states are not static.
+With regard to the planning space of the local planner, several approaches have been developed. One approach is to use only the most recent perception data [2], [3], which requires the desired trajectory to remain within the perception sensor ﬁeld of view. An alternative strategy is to create and plan trajectories in a map of the environment built using a history of perception data. Within this second category, in some works [4], [22], [36], the local planner only optimizes inside F, which guarantees safety if the local planner has a ﬁnal stop condition. However, limiting the planner to operating in F and enforcing a terminal stopping condition can lead to conservative, slow trajectories (especially when much of the world is unknown). Higher speeds can be obtained by allowing the local planner to optimize in both the free-known and unknown space (F ∪ U ), but with no guarantees that the trajectory is safe or will remain feasible.
+Moreover, two main categories can be highlighted in the
+mapping methods proposed in the literature: memory-less and
+fused-based methods. The ﬁrst category includes the approaches that rely only on instantaneous sensing data, using only the last measurement, or weighting the data [14], [28], [37], [38]. These approaches are in general unable to reason about obstacles observed in the past [2], [3], and are specially limited when a sensor with small FOV is used. The second category is the fusion-based approach, in which the sensing data are fused into a map, usually in the form of an occupancy grid or distance ﬁelds [39], [40]. Two drawbacks of these approaches are the inﬂuence of the estimation error, and the fusion time.
+Finally, several approaches have been proposed for the
+integration between the planner and the mapper: reactive and
+map-based planners. Reactive planners often use a memory-less representation of the environment, and closed-form primitives are usually chosen for planning [2], [3]. These approaches often fail in complex cluttered scenarios. On the other hand, map-based planners usually use occupancy grids or distance ﬁelds to represent the environment. These planners either plan all the trajectory at once or implement a receding horizon planning framework, optimizing trajectories locally and based on a global planner. Moreover, when unknown space is also taken into consideration, several approaches are possible: some use
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+925
+
+Fig. 4. Notation used for the different spaces. L is the current position of the UAV, and M is the sliding map around the vehicle.
+
+Fig. 5. Trajectories used by FASTER: The Committed and Safe Trajectories are inside F, while the Whole Trajectory is inside F ∪ U.
+
+optimistic planners that consider unknown space as free [41], [42], while in other works an optimistic global planner is used combined with a conservative local planner [21], [22].
+
+III. FASTER
+The notation used throughout this article is shown in Fig. 4: M is a sliding map centered on L, the current position of the UAV. F and O will denote the free-known and occupiedknown spaces, respectively. Similarly, FUnknown and OUnknown will denote the free-unknown and occupied-unknown spaces, respectively. The total unknown space, denoted as U , is, therefore, U = FUnknown ∪ OUnknown, and F and O are completely contained inside the map (F ∪ O ⊆ M), and all the space outside the map is inside U (R3 \ M ⊆ U ). Note also that FASTER is completely in 3-D, but some illustrations are in 2-D for visualization purposes.
+A. Mapping
+A body-centered sliding map M (in the form of an occupancy grid map) is used in this work. A rolling map is desirable since it reduces the inﬂuence of the drift in the estimation error. We fuse a depth map into the occupancy grid using the 3-D Bresenham’s line algorithm for ray-tracing [43]. Both O and U are inﬂated by the radius of the UAV to ensure safety.
+B. Global Planner
+In the proposed framework, Jump Point Search (JPS) is used as a global planner to ﬁnd the shortest piece-wise linear path from the current position to the goal. JPS was chosen instead of A* because it runs an order of magnitude faster, while still guaranteeing completeness and optimality [6], [44]. The only assumption of JPS is a uniform grid, which holds in our case.
+C. Convex Decomposition
+A convex decomposition is done around part of the piece-wise linear path obtained by JPS. To do this convex decomposition, we rely on the approach proposed by [6]: A polyhedron is found around each segment of the piece-wise linear path by ﬁrst inﬂating an ellipsoid aligned with the segment, and then computing the tangent planes at the points of the ellipsoid that are in contact with the obstacles. The reader is referred to [6] for a detailed explanation. Given a piece-wise linear path with P segments, we will denote the sequence of P overlapping polyhedra as {(Ap, cp)}, p = 0 : P − 1.
+
+Fig. 6. Each interval n = 0 : N − 1 of the trajectory is a third-degree polynomial, with a total time of dt per interval. τ ∈ [0, dt] denotes a local reference of the time inside an interval, and p = 0 : P − 1 denotes the polyhedron.
+
+D. Local Planner
+
+For the local planner, we distinguish these three different jerk-
+
+controlled trajectories (see Fig. 5).
+
+1) Whole Trajectory: This trajectory goes from A to E, and
+
+it is contained in F ∪ U . It has a ﬁnal stop condition.
+
+2) Safe Trajectory: It goes from R to F , where R is a point
+
+in the Whole Trajectory, and F is any point inside the
+
+polyhedra obtained by doing a convex decomposition of
+
+F. It is completely contained in F, and it also has a ﬁnal
+
+stop condition to guarantee safety.
+
+3) Committed Trajectory: This trajectory consists of the
+
+following two pieces: The ﬁrst part is the interval A →
+
+R of the Whole Trajectory. The second part is the Safe
+
+Trajectory. It will be shown later that this trajectory is also
+
+guaranteed to be inside F. This trajectory is the one that
+
+the UAV will keep executing in case no feasible solutions
+
+are found in the next replanning steps.
+
+The quadrotor is modeled using triple integrator dynamics
+
+iwniptuhtsutat=e v.xe..c=torjx(Twh=er[exxT,
+
+x˙ T x¨T ] v, a, and
+
+= [xT vT aT ] and control j are the vehicle’s position,
+
+velocity, acceleration, and jerk, respectively).
+
+In the optimization problem solved by the local planner, the
+
+trajectory is divided in N intervals (see Fig. 6). Let n = 0 : N −
+
+1 denote the speciﬁc interval of the trajectory, p = 0 : P − 1 the
+
+speciﬁc polyhedron and dt the time allocated per interval (same
+
+for every interval n). If j(t) is constrained to be constant in
+
+each interval n = 0 : N − 1, then the Whole Trajectory will be
+
+a spline consisting of third-degree polynomials. Matching the
+
+cubic form of the position for each interval
+
+xn(τ ) = anτ 3 + bnτ 2 + cnτ + dn, τ ∈ [0, dt]
+
+with the expression of a cubic Bézier curve
+
+3
+xn(τ ) =
+
+3 j
+
+j=0
+
+1 − τ 3−j dt
+
+τ dt
+
+j
+rnj ,
+
+τ ∈ [0, dt]
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+926
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+we can solve for the four control points rnj (j = 0 : 3) associated with each interval n:
+
+rn0 = dn,
+
+rn1
+
+=
+
+cndt
+
++ 3
+
+3dn
+
+rn2
+
+=
+
+bndt2
+
++
+
+2cndt 3
+
++
+
+3dn
+
+rn3 = andt3 + bndt2 + cndt + dn.
+
+Let us introduce the binary variables bnp, with p = 0 : P − 1 and n = 0 : N − 1 (P variables for each interval n = 0 : N −
+
+1). As a Bézier curve is contained in the convex hull of its control
+
+points, we can ensure that the trajectory will be completely
+
+contained in this convex corridor by forcing that all the control
+
+points of an interval n are in the same polyhedron [7], [31] with
+
+the constraint [bnp = 1 ⇒ rnj ∈ polyhedron p ∀j], and at least
+
+in one polyhedron with the constraint
+
+P −1 p=0
+
+bnp
+
+≥
+
+1.
+
+With
+
+this
+
+formulation, the optimizer is free to choose the speciﬁc interval
+
+allocation (i.e., which interval is inside which polyhedron). The
+
+complete MIQP solved in each replanning step for both the Safe
+
+and the Whole Trajectories is as follows:
+
+Fig. 7. Dynamic adaptation of the factor used to compute the heuristic of the
+time allocated per interval (dt): For iteration k, the range of factors used is taken around the factor that worked in the iteration k − 1. As f = 1 is the lower bound that makes the problem feasible, only factors f ≥ 1 are tried.
+
+N −1
+
+min
+
+jn 2 dt
+
+jn,bnp n=0
+
+s.t. x0(0) = xinit
+
+xN−1(dt) = xﬁnal xn(τ ) = anτ 3 + bnτ 2 + cnτ + dn ∀n ∀τ ∈ [0, dt]
+
+vn(τ ) = x˙ n(τ )
+
+∀n ∀τ ∈ [0, dt]
+
+an(τ ) = v˙ n(τ )
+
+∀n ∀τ ∈ [0, dt]
+
+jn = 6an
+
+⎧
+
+bnp
+
+=
+
+1
+
+⇒
+
+⎪⎪⎨
+
+Aprn0 Aprn1
+
+⎪⎪⎩
+
+Aprn2 Aprn3
+
+≤ ≤ ≤ ≤
+
+cp cp cp cp
+
+∀n ∀n ∀p
+
+P −1
+
+bnp ≥ 1
+
+∀n
+
+p=0
+
+bnp ∈ {0, 1}
+
+∀n ∀p
+
+xn+1(0) = xn(dt)
+
+n=0:N −2
+
+vn(0) ∞ ≤ vmax
+
+∀n
+
+an(0) ∞ ≤ amax
+
+∀n
+
+jn ∞ ≤ jmax
+
+∀n.
+
+(1)
+
+This problem is solved using Gurobi [45]. The decision vari-
+ables of this optimization problem are the binary variables bnp and the jerk along the trajectory jn. xinit and xﬁnal denote the initial and ﬁnal states of the trajectory, respectively. The time dt
+allocated per interval is computed as
+
+dt = f · max{Tvx , Tvy , Tvz , Tax , Tay , Taz , Tjx , Tjy , Tjz }/N (2)
+
+Fig. 8. Illustration for Alg.1. One unknown obstacle is shown with dotted line.
+where Tvi , Tai , Tji are solution of the constant-input motions in each axis i = {x, y, z} by applying vmax, amax, and jmax, respectively. f ≥ 1 is a factor that is obtained according to the solution of the previous replanning step (see Fig. 7): Denoting fworked,k−1 as the factor that made the optimization feasible in the replanning step k − 1, in the replanning step k the optimizer will try values of f (in increasing order) in the interval [fworked,k−1 − γ, fworked,k−1 + γ ] until the problem converges. Here, γ and γ are constant values chosen by the user. Note that, if f = 1, then dt is a lower bound on the minimum time per interval required for the problem to be feasible. Therefore, only factors f ≥ 1 are tried. This approach is essentially a line search for the time allocation, with the goal of trying to obtain the smallest dt that makes the optimization feasible (leading therefore to faster trajectories), but at the same time trying to minimize the number of trials with different dt needed until convergence.
+E. Complete
+Algorithm 1 gives the full approach (see also Figs. 8 and 9). Let L be the current position of the UAV. The point A is chosen in the Committed Trajectory of the previous replanning step with an offset δt from L. This offset δt is computed by multiplying the total time of the previous replanning step by α ≥ 1 (typically α ≈ 1.25). The idea here is to dynamically change this offset to ensure that most of the time the solver can ﬁnd the next solution
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+927
+
+Fig. 10. Choice of the direction to optimize. At t = tk−1, the JPS solution chosen was JPSk−1. At t = tk, JPS is run again to obtain JPSa, and JPSk−1 is modiﬁed so that it does not collide with O, obtaining JPSb. A heuristic of the cost-to-go in each direction is computed, and the direction with the lowest
+cost is chosen as the one toward which the local planner will optimize. By
+using A → I1, I1 → I2, and I2 → G, JPSb will pass through the points A, I1, I2, and G (all of which belonged to JPSk−1), and therefore, this gives a close approximation to JPSk−1, while avoiding O.
+
+Fig. 9. Illustration of all the trajectories involved in Alg. 1 and their associated velocity proﬁles. U is the unknown space ( ), and k is the replanning step.
+
+in less sliding
+
+than map
+
+δt. M
+
+Then, the (centered
+
+ﬁnal goal Gterm on the UAV) in
+
+is projected i−n−to−−t→he the direction GtermA
+
+to obtain the point G (line 4). Next, we run JPS from A to G
+
+(line 5) to obtain JPSa.
+
+The local planner then has to decide which direction is the
+
+best one to optimize toward (lines 7–17). Instead of blindly
+
+trusting the last JPS solution (JPSa) as the best direction for
+
+the local planner to optimize (note that JPS is a zero-order
+
+model, without dynamics encoded), we take into account the
+
+dynamics of the UAV in the following way: First of all, we
+modify the JPSk−1 so that it does not collide with the new obstacles seen (see Fig. 10): we ﬁnd the points I1 and I2 (ﬁrst and last intersections of JPSk−1 with O) and run JPS three times, so A → I1, I1 → I2, and I2 → G. Hence, the modiﬁed version, denoted by JPSb, will be the concatenation of these three paths. Note that by using A → I1, I1 → I2, and I2 → G, we are forcing the combined path to pass through the points A,
+I1, I2, and G (all of which belonged to JPSk−1), and therefore, this gives a close approximation to JPSk−1, while avoiding O.
+Then, we compute a lower bound on dt using Eq. (2) for both A → C and A → D, where C and D are the intersections of the previous JPS paths with a sphere S of radius r centered on
+A, where r is speciﬁed by the user. Next, we ﬁnd the cost-to-
+go associated with each direction by adding this dta (or dtb) and the time it would take the UAV to go from C (or D) to G
+following the JPS solution ﬂying at vmax. Finally, the one with lowest cost is chosen, so JPSk ← argmin {Ja, Jb}, which is
+{JPSa ,JPSb }
+then the direction toward which the local planner optimizes. To
+save computation time, this decision between JPSa and JPSb is made only if the angle ∠CAD exceeds a certain threshold α0 (typically 15◦). Note that ∠CAD gives a measure of how much the JPS solution has changed with respect to the iteration k − 1.
+A small angle indicates that JPSa and JPSk−1 are very similar (at least within the sphere S), and that therefore the direction of the local plan will not differ much from the iteration k − 1.
+The Whole Trajectory (lines 18–21) is obtained as follows. We do the convex decomposition [6] of U ∪ F around the part of JPSk that is inside the sphere S, which we denote as JPSin. This gives a series of overlapping polyhedra that we denote as
+PolyWhole. Then, the MIQP in (1) is solved using these polyhedral constraints to obtain the Whole Trajectory.
+The Safe Trajectory is computed as in lines 22–27. First, we
+compute the point H as the intersection between the Whole Trajectory and U . Then, we have to choose the point R along the
+Whole Trajectory as the start of the Safe Trajectory. To do this,
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+928
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+note that, on the one hand, R should be chosen as far as possible from A, so that δt can be chosen larger in the next replanning step, which helps to guarantee that A is not chosen on the Safe Trajectory (where the braking maneuver happens). On the other hand, however, a point R too close to H may lead to an infeasible problem for the Safe Trajectory optimizer. We propose two ways to compute R: The ﬁrst one is to choose it with an offset δt from A, where δt is computed by multiplying the previous replanning time by β ≥ 1. The second (and better) way to solve this tradeoff is the following one: we can choose R as the nearest state to H (in the segment A → H of the Whole Trajectory) that is not in inevitable collision with U . To compute an approximation of this state in a very efﬁcient way, we choose R as the last point (going from A to H along the Whole Trajectory) that satisﬁes
+
+sign [vR,j
+
+(xH,j
+
+− xR,j )] ·
+
+v2R,j 2 |amax|
+
+<
+
+|xH,j
+
+− xR,j |
+
+where vR,j, xR,j, and xH,j are, respectively, the velocity of R, the position of R, and the position of H in the axes j = {x, y}.
+
+Here, we have approximated the system as a double integrator
+
+model
+
+in
+
+each
+
+axis
+
+and,
+
+hence,
+
+v2R,j 2|amax |
+
+is
+
+the
+
+minimum
+
+stopping
+
+distance. Due to these two approximations (double integrator
+
+and decoupling in axes x and y), this heuristic may be conser-
+
+vative. We ignore the axis z in this computation to reduce the
+
+conservativeness of this heuristic.
+
+Note that even if this heuristic leads to a choice of R for
+
+which no feasible collision-free (with U ∪ O) trajectory exists,
+
+the optimizer will not ﬁnd a solution in that replanning step and,
+
+therefore, will continue executing the solution of the previous
+
+replanning step.
+
+After choosing the point R, we do the convex decomposition
+
+of F using the part of JPSin that is in F , obtaining the polyhedra
+PolySafe. Then, we solve the MIQP from R to any point F inside PolySafe (this point F is chosen by the optimizer).
+In both of the convex decompositions presented earlier, one
+
+polyhedron is created for each segment of the piecewise linear
+
+paths. To obtain a less conservative solution (i.e., larger poly-
+
+hedra), we ﬁrst check the length of segments of the JPS path,
+
+creating more vertexes if this length exceeds a certain threshold
+
+lmax. Moreover, we truncate the number of segments in the path
+
+to ensure that the number of polyhedra found does not exceed
+
+a threshold Pmax. This helps reduce the computation times (see
+
+Section IV).
+
+Finally (line 28), we compute the Committed Trajectory by
+
+concatenating the piece A → R of the Whole Trajectory, and
+
+the Safe Trajectory. Note that in this algorithm we have run two
+
+decoupled optimization problems per replanning step: 1) one for
+
+the Whole Trajectory, and 2) one for the Safe Trajectory. This
+
+ensures that the piece A → R is not inﬂuenced by the braking
+
+maneuver R → F , and therefore, it guarantees a higher nominal
+
+speed on this ﬁrst piece. The intervals L → A and A → R have
+
+been designed so that at least one replanning step can be solved
+
+within that interval.
+
+The UAV will continue executing the trajectory of the previous
+
+replanning step (Committedk−1) if one of these three scenarios
+
+happens.
+
+Fig. 11. Illustration of Alg. 2 to efﬁciently ﬁnd (an approximation of) the
+intersection between a piece-wise linear path and a voxel grid. U and JPSk are used in this ﬁgure, but in FASTER this algorithm is also used with O and JPSk−1
+
+r r r
+
+Scenario 1: Either of the two optimizations is infeasible. Scenario 2: The piece A − R intersects U . Scenario 3: The replanning takes longer than δt.
+
+In Alg. 1, it is required to compute the intersection between
+
+a piece-wise linear path (the solution of JPS) and a voxel grid
+
+(U or O) to obtain the points I1, I2, or M . To do this in an
+
+efﬁcient way, we use Alg. 2, depicted in Fig. 11. We ﬁrst ﬁnd
+
+the nearest neighbor N from the beginning of the piece-wise
+
+linear path A (line 4), and compute the intersection M between
+
+the path and a sphere S centered on A with radius equal to the
+
+distance between A and N (line 9). As it is guaranteed that all
+
+the points of the path that are inside S do not intersect with the
+
+voxel grid, we can repeat the same procedure again, but this time
+
+starting from M . This process continues until the distance to the
+
+nearest neighbor is below some threshold > 0 (lines 6–7). Note
+
+that, instead of Alg. 2, another option would be to represent F
+
+as a voxel grid, and then use standard ray-tracing (such as the
+
+3-D Bresenham’s line Algorithm [43]) for each of the segments
+
+of the piece-wise linear path. However, this might be very
+
+computationally expensive for grids F with small voxel sizes.
+
+F. Feasibility Theorem
+We can now state the following feasibility theorem for FASTER, which guarantees that all the Committed Trajectories are completely contained inside free space (known or unknown),
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+929
+
+and that, therefore, safety is guaranteed. Here, k denotes the replanning step.
+Assumption 1: The map M is noise-free and the world is static: Fk ∪ FUnknown,k = Fk+1 ∪ FUnknown,k+1, ∀k.
+Theorem 1: Under the assumption 1, Alg. 1 achieves
+Committedk ⊆ Fk ∪ FUnknown,k ∀k.
+Proof: This theorem can be proven by induction: 1) Base case: Committed1 is the union of A1 → R1 and the
+Safe Trajectory. The interval A1 → R1 is in F1 because it has been checked against collision with U1 and is contained in a convex corridor that does not intersect O1. The Safe Trajectory is inside F1 by construction. Therefore, Committed1 ⊆ F1 ∪ FUnknown,1. 2) Recursion: If Committedk ⊆ Fk ∪ FUnknown,k, two different situations can happen in iteration k + 1: a) One of the scenarios 1, 2, or 3 happens. The algorithm
+will choose Committedk+1 = Committedk, and by the assumption 1 we have that Committedk+1 ⊆ Fk+1 ∪ FUnknown,k+1. b) In any other case, the trajectory obtained (Committedk+1) will be inside Fk+1 by construction of the algorithm. Hence, we conclude that
+Committedk ⊆ Fk ∪ FUnknown,k
+⇒ Committedk+1 ⊆ Fk+1 ∪ FUnknown,k+1.
+Remark 1: The theorem does not assume that Fk ⊆ Fk+1. In other words, it does not assume that the size of the free-known space always increases: Fk ⊆ Fk+1 is not necessarily true due to the sliding map. Note, however, that the proof does not depend on the shape of the map nor on the length of the history kept in this map. Hence, the theorem is also valid for the following two cases:
+• a nonsliding global map M ≡ R3. • a map M ≡ FOV, obtained uniquely by considering the
+instantaneous sensing data and, therefore, not keeping history in the map. Remark 2: By allowing the algorithm to choose Committedk+1 = Committedk (which occurs when one of the scenarios 1, 2, or 3 happen), in iteration k + 1 the UAV may commit to a trajectory that has some parts outside the map Mk+1. As proven above, it is still guaranteed that Committedk+1 ⊆ Fk+1 ∪ FUnknown,k+1. This constitutes a form of data compression, where the information of a part of the world being free (which was obtained in iteration k or before) is embedded in the trajectory itself and not directly in the map Mk+1.
+G. Controller
+To track the trajectory obtained by FASTER, we used the cascade controller presented in [46]. The yaw of the UAV is chosen such that the camera of the UAV points to M (intersection between JPSk and U , see Fig. 8). This controller is used in all the UAV simulation and hardware experiments of this article. In the
+
+Fig. 12. Forest (left) and bugtrap (right) environments used in the simulation. The forest is 50 m × 50 m, and the grid in the bugtrap environment is 1 m × 1 m.
+real hardware experiments, position, velocity, attitude, and IMU biases are estimated by fusing propagated IMU measurements with an external motion capture system.
+IV. SIMULATION RESULTS
+A. Forest, Bugtrap, and Ofﬁce Simulations
+We evaluate the performance of the proposed algorithm in different simulated scenarios. The simulator uses C++ custom code for the dynamics engine, integrating the nonlinear differential equations of the UAV using the Runge–Kutta method. Gazebo [47] is used to simulate perception data in the form of a depth map. In all these simulations, the depth camera has a horizontal FOV of 90◦. The sensing range is 5 m for the ﬁrst simulation (corner environment), and 10 m for the rest.
+We now test FASTER in ten random forest environments with an obstacle density of 0.1 obstacles/m2 (see Fig. 12), and compare the ﬂight distances achieved against the following seven approaches.
+• Incremental approach (no goal selection). • Random goal selection. • Optimistic RRT (unknown space = free). • Conservative RRT (unknown space = occupied). • “Next-best-view” planner (NBVP) [48]. • Safe local exploration [22]. • Multiﬁdelity [4]. The ﬁrst six methods are described in [22], and [4] is our previous algorithm. The results in Table I highlight that FASTER achieves a 8 − 51% improvement in the total distance ﬂown. Completion times are compared in Table II to [4] (time values are not available for all other algorithms in Table I). FASTER achieves an improvement of 52% in the completion time. The dynamic constraints imposed for the results of this table are (per axis) vmax = 5 m/s, amax = 5 m/s2, and jmax = 8 m/s3. The velocity proﬁles obtained for one random forest simulation are shown in Fig. 13. We also test FASTER using the bugtrap environment shown in Fig. 12, and obtain the results that appear on Table III. Both algorithms have a similar total distance, but FASTER achieves an improvement of 63% on the total ﬂight time. For both cases, the dynamic constraints imposed are vmax = 10 m/s, amax = 10 m/s2, and jmax = 40 m/s3. The velocity proﬁle achieved along the trajectory can be seen in Fig. 14. Finally, we test FASTER in an ofﬁce environment, obtaining the velocity proﬁle shown in Fig. 15 and the distances and
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+930
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+Fig. 13. Velocity proﬁle in a random forest simulation. On the left the results of our previous work [4] and on the right FASTER.
+
+TABLE I DISTANCES OBTAINED IN 10 RANDOM FOREST SIMULATIONS
+
+TABLE IV COMPARISON BETWEEN [4] AND FASTER OF FLIGHT DISTANCES AND TIMES
+IN AN OFFICE SIMULATION
+
+The distance values are computed for the cases that reach the goal. All the results (except the ones of [4] and FASTER) were provided by the authors of [22].
+TABLE II COMPARISON BETWEEN [4] AND FASTER OF FLIGHT TIMES
+IN THE FOREST SIMULATION
+
+Results are for ten random forests.
+
+Fig. 14. Velocity proﬁle in the bugtrap simulation. On the left the results of our previous work [4] and on the right FASTER.
+
+TABLE III COMPARISON BETWEEN [4] AND FASTER OF FLIGHT DISTANCES AND TIMES
+IN A BUGTRAP SIMULATION
+ﬂight times shown in Table IV. In this case, the distance ﬂown by FASTER was slightly longer than the one by [4] (note that FASTER entered one of the last rooms, and then turned back), but even with this extra distance, it achieved a 29.6% improvement on the ﬂight time. The dynamic constraints used
+
+for the ofﬁce simulation are vmax = 3 m/s, amax = 6 m/s2, and jmax = 35 m/s3.
+The timing breakdown of Alg. 1 as a function of the maximum
+number of polyhedra Pmax is shown in Fig. 16. The number of intervals N was 10 for the Whole Trajectory and 7 for the
+Safe Trajectory. Note that the runtime for the MIQP of the
+Safe Trajectory is approximately constant as a function of Pmax because the Safe Trajectory is planned only in F, and therefore, most of the time, P < Pmax. For the simulation and hardware experiments presented here, Pmax = 2 − 4 was used. Fig. 17 shows the runtimes for JPS as a function of the voxel size of the map, which are always < 10 ms for voxel sizes ≥ 14 cm.
+All these timing breakdowns were measured using an Intel Core
+i7-7700HQ 2.8GHz Processor.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+931
+
+Fig. 15. Velocity proﬁle in the ofﬁce simulation. On the left the results of [4] and on the right FASTER.
+
+1) TA : Time Allocation is optimized and there are N/P
+
+intervals per polyhedron. We test both the case when the
+
+total time of the trajectory T is free and when it is ﬁxed at
+
+12.5 s.
+
+2) IA (ours) : Interval Allocation is optimized and all the in-
+
+tervals have the same ﬁxed allocated time. IA uses binary
+
+variables to optimize the allocation of the N intervals. T
+
+is ﬁxed at 12.5 s and the time allocated per interval is
+
+12.5/N .
+
+We use an environment whose free space is deﬁned by four
+
+overlapping polyhedra (i.e., P = 4, see Fig. 18 ). The ﬁnal state
+
+is a stop condition in the centroid of the last polyhedron, while
+
+the initial state is a stop condition in a random position of the ﬁrst
+
+polyhedron, for a total of 50 runs. Both IA and TA methods use
+
+a weighted sum of the control effort and the total time as the total
+
+cost:
+
+N −1 n=0
+
+jn
+
+2dt + ρT , where ρ = 0.2 m2/s6. Note that the
+
+second term of this cost is constant for the methods in which T
+
+is not a decision variable. The dynamic constraints imposed are vmax = 2 m/s, amax = 20 m/s2, and jmax = 50 m/s3. The solver
+
+used for the (nonconvex) problems of TA is fmincon [49], while
+
+Gurobi [45] is used for the MIQP of IA (both interfaced through
+
+YALMIP [50], [51]). The results in Fig. 18 show that IA is able
+
+to succeed in all of the runs, and it obtains smaller total costs
+
+and computation times. The TA methods achieve lower success
+
+rates, though these tend to increase when T is not ﬁxed and
+
+N > P . All these results support the choice of optimizing the
+
+interval allocation (instead of the time allocation) that FASTER
+
+makes. Note also that, as explained in Section III-D, FASTER
+
+runs on top of this a line search to choose the time allocated per
+
+interval, see Fig. 7.
+
+Fig. 16. Timing breakdown for the MIQP and convex decomposition of the Whole Trajectory and the Safe Trajectory as a function of the maximum number of polyhedra Pmax for the forest simulation. Note that the times for the MIQPs include all the trials until convergence (with different factors f ) in each replanning step. The shaded area is the 1-σ interval (σ is the standard deviation).
+Fig. 17. Runtimes of JPS as a function of the voxel size. The shaded area is the 1-σ interval (σ is the standard deviation). These results are for the forest simulation using a sliding map of size 20 m × 20 m.
+B. Time Versus Interval Allocation As explained in Section III, FASTER optimizes the interval
+allocation using binary variables, while ﬁxing in each optimization the time allocated per interval. Another possible option would be to optimize the time allocation, while ﬁxing the interval allocation. To see the advantages and disadvantages of each option, we compare the following two approaches.
+
+C. Role of the Safe Trajectory
+1) Speed Achieved: We ﬁrst test FASTER in a simple environment and, for the same replanning step, we compare the velocities of the trajectory found by FASTER (that plans in U ∪ F) with the ones of the trajectory found by a planner that plans only in F. The environment is shown in Fig. 19, and consists of a corner, with the goal on the other side of the wall, so that the UAV has to turn the corner. The initial velocity at A is 4.8 m/s, and the dynamic constraints imposed are vmax = 6.5 m/s, amax = 6 m/s2, and jmax = 20 m/s3. FASTER achieves a velocity of 6.02 m/s in the segment A → R (segment that will actually be ﬂown by the UAV), while planning only in F achieves a velocity of 5.06 m/s. R → F is the Safe Trajectory, and A → R → F is the Committed Trajectory. Safety is guaranteed by both planners.
+2) Safety: We now evaluate what happens if the UAV does not compute the Safe Trajectory, but instead commits directly to the Whole Trajectory. We test this in the environment shown in Fig. 20, which consists of a corner with one obstacle behind it. This environment is especially challenging due to the presence of obstacles just behind the corner, which are not fully visible to the UAV until it turns the corner. The results in Table V show that the Safe Trajectory is not strictly necessary when ﬂying at low speeds (≤ 4 m/s), but it is crucial to guarantee safety when ﬂying at high speeds (≥ 6 m/s). For high speeds, the planner without the Safe Trajectory collides due to the lack of time to
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+932
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+Fig. 18. Time (TA) versus Interval (IA) allocation for different number intervals N and different constraints on the total time of the trajectory T (free versus
+
+ﬁxed). In all the TA methods, there are N/4 intervals per polyhedron, where N is the total number of intervals. IA has a ﬁxed time allocation, and uses binary
+
+variables to optimize the allocation of the N intervals. The plot on the left shows the 2-D projection of the 3-D ﬂight corridor used in the experiments. The initial
+
+position is chosen randomly in the ﬁrst polyhedron, and the end position is ﬁxed inside the fourth polyhedron. The total cost in these experiments is computed as
+
+N −1 n=0
+
+jn
+
+2dt + ρT , where ρ = 0.2 m2/s6. For every method, a total of 50 runs are performed, and only the successful runs were taken into account for the
+
+costs and solve times.
+
+Fig. 19. Trajectories obtained when planning only in F (left) and when planning in F ∪ U (FASTER, right). The velocity at A is 4.8 m/s. FASTER achieves a velocity of 6.02 m/s in the segment A → R (segment that will actually be ﬂown by the UAV), while the other planner achieves a velocity of 5.06 m/s. The ground grid is 1 m × 1 m.
+TABLE V SAFETY WITH AND WITHOUT THE SAFE TRAJECTORY
+
+Fig. 20. Environment with an obstacle behind the corner.
+
+The ratios represent the successful runs (i.e., without crashes), for a total of ﬁve runs.
+
+replan when suddenly discovering an obstacle that was in the unknown space.
+
+D. Comparison Between PolyWhole and PolySafe
+For the corner environment explained in Section IV-C (which uses four polyhedra), the top view and the quantitative comparison of the volumes covered are shown in Fig. 21. PolyWhole covers 145.1 · VUAV of unknown space that extends beyond PolySafe. Here, VUAV is the volume of the drone (a sphere of radius 0.3 m).
+
+Fig. 21. Comparison of the unknown volume covered by PolySafe and PolyWhole in the corner environment. As PolySafe ⊂ F , it does not cover any unknown volume. However, PolyWhole ⊂ U ∪ F , and the total unknown volume covered is 145.1 · VUAV, where VUAV is the volume of a sphere with radius r = 0.3 m that models the UAV. This makes optimization 1 operate in a
+completely different space when using PolySafe than when using PolyWhole.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+933
+
+Fig. 22. Qualitative comparison of the volumes covered by PolyWhole and PolySafe in the ofﬁce and forest simulations.
+
+TABLE VI QUANTITATIVE COMPARISON OF THE VOLUMES COVERED BY POLYWHOLE AND
+POLYSAFE IN THE FOREST AND OFFICE SIMULATIONS
+VUAV denotes the volume of the UAV, which is modeled as a sphere.
+For the forest and ofﬁce simulations (which use 2 polyhedra), the comparison of the volumes is shown in Fig. 22 and Table VI. Letting VUAV denote the volume of the sphere that models the UAV, these results show that, on average, PolyWhole is, respectively, 250.8 · VUAV and 21.9 · VUAV larger than PolySafe in the ofﬁce and forest simulations. Moreover, PolySafe does not cover unknown space, while PolyWhole is able to cover, respectively, an unknown volume of 122.8 · VUAV and 5.5 · VUAV in the ofﬁce and forest simulations. Note also that in the ofﬁce simulation (which is more cluttered than the forest simulation), PolyWhole covers more unknown volume than in the forest simulation.
+The key conclusion of these results is that, even with a relatively small number of polyhedra (2–4), the volume of unknown space covered by PolyWhole can be hundreds of times the volume of the UAV, especially in cluttered environments. This makes PolyWhole extend much farther than PolySafe, which is restricted to stay in F. Hence, the Whole Trajectory will beneﬁt from a longer planning horizon, leading to a higher nominal speed in the segment A → R of the Whole Trajectory used in the Committed Trajectory.
+
+Fig. 23. Quadrotor (top) used in the experiments 1–4 and hexarotor (bottom) used in the experiments 5 and 6. Both are equipped with a Qualcomm SnapDragon Flight, an Intel NUC i7DNK, and an Intel RealSense Depth Camera D435.
+V. HARDWARE RESULTS
+The UAVs used in the hardware experiments are shown in Fig. 23. A quadrotor was used in the experiments 1–4, and a hexarotor was used in the experiments 5 and 6. In both UAVs, the perception runs on the Intel RealSense, the mapper and planner run on the Intel NUC, and the control runs on the Qualcomm SnapDragon Flight.
+The six hardware experiments done are shown in Figs. 24– 29. The corresponding velocity proﬁles are shown in Fig. 30. The maximum speed achieved was 7.8 m/s, in Experiment 5 (see Fig. 28). The ﬁrst and second experiments (Figs. 24 and 25) were done in similar obstacle environments with the same starting point but with different goal locations. In the ﬁrst experiment (see Fig. 24), the UAV performs a 3-D agile maneuver to avoid the obstacles on the table. In the second experiment (see Fig. 25), the UAV ﬂies through the narrow gap of the cardboard boxes structure, and then ﬂies below the triangleshaped obstacle. In these two experiments, the maximum speed was 2.1 m/s.
+In the third and fourth experiments (Figs. 26 and 27), the UAV must ﬂy through a space with poles of different heights, and ﬁnally below the cardboard boxes structure to reach the goal, achieving a maximum speed of 3.6 m/s. Finally, in the ﬁfth and sixth experiments (Figs. 28 and 29), the UAV is allowed to ﬂy in a much bigger space, and has to avoid some poles and several cardboard boxes structures. In the ﬁfth experiment (see Fig. 28), the UAV achieved a top speed of 7.8 m/s. In the sixth experiment (see Fig. 29), the UAV was ﬁrst commanded to go to a goal at the other side of the ﬂight space, and then to come back to the starting position, achieving a top velocity of 4.6 m/s.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+934
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+Fig. 24. Composite images of Experiment 1. The UAV must ﬂy from start ( ) to goal ( ). Snapshots shown every 670 ms. Fig. 25. Composite image of Experiment 2. The UAV must ﬂy from start ( ) to goal ( ). Snapshots shown every 330 ms. Fig. 26. Composite image of Experiment 3. The UAV must ﬂy from start ( ) to goal ( ). Snapshots shown every 670 ms. Fig. 27. Composite image of Experiment 4. The UAV must ﬂy from start ( ) to goal ( ). Snapshots shown every 670 ms. Fig. 28. Composite image of Experiment 5. The UAV must ﬂy from start ( ) to goal ( ). Snapshots shown every 330 ms.
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+935
+
+Fig. 29. Composite image of Experiment 6. The UAV must ﬂy from start ( ) to goal 1 ( ) and then back to goal 2 ( ). Snapshots shown every 330 ms.
+
+Fig. 30. Velocity plots of all the UAV hardware experiments. This velocity is the estimated velocity of the UAV, obtained by applying ﬁnite differences to the ground truth position measurements of an external motion capture system. This leads to some noisy estimates, especially for the high velocities of experiments 5 and 6. Moreover, these positions measurements are not available when the UAV is passing below an obstacle, which produces also noisy velocity estimates at those points. This happens in experiment 2 at t = 4.0 s and t = 5.9 s and in experiment 4 at t = 5.0 s.
+
+Fig. 30 shows the estimated velocity of the UAV, obtained by applying ﬁnite differences to the ground truth position measurements of an external motion capture system. This leads to some noisy estimates, in particular for the high velocities of experiments 5 and 6. Moreover, these positions measurements are not available when the UAV is passing below an obstacle, which produces also noisy velocity estimates at those points. This happens in experiment 2 at t = 4.0 s and t = 5.9 s and in experiment 4 at t = 5.0 s.
+For Pmax = 2, the boxplots of the runtimes achieved on the forest simulation (measured on an Intel Core i7-7700HQ) and on the hardware experiments (measured on the onboard Intel NUC i7DNK with the mapper and the RealSense also running on it) are shown in Fig. 31. For the runtimes of the MIQP of the Whole and the Safe Trajectories, the 75th percentile is always below 32 ms.
+
+Fig. 31. Timing breakdown for the forest simulation and for the real hard-
+ware experiments. The parameters used are Pmax = 2, N = 10 for the Whole Trajectory, and N = 7 for the Safe Trajectory.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+936
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+Fig. 32. Composite images of Experiments 7–9. The ground robot must go from start ( ) to goal ( ). Snapshots shown every 670 ms. To show the ability of FASTER to get out from bugtraps, only points in the depth image closer than 3 m were used to build the map in experiment 9.
+
+Fig. 33. Velocity plots of the experiments 7–9.
+
+of it. Once the robot detects that there is no exit at the end of the bugtrap, it turns back, exits the bugtrap, passes through its left and avoids some new obstacles to ﬁnally reach the goal. The maximum speed achieved in this experiment was 1.70 m/s
+
+Fig. 34. Ground robot used in the experiments. It is equipped with an Intel RealSense Depth Camera D435, and an i7-7700HQ laptop.
+VI. EXTENSION TO A GROUND ROBOT
+We now show how, by generating 2-D trajectories instead of 3-D, and changing the controller, FASTER can also be extended for skid-steer robots. To track the trajectory obtained by MADER, we generate the linear and angular velocities using a PD controller based on the derivative of the tangential angle of the trajectory [52] and the desired position and velocity. The commanded angular velocities of the wheels are then obtained from the desired angular velocities of the wheels using a PID.
+Three different experiments were done with the ground robot (see Figs. 32, 33, and 34). An external motion capture system was used to estimate the position and orientation of the robot. Experiments 7 and 8 were done in obstacle environments similar to the random forest. The maximum speeds achieved for the experiments 7 and 8 were 1.95 m/s and 2.22 m/s, respectively. Note that the maximum speed speciﬁed for this ground robot is ≈ 2 m/s [53].
+To test the ability of FASTER to reuse the map built, the setup for experiment 9 was a bugtrap environment, and only points in the depth image closer than 3 m were used to build the map. The robot ﬁrst enters the bugtrap because it does not see the end
+
+VII. CONCLUSION
+This work presented FASTER, a fast and safe planner for agile ﬂights in unknown environments. The key properties of this planner is that it leads to a higher nominal speed than other works by planning both in U and F using a convex decomposition, and ensures safety by having always a Safe Trajectory planned in F at the beginning of every replanning step. FASTER was tested successfully both in simulated and in hardware ﬂights, achieving velocities up to 7.8 m/s. Finally, we showed how FASTER is also applicable to skid-steer robots, achieving hardware experiments at 2 m/s.
+Our algorithm has also some limitations: In environments where the planning horizon is not very large (as in all the experiments shown in this article), 2 − 4 polyhedra usually sufﬁce, and our algorithm maintains computational tractability. However, for large known worlds (for example, if a map of the environment already exists beforehand), a long planning horizon may require more than four polyhedra, which, as shown in Fig. 16, will increase the computation time. One possible way to address this is to solve the interval allocation only in the polyhedra that are close to the current position of the UAV, and force a predeﬁned interval and time allocation for the polyhedra that are farther in the planning horizon. Moreover, we also noticed how important the choice of the point R is: As discussed in Section III-E, if the point R is chosen very close to the unknown space, it may lead to infeasibility of the optimization problem associated with the Safe Trajectory. However, if R is chosen very close to A, then the UAV may not have enough time to replan in the next iteration, which will lead to keep executing the previous trajectory, and may eventually decrease the nominal speed of the ﬂight. Nonheuristic ways to solve this tradeoff seems like
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+TORDESILLAS et al.: FASTER: FAST AND SAFE TRAJECTORY PLANNER FOR NAVIGATION IN UNKNOWN ENVIRONMENTS
+
+937
+
+a promising direction for future work. Further future work includes the relaxation of the assumption 1: we plan to include the uncertainty associated with the map (due to estimation error and/or sensor noise) in the replanning function, and to extend this planner to dynamic environments. We also plan to use onboard estimation algorithms like VIO instead of an external motion capture system for the real hardware experiments.
+Finally, another promising future work is the reduction of the computation times of the time allocation approaches. Experiments in Section IV-B use a generic nonconvex solver to optimize the time allocation, which may be inefﬁcient in some situations. Exploitation of the structure of the time allocation problem and/or the use of hierarchical optimization could help to reduce the associated computation times [54], [55]. This could potentially avoid the use of binary variables needed for the interval allocation, or allow the optimization of both the interval and the time allocation in the trajectory planning problem.
+ACKNOWLEDGMENT
+The authors would like to thank P. Tordesillas (ETSAMUPM) for his help with some ﬁgures, P. Lusk and A. Paris (ACL-MIT) for their help with the hardware, and H. Oleynikova (ASL-ETH) for the data of the forest simulation. The authors would also like to thank J. Carter and J. Ware (CSAIL-MIT) for their help with the mapper used. Views expressed here are those of the authors, and do not reﬂect the ofﬁcial views or policies of the Department of Defense or the U.S. Government.
+REFERENCES
+[1] M. W. Mueller, M. Hehn, and R. D’Andrea, “A computationally efﬁcient motion primitive for quadrocopter trajectory generation,” IEEE Trans. Robot., vol. 31, no. 6, pp. 1294–1310, Dec. 2015.
+[2] B. T. Lopez and J. P. How, “Aggressive 3-D collision avoidance for highspeed navigation,” in Proc. IEEE Int. Conf. Robot. Autom., 2017, pp. 5759– 5765.
+[3] B. T. Lopez and J. P. How, “Aggressive collision avoidance with limited ﬁeld-of-view sensing,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017, pp. 1358–1365.
+[4] J. Tordesillas, B. T. Lopez, J. Carter, J. Ware, and J. P. How, “Real-time planning with multi-ﬁdelity models for agile ﬂights in unknown environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2019, pp. 725–731.
+[5] R. Deits and R. Tedrake, “Efﬁcient mixed-integer planning for UAVs in cluttered environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2015, pp. 42–49.
+[6] S. Liu et al., “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-D complex environments,” IEEE Robot. Autom. Lett., vol. 2, no. 3, pp. 1688–1695, Jul. 2017.
+[7] J. A. Preiss, K. Hausman, G. S. Sukhatme, and S. Weiss, “Trajectory optimization for self-calibration and navigation,” in Proc. Robot.: Sci. Syst., 2017.
+[8] B. Landry, R. Deits, P. R. Florence, and R. Tedrake, “Aggressive quadrotor ﬂight through cluttered environments using mixed integer programming,” in Proc. IEEE Int. Conf. Robot. Autom., 2016, pp. 1469–1475.
+[9] J. Tordesillas, B. T. Lopez, and J. P. How, “FASTER: Fast and Safe Trajectory planner for ﬂights in unknown environments,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2019, pp. 1934–1940.
+[10] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom., 2011, pp. 2520–2525.
+[11] M. J. Van Nieuwstadt and R. M. Murray, “Real-time trajectory generation for differentially ﬂat systems,” Int. J. Robust Nonlinear Control: IFACAfﬁliated J., vol. 8, no. 11, pp. 995–1020, 1998.
+[12] C. Richter, A. Bry, and N. Roy, “Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments,” in Robot. Research. Berlin, Germany: Springer, 2016, pp. 649–666.
+
+[13] G. Loianno, C. Brunner, G. McGrath, and V. Kumar, “Estimation, control, and planning for aggressive ﬂight with a small quadrotor with a single camera and IMU,” IEEE Robot. Autom. Lett., vol. 2, no. 2, pp. 404–411, Apr. 2017.
+[14] P. Florence, J. Carter, and R. Tedrake, “Integrated perception and control at high speed: Evaluating collision avoidance maneuvers without maps,” in Proc. Workshop Algorithmic Foundations Robot., Springer, 2016, pp. 304–319.
+[15] N. Bucki and M. W. Mueller, “Rapid collision detection for multicopter trajectories,” Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS), IEEE, 2019, pp. 7234–7239.
+[16] M. Ryll, J. Ware, J. Carter, and N. Roy, “Efﬁcient trajectory planning for high speed ﬂight in unknown environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2019, pp. 732–738.
+[17] A. Spitzer et al., “Fast and agile vision-based ﬂight with teleoperation and collision avoidance on a multirotor,” Proc. Int. Sympos. Experimen. Robot., Springer,. 2019, pp. 524–535.
+[18] S. Liu, N. Atanasov, K. Mohta, and V. Kumar, “Search-based motion planning for quadrotors using linear quadratic minimum time control,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017, pp. 2872–2879.
+[19] S. Liu, K. Mohta, N. Atanasov, and V. Kumar, “Search-based motion planning for aggressive ﬂight in SE(3),” IEEE Robot. Autom. Lett., vol. 3, no. 3, pp. 2439–2446, Jul. 2018.
+[20] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robot. Autom. Lett., vol. 4, no. 4, pp. 3529–3536, Jul. 2019.
+[21] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and E. Galceran, “Continuous-time trajectory optimization for online UAV replanning,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2016, pp. 5332–5339.
+[22] H. Oleynikova, Z. Taylor, R. Siegwart, and J. Nieto, “Safe local exploration for replanning in cluttered unknown environments for microaerial vehicles,” IEEE Robot. Autom. Lett., vol. 3, no. 3, pp. 1474–1481, Jul. 2018.
+[23] Y. Mao, M. Szmuk, and B. Acikmese, “Successive convexiﬁcation: A superlinearly convergent algorithm for non-convex optimal control problems,” 2018, arXiv:1804.06539.
+[24] F. Augugliaro, A. P. Schoellig, and R. D’Andrea, “Generation of collisionfree trajectories for a quadrocopter ﬂeet: A sequential convex programming approach,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2012, pp. 1917–1922.
+[25] J. Schulman et al., “Motion planning with sequential convex optimization and convex collision checking,” Int. J. Robot. Res., vol. 33, no. 9, pp. 1251–1270, 2014.
+[26] C. Liu, C.-Y. Lin, and M. Tomizuka, “The convex feasible set algorithm for real time optimization in motion planning,” SIAM J. Control Optim., vol. 56, no. 4, pp. 2712–2733, 2018.
+[27] M. Watterson, S. Liu, K. Sun, T. Smith, and V. Kumar, “Trajectory optimization on manifolds with applications to SO(3) and R3 × S2,” in Proc. Robot.: Sci. Syst., 2018.
+[28] F. Gao, W. Wu, W. Gao, and S. Shen, “Flying on point clouds: Online trajectory generation and autonomous navigation for quadrotors in cluttered environments,” J. Field Robot., vol. 36, no. 4, pp. 710–733, 2019.
+[29] S.-P. Lai, M.-l. Lan, Y.-X. Li, and B. M. Chen, “Safe navigation of quadrotors with jerk limited trajectory,” Front. Inf. Technol. Electron. Eng., vol. 20, no. 1, pp. 107–119, 2019.
+[30] G. Rousseau, C. S. Maniu, S. Tebbani, M. Babel, and N. Martin, “Minimum-time B-spline trajectories with corridor constraints. application to cinematographic quadrotor ﬂight plans,” Control Eng. Pract., vol. 89, pp. 190–203, 2019.
+[31] O. K. Sahingoz, “Generation of Bézier curve-based ﬂyable trajectories for multi-UAV systems with parallel genetic algorithm,” J. Intell. Robot. Syst., vol. 74, no. 1/2, pp. 499–511, 2014.
+[32] S. Liu, M. Watterson, S. Tang, and V. Kumar, “High speed navigation for quadrotors with limited onboard sensing,” in Proc. IEEE Int. Conf. Robot. Autom., 2016, pp. 1484–1491.
+[33] Z. Wang, X. Zhou, C. Xu, J. Chu, and F. Gao, “Alternating minimization based trajectory generation for quadrotor aggressive ﬂight,” IEEE Robot. Autom. Lett., vol. 5, no. 3, pp. 4836–4843, Jul. 2020.
+[34] M. M. de Almeida, R. Moghe, and M. Akella, “Real-time minimum snap trajectory generation for quadcopters: Algorithm speed-up through machine learning,” in Proc. Int. Conf. Robot. Autom., 2019, pp. 683–689.
+[35] F. Gao, W. Wu, J. Pan, B. Zhou, and S. Shen, “Optimal time allocation for quadrotor trajectory generation,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2018, pp. 4715–4722.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+
+938
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 38, NO. 2, APRIL 2022
+
+[36] T. Schouwenaars, É. Féron, and J. How, “Safe receding horizon path planning for autonomous vehicles,” in Proc. Annu. Allerton Conf. Commun. Control Comput., vol. 40, no. 1 2002, pp. 295–304.
+[37] D. Dey et al., “Vision and learning for deliberative monocular cluttered ﬂight,” in Field and Service Robot. Berlin, Germany: Springer, 2016, pp. 391–409.
+[38] P. R. Florence, J. Carter, J. Ware, and R. Tedrake, “NanoMap: Fast, uncertainty-aware proximity queries with lazy search over local 3D data,” in Proc. IEEE Int. Conf. Robot. Autom., 2018, pp. 7631–7638.
+[39] B. Lau, C. Sprunk, and W. Burgard, “Improved updating of Euclidean distance maps and Voronoi diagrams,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2010, pp. 281–286.
+[40] H. Oleynikova, Z. Taylor, M. Fehr, R. Siegwart, and J. Nieto, “Voxblox: Incremental 3D Euclidean signed distance ﬁelds for on-board MAV planning,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017, pp. 1366– 1373.
+[41] M. Pivtoraiko, D. Mellinger, and V. Kumar, “Incremental micro-UAV motion replanning for exploring unknown environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2013, pp. 2452–2458.
+[42] J. Chen, T. Liu, and S. Shen, “Online generation of collision-free trajectories for quadrotor ﬂight in unknown cluttered environments,” in Proc. IEEE Int. Conf. Robot. Autom., 2016, pp. 1476–1483.
+[43] J. E. Bresenham, “Algorithm for computer control of a digital plotter,” IBM Syst. J., vol. 4, no. 1, pp. 25–30, 1965.
+[44] D. Harabor and A. Grastien, “Online graph pruning for pathﬁnding on grid maps,” in Proc. 25th AAAI Conf. Artif. Intell., 2011, pp. 1114–1119.
+[45] L. Gurobi Optimization, “Gurobi Optimizer Reference Manual,” Gurobi Optimization, Beaverton, OR, USA, 2021.
+[46] B. T. Lopez, “Low-latency trajectory planning for high-speed navigation in unknown environments,” Ph.D. dissertation, Department of Aeronautics and Astronautics Massachusetts Inst. Technol., Cambridge, MA, USA, 2016.
+[47] N. Koenig and A. Howard, “Design and use paradigms for Gazebo, an open-source multi-robot simulator,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2004, vol. 3, pp. 2149–2154.
+[48] A. Bircher, M. Kamel, K. Alexis, H. Oleynikova, and R. Siegwart, “Receding horizon “next-best-view” planner for 3D exploration,” in Proc. IEEE Int. Conf. Robot. Autom., 2016, pp. 1462–1468.
+[49] Matlab Optimization Toolbox, The MathWorks: Natick, MA, USA, 2020. [50] J. Löfberg, “YALMIP : A toolbox for modeling and optimization in
+MATLAB,” in Proc. IEEE Int. Symp. Comput.-Aided Control Syst. Des., Taipei, Taiwan, 2004, pp. 284–289. [51] J. Löfberg, “Pre- and post-processing sum-of-squares programs in practice,” IEEE Trans. Autom. Control, vol. 54, no. 5, pp. 1007–1011, May 2009. [52] W. MathWorld, “Tangential angle,” 2019. Accessed on: Jun. 2, 2019. [Online]. Available: http://mathworld.wolfram.com/TangentialAngle.html [53] Clearpath, “Jackal UGV - Small weatherproof robot,” 2019. Accessed on: Jun. 15, 2019. [Online]. Available: https://clearpathrobotics.com/jackalsmall-unmanned-ground-vehicle/ [54] W. Sun, G. Tang, and K. Hauser, “Fast UAV trajectory optimization using bilevel optimization with analytical gradients,” in Proc. Amer. Control Conf., 2020, pp. 82–87. [55] G. Tang, W. Sun, and K. Hauser, “Enhancing bilevel optimization for UAV time-optimal trajectory using a duality gap approach,” in Proc. IEEE Int. Conf. Robot. Autom., 2020, pp. 2515–2521.
+Jesus Tordesillas (Student Member, IEEE) received the B.S. and M.S. degrees in electronic engineering and robotics in 2016 and 2018, respectively, from the Technical University of Madrid, Madrid, Spain, and the M.S. degree in aeronautics and astronautics in 2019 from the Massachusetts Institute of Technology, Cambridge, MA, USA, where he is currently working toward the Ph.D. degree in trajectory optimization and path planning with the Aeronautics and Astronautics Department under the supervision of Jonathan P. How.
+His research interests include path planning for UAVs in unknown environments and optimization. He held an internship position with the NASA Jet Propulsion Laboratory, working with the Robotic Aerial Mobility Group.
+Dr. Tordesillas was a ﬁnalist for the Best Paper Award on Search and Rescue Robotics in IROS 2019 for his work. He is currently a member of the Aerospace Controls Laboratory, MIT.
+
+Brett T. Lopez (Student Member, IEEE) received the B.S. degree from the University of California, Los Angeles, Los Angeles, CA, USA, in 2014, and the S.M. and Ph.D. degrees in aeronautics and astronautics engineering from the Massachusetts Institute of Technology, Cambridge, MA, USA, working with Prof. Jonathan P. How, in 2016 and 2019, respectively.
+He is currently a Postdoctoral Scholar with the NASA Jet Propulsion Laboratory, Robotic Aerial Mobility Group, Pasadena, CA, USA, where he leads a team of engineers and researchers designing the next generation of autonomous aerial robots for the DARPA Subterranean Challenge. His research establishes performance guarantees for complex autonomous systems through nonlinear/adaptive control theory and optimization. Dr. Lopez was the recipient of the Aerospace Engineering Outstanding Bachelor of Science award from UCLA.
+Michael Everett (Student Member, IEEE) received the S.M. and S.B. degrees in mechanical engineering, in 2015 and 2017, respectively, from the Massachusetts Institute of Technology, Cambridge, MA, USA, respectively, where he is currently working toward the Ph.D. degree in mechanical engineering with the Aerospace Controls Laboratory.
+His research interests include fundamental gaps in the connection of machine learning and real mobile robotics.
+Mr. Everett was an author of works that was the recipient of the Best Paper Award on Cognitive Robotics from International Conference on Intelligent Robots and Systems (IROS) 2019, the Best Student Paper Award, and ﬁnalist for the Best Paper Award on Cognitive Robotics from IROS 2017, and ﬁnalist for the Best MultiRobot Systems Paper Award from International Conference on Robotics and Automation 2017.
+Jonathan P. How (Fellow, IEEE) received the B.A.Sc. degree in engineering science (Aerospace) from the University of Toronto, Toronto, ON, USA, in 1987, and the S.M. and Ph.D. degrees in aeronautics and astronautics from the Massachusetts Institute of Technology (MIT), Cambridge, MA, USA, in 1990 and 1993, respectively.
+Prior to joining MIT in 2000, he was an Assistant Professor with Stanford University, Stanford, CA, USA. He is currently the Richard C. Maclaurin Professor of Aeronautics and Astronautics with MIT. Dr. How was the recipient of several awards, which include the IEEE CSS Distinguished Member Award in 2020, AIAA Intelligent Systems Award in 2020, IROS Best Paper Award on Cognitive Robotics in 2019, and the AIAA Best Paper in Conference Awards in 2011, 2012, and 2013, respectively. He was the Editor-in-chief of IEEE Control Systems Magazine in 2015–2019, is a Fellow of AIAA, and was elected to the National Academy of Engineering in 2021.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 07,2022 at 14:45:08 UTC from IEEE Xplore. Restrictions apply.
+

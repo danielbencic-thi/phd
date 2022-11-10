@@ -1,0 +1,402 @@
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) September 27 - October 1, 2021. Prague, Czech Republic
+
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-1714-3/21/$31.00 ©2021 IEEE | DOI: 10.1109/IROS51168.2021.9636039
+
+Connecting Deep-Reinforcement-Learning-based Obstacle Avoidance with Conventional Global Planners using Waypoint
+Generators
+Linh Kästner1, Xinlin Zhao1, Teham Buiyan1, Junhui Li, Zhengcheng Shen1 Jens Lambrecht1 and Cornelius Marx1
+
+Abstract—Deep Reinforcement Learning has emerged as an efﬁcient dynamic obstacle avoidance method in highly dynamic environments. It has the potential to replace overly conservative or inefﬁcient navigation approaches. However, integrating Deep Reinforcement Learning into existing navigation systems is still an open frontier due to the myopic nature of DeepReinforcement-Learning-based navigation, which hinders its widespread integration into current navigation systems. In this paper, we propose the concept of an intermediate planner to interconnect novel Deep-Reinforcement-Learning-based obstacle avoidance with conventional global planning methods using waypoint generation. Therefore, we integrate different waypoint generators into existing navigation systems and compare the joint system against traditional ones. We found an increased performance in terms of safety, efﬁciency and path smoothness, especially in highly dynamic environments.
+
+I. INTRODUCTION
+Recently, mobile robots have become important tools in the industry, especially in logistics [1], [2]. Typically, robotic navigation systems employ hierarchical planners consisting of a global planner, which calculates the optimal path using search-based approaches like A-star or Random Rapid Tree (RRT) search, and a local planner, which executes it considering local observations and unknown obstacles. While current systems can cope well with static environments, dynamic ones employing various dynamic obstacles still pose a great challenge. Deep Reinforcement Learning (DRL) has emerged as an end-to-end planning method to replace overly conservative planners in highly dynamic environments due to its ability to achieve efﬁcient navigation and obstacle avoidance from raw sensor input. However, the integration of DRL into conventional planners and usage in industries is limited due to its myopic nature and tedious training. Furthermore, due to the lack of a long term memory, DRLbased methods are very sensitive to local minima and thus can easily be trapped in complex situations like long corridors, corners, or dead ends. Efforts to increase the capabilities of DRL-based systems to achieve long-range-navigation are complex and intensify the already tedious training procedures [3], [4].
+In this work, we propose an interconnection entity called the intermediate planner to combine traditional global plan-
+1Linh Kästner, Xinlin Zhao, Teham Buiyan, Junhui Li, Zhengcheng Shen, Jens Lambrecht, and Cornelius Marx are with the Chair Industry Grade Networks and Clouds, Faculty of Electrical Engineering, and Computer Science, Berlin Institute of Technology, Berlin, Germany linhdoan@tu-berlin.de
+
+Fig. 1: Our proposed hierarchical navigation system includes an intermediate planner which interconnects a traditional global planner and a DRL-based local planner. We propose three different waypoint generators based on: subsampling (SUB-WP), a spatial-time-horizon (STH-WP), and on landmarks (LM-WP).
+ning methods with a DRL-based local planner by using waypoints. Contrarily to existing works, the intermediate planner should generate waypoints more dynamically and ﬂexibly along a given path while considering global as well as local information. This not only provides a shorter goal horizon but also adds an additional security layer in preparation for the local planner, which only has access to local sensor data. In particular, we propose two different waypoint generators that we compare against each other and against conventional navigation systems in terms of safety, robustness and efﬁciency. The main contributions of this work are the following:
+• Proposal of two different waypoint generators to interconnect DRL-based local navigation with global methods and make DRL feasible for integration long-rangenavigation.
+• Integration of our approaches into the robot operating system (ROS) for a combination with conventional planners and to make deployment towards a real robot feasible.
+• Extensive evaluation of the waypoint generators against one another as well as against conventional planning systems.
+The paper is structured as follows. Sec. II begins with related works. Subsequently, the methodology is presented
+
+978-1-6654-1714-3/21/$31.00 ©2021 IEEE
+
+1213
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+in Sec. III. Sec. IV presents the results and discussion. Finally, Sec. V will give a conclusion and outlook. We made the code publicly available under https://github.com/igncresearch/arena-rosnav.
+
+considering local as well as global map information for optimal waypoint generation and replanning functionality. This should result in smoother trajectories, increased efﬁciency, and less collisions.
+
+II. RELATED WORKS
+DRL has been extensively studied in various publications ranging from simulation, gaming, to navigation and achieved remarkable results in these areas. Mnih et al. [5] ﬁrst introduced the combination of Reinforcement Learning with deep neural networks and trained an agent to navigate in unknown environments based solely on sensor observations. In recent years, the usage of DRL for the path planning and obstacle avoidance problem has intensiﬁed [3] - [6]. Chen et al. [7], [8] proposed a DRL-based navigation for crowded environments and successfully transferred the approach to a real robot. The agent could contemplate to social behaviors and navigate robustly in cluttered environments. Everett et al. [9] extended the approach with a Long-Short-Term-Memory (LSTM) architecture [10] and made it feasible for a dynamic number of obstacles. In [6], Dugas et al. propose a platform consisting of a 2D simulation environment to train and test different DRL algorithms. The researchers integrate a variety of different DRL-based navigation approaches into their platform and compare them against one another. Faust et al. [3] combines a DRL-based local planner with samplingbased traditional planners. Global maps are generated by a DRL agent and, subsequently, the same DRL agent is utilized to execute the navigation. The researchers achieved longrange navigation in large scale ofﬁce maps. However, the training is tedious, requires a high amount of parameters, and a not intuitive pre-setup. Chen et al. [11], [12] utilizes DRL to generate waypoints by considering audio visual clues and an acoustic memory. The researchers trained the DRL agent to learn optimal waypoint generation in an end-to-end manner and validated their approach in 3D maps of typical residencies. Bansal et al. [13] trained a learning-based perception module to set waypoints in unknown environments for a collision-free path. The model is trained using visual representations and is combined with conventional modelbased control for navigation. In this work, we follow a similar hierarchical approach, but focus on employing a DRL-based local planner for the obstacle avoidance problem. Gundelring et al. [14] ﬁrst integrated a DRL-based local planner with a conventional global planner from the ubiquitously used robot operating system (ROS) and demonstrated promising results. The researchers employs a subsampling of the global path to create waypoints for the DRL-local planner. Similarly, Regler et al. [15] proposes a hand-designed sub-sampling to deploy a DRL-based local planner with conventional navigation stacks. A limitation of these works is that the a simple sub-sampling of the global path is inﬂexible and could lead to hindrance in complex situations, e.g. when multiple humans are blocking the way. In this work, we introduce an intermediate planner to spawn way-points more ﬂexibly by
+
+III. METHODOLOGY
+In this chapter, we present the methodology of our proposed framework. In order to accomplish long-range navigation while utilizing a DRL-based local planner, our work proposes a combination with traditional global planners. The system design is described in Fig. 1. We propose an interconnection entity called the intermediate planner, which connects the two planners and present two different approaches to generate waypoints. As a baseline approach, we also provide a simple subsampling of waypoints along the path as proposed by [14] and [15]. This approach is denoted as SUB-WP.
+A. Spatial Horizon Waypoint Generator
+Our second waypoint generator calculates the waypoint using a look-ahead distance and the robot’s spatial position. Given the global path πg as an array Y consisting of Nt poses, we sample a subset Yisubgoals ⊂ X poses = {xi, . . . , xNt } of local goals based on the robot’s position pr and a lookahead distance dahead. The concept is illustrated in Fig. 2. The algorithm of the S-WP is described in Alg. 3.
+
+Subgoal
+
+Goal
+
+Robot
+
+Fig. 2: Subgoal selection. Given a global path, our intermediate planner will calculate a subgoal based on the spatial horizon distahead .
+Algorithm 1: Subgoal calculation Input: Global path πg, Robot position pr Output: Subgoal gsub Parameter: dahead; Find the set of intersection points of R(pr, dahead) and
+global path πg as Φ; if Φ is not empty then
+select the intersection point near to the global goal as gsub else call GLOBAL REPLAN → new global path πgnew; Subgoal calculation(πgnew, pr); end
+This subset of goals can be observed as local sub-goals xi = pg and given as input for the DRL-based local planner.
+
+1214
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+Additionally, we integrate a replanning mechanism to rework the global path when the robot is off-course for a certain distance from the global path, or if a time limit tlim is reached without movement, e.g. when the robot is stuck. In that case, a global replanning will be triggered and a new sub-goal will be calculated based on the new global plan and current robot position. This approach is denoted as spatial-time-horizon waypoint generator (STH-WP).
+B. Landmark-based Waypoint Generator
+Utilizing a simple subsampling approach can result in inefﬁcient trajectories especially in highly dynamic environments, because the initially planned trajectory of the robot is constantly being changed when avoiding unknown obstacles. This may cause the robot to ignore more suitable paths in order to reach the static preset waypoints which might cause the trajectory to be less smooth and efﬁcient. For our ﬁnal waypoint generator, we postulate the assumption that not all points on the global path πg are equally important and that only critical waypoints have to be visited by the robot. These points are called landmarks L in this paper. Our waypoint generator utilizes these speciﬁc landmarks to calculate optimal waypoint positions for the DRL local planner. This enables smoother trajectories and results in more efﬁcient navigation. In the following, the landmark selection is described.
+
+Algorithm 2: Landmark selection
+Input: start position ps, goal position pg, occupancy gridmap
+Output: queue of landmarks L
+Parameter: ψthresh; Global path πg ← kinodynamicAstar(ps,pg); Parameterize global path πg as uniform b-spline
+trajectory πg∗; for t from tq to tM−q do
+Evaluate position pt , velocity vt , acceleration at on πg∗ at time t using De Boor’s algorithm; Calculate steering angle velocity ωt and steering angle ψt ; if ψt > ψthresh then
+L.pushback(pt ); end
+end
+L.pushback( pg );
+
+Rebounded local trajecotry
+
+Landmark
+
+Subgoal
+
+Obstacle
+
+Initial local trajecotry
+
+Robot
+Fig. 4: Subgoal calculation for the LM-WP approach.
+
+Fig. 3: Landmark on different test maps.
+
+1) Landmark Selection: In a map, landmarks are recognized by humans as turning points. In order to navigate across these points, a turning action is performed by the robot. In return, we formulate the landmark as a point where the robot’s steering angle is bigger than a threshold value:
+
+ψp > ψthresh , p ∈ map
+
+(1)
+
+In order to calculate a reasonable steering angle value at a certain point on the map, the initial global path and its corresponding interpolated b-spline trajectory are used. We use a kinodynamic A-star search global path planner method proposed by Zhou et al. [16], which provides b-spline properties to calculate reasonable steering angles for certain positions on the map.
+Once the global b-spline trajectory is parameterized, the position, velocity, and acceleration at each time t ∈ [tq,tM−q] is be calculated. To evaluate the position at time t, we employ De Boor’s algorithm [17]. Finally, the derivatives of a point on the b-spline trajectory are calculated with [16]
+
+1
+
+1
+
+vi = t (pi+1 − pi) ai = t (vi+1 − vi)
+
+(2)
+
+The steering angle is calculated using the kinematic equa-
+
+tions in Eq.3-5
+
+v×a
+
+anorm = v
+
+(3)
+
+ω=
+
+anorm v
+
+(4)
+
+ψ = ωdt
+
+(5)
+
+Fig. 3 illustrates landmarks on different maps using aforementioned calculations.
+2) Subgoal Calculation: Once landmarks are selected from the global path, the waypoints will be calculated according to the robot’s current location, the current approaching landmark location, and the obstacles’ locations in the occupancy grid-map. Hence, the calculated sub-goal is not only calculated with respect to the landmark but also takes obstacles within sensor range into consideration. To ensure a collision-free path, we optimize the b-spline trajectory using the ESDF-free gradient-based optimization method introduced by Zhou et al. [18]. This method has the advantage of fast calculation times, which makes online deployment feasible. After the local trajectory optimization
+
+1215
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+Fig. 5: Trajectories and waypoints of all planners on the test scenario with 20 obstacles and a obstacle velocity of vobs = 0.3m/s. Upper row: plain test area, lower row: ofﬁce map. (a) SUB-WP on the empty map (b) STH-WP on the empty map (c) LM-WP on the empty
+map (d) SUB-WP on the ofﬁce map (e) STH-WP on the ofﬁce map (f) LM-WP on the ofﬁce map
+
+Algorithm 3: Subgoal calculation Input: current position pt , landmark position pl, occupancy gridmap Output: subgoal gsub Parameter: dahead, teval; 1. Calculate a straight one-shot initial local trajectory ζ0 from pt towards pl with length dahead; 2. Optimize the initial trajectory ζ0 using ESDF-free gradient-based methods to get a collision-free rebounded b-spline trajectory ζt ; 3. Select the subgoal gsub on ζt at time teval using De Boor’s algorithm;
+is ﬁnished, the sub-goal is calculated by evaluating a point on the optimized b-spline trajectory in time teval with help of De Boor’s algorithm. The algorithm is described in Alg. 3. We denote this waypoint landmark-based generator as LM-WP.
+C. The Joint System
+The three proposed waypoint generators act as an interconnection entity for the traditional global planner and a DRL-based local planner of our previous work [19]. This planner was trained within the arena-rosnav environment, which provides a 2D platform to train and test agents based solely on 2D laser scan data. For our experiments, we denote
+
+the combination of traditional global planner, intermediate waypoint generator and local DRL-based planner as the joint system. The resulting systems are compared against traditional navigation systems, which only consists of a global plan and a model-based local planner such as MPC or TEB.
+IV. RESULTS AND EVALUATION
+We conducted experiments on two different maps in which we created a total of six different test scenarios of increasing difﬁculty with ﬁve, 10 and 20 obstacles. In each scenario, the obstacle velocities are set to 0.3 m/s. More extensive evaluations of the obstacle velocities’ impacts are presented in the quantitative evaluations. As a global planner, the optimized b-spline kino A-star planner is used for all approaches. Localization is assumed to be perfectly known. For each planner, we conduct 30 test runs on each scenario. Finally, we compare our joint systems against conventional onesTEB [20] and MPC [21]- in terms of safety, robustness and efﬁciency. For STH-WP, the time and spatial horizon is set to tlim = 4s and dahead = 1.55m respectively. The lookahead distance of the SUB-WP approach is set to be 1 m.
+A. Evaluation of Waypoint Generators
+First, we evaluate the overall performance of our waypoint generators against one another. Figure 5 illustrates the
+
+1216
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+(a) SUB-WP
+
+(b) STH-WP
+
+(c) LM-WP
+Fig. 6: Comparison of different waypoint generators. The trajectories are plotted over time. It is observable that LM-WP dynamically generates waypoints based on the obstacle position and results in a shorter, smoother trajectory (s. (a) (vii)). The path for SUB-WP is the most inefﬁcient and includes roundabouts circles around obstacle areas. STH-WP achieves an efﬁcient navigation as well without replanning and can follow the global path in a more robust manner. The sequences and other situations can be observed in action in the supplementary video material.
+
+qualitative trajectories and waypoints of each planner. The opacity of the waypoints indicates their order of generation. It is observed that the trajectories of the SUB-WP contain more circular movements and are less efﬁcient compared to the other two approaches. Due to the preset waypoints of the SUB-WP approach, the agent has to strictly reach each waypoint regardless of a potentially more efﬁcient trajectory. This happens once the agent is off of the path when avoiding obstacles, which makes the approach inﬂexible and results in less efﬁcient trajectories. As expected, the paths of LM-WP have the most variance due to the constant replanning as obstacles are being observed. Most of the waypoints are placed on the global path. However, in situations where obstacles are interfering, the waypoints are adjusted dynamically as can be observed in Fig. 5 (b), (e). This results in a more compact path with less collisions. It is notable that whereas the LM-WP achieves robust navigation with efﬁcient paths on the ofﬁce map, in the empty map, it is less efﬁcient and performs more roundabout paths. This is caused by the lack of landmarks as reference points for the intermediate planner to calculate optimal waypoints, which indicates that our
+
+approach works better in structured environments. Contrarily, the STH-WP achieves robust and strict trajectories towards the goal on the empty map. Whereas in the ofﬁce map, the more roundabout paths are observed. Nevertheless, in all scenarios, the paths are still more efﬁcient compared to the SUB-WP- which has increased circular movements. This is more evident in the ofﬁce map (Fig. 5 (d)). In Fig. 6, the trajectories of one test run in a scenario with ﬁve obstacles were plotted over time. Once again, it is evident that the SUB-WP method results in a more inefﬁcient trajectory because the robot has to follow the preset waypoint while dismissing potentially more suitable trajectories. The dynamic adjustment of the LM-WP generator results in a shorter and smoother path. Similarly, the STH-WP approach results in smoother trajectory because the waypoint adapts to the robots position. Live demonstrations of the approaches can be viewed in the supplementary video material.
+B. Comparison with Conventional Navigation Systems
+After evaluating our approaches against one another, we compare the navigation behavior of our joint navigation
+
+1217
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+Fig. 7: Trajectories of all planners on different test scenarios with obstacle velocity vobs = 0.3m/s and 20 obstacles. Upper row: empty map, lower row: ofﬁce map. (a) SUB-WP on the empty map (b) STH-WP on the empty map (c) LM-WP on the empty map (d) SUB-WP on the ofﬁce map (e) STH-WP on the ofﬁce map (f) LM-WP on the ofﬁce map. The obstacles trajectories are visualized in black. Collisions are visualized as dots in the respective colors. The circle radius’ denotes the number of collisions (a larger radius means more collisions).
+
+systems against model-based navigation systems MPC [21] and TEB [20]. Our joint systems includes the following: our proposed waypoint generators as intermediate planner, the kino A-star global planner, and a DRL-based local planner of our previous work [19] against the model-based navigation systems MPC [21] and TEB [20]. Throughout this paper, the notion previously used to denote the waypoint generators are used to denote the joint systems. The traditional navigation systems, consisting of the same kino A-star global planner and the model-based local planners MPC and TEB, are denoted as MPC and TEB respectively. The qualitative trajectories of all systems for an obstacle velocity of 0.3 m/s on all scenarios are illustrated in Fig. 7. The intensity of the trajectories indicates their frequency. Results for all test runs are stated in Table I. Additionally, we plotted collision circles, which radius’ indicates the number of collisions.
+1) Safety and Robustness: It is observed that all navigation systems manage a robust collision avoidance and efﬁcient navigation towards the goal for the scenarios with ﬁve obstacles. With increasing number of obstacles, collisions increase which is evident in larger circles. Less collisions and thus smaller circles are observed for systems with our proposed LM-WP and STH-WP generators compared to TEB. Furthermore, the paths of our joint systems are more efﬁcient compared to the TEB planner, which performs more roundabout
+
+paths. The model-based MPC planner accomplishes a similar performance in terms of path length and navigation efﬁciency. However, with more obstacles, the collisions increased (s. Fig. 7 (e)). While SUB-WP manages to keep a competitive performance in maps with 5 obstacles, increased collisions occur in maps with 10 and 20 obstacles (s. 7 (e),(f)). In terms of collision rates and robustness, the LM-WP approach was best performing due to its replaning capability and long sight, which calculates the next waypoints online. This way, even in stuck situations the planner manages to ﬁnd a way out. In contrast, the SUB-WP method was stuck in hard situations when obstacles were constantly blocking the way. The STHWP approach was limited in such situations as well. The quantitative results are listed in Table I and plotted in Fig. 8c. We evaluated the time to reach the goal, the path length, the number of collisions and the success rate for all navigation systems. Thereby, runs with less than three collisions are regarded as successful. Our LM-WP approach achieves the best overall performance in terms of collision and success rate accomplishing an average of 95.94%. This holds true for scenarios with increased obstacle count and velocities. Notably, the SUB-WP approach accomplishes a similar performance in maps with ﬁve obstacles but experiencing a rapid decline in maps with 10 and 20 obstacles and vobs = 0.2 and 0.3m/s accomplishing only 40.5 and 16.5% respectively. This
+
+1218
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+vobs 0.1m/s SUB-WP LM-WP STH-WP TEB MPC vobs 0.2m/s SUB-WP LM-WP STH-WP TEB MPC vobs 0.3m/s SUB-WP LM-WP STH-WP TEB MPC
+SUB-WP LM-WP STH-WP TEB MPC
+
+TABLE I: Quantitative evaluations
+
+Time [s] Path [m] Collisions Success
+
+5 dyn. Obstacles
+
+100.95 29.10 22.5 96.5
+
+103.39 27.09 2.0
+
+100.0
+
+158.69 31.08 0.0
+
+100.0
+
+171.95 29.28 0.0
+
+100.0
+
+134.45 26.95 0.0
+
+100.0
+
+Time [s] Path [m] Collisions Success
+
+10 dyn. Obstacles
+
+97.56 29.26 1.0
+
+100.0
+
+99.61 27.71 1.0
+
+100.0
+
+151.22 29.98 1.0
+
+100.0
+
+171.83 28.70 2.5
+
+100.0
+
+138.16 26.28 0.0
+
+100.0
+
+Time [s] Path [m] Collisions Success
+
+20 dyn. Obstacles
+
+150.71 40.30 59.0 57.5
+
+122.21 30.32 5.5
+
+99.5
+
+163.50 31.31 16.0 95.0
+
+183.86 29.75 5.5
+
+99.0
+
+149.25 29.34 8.5
+
+97.5
+
+131.09 28.36 14.5 100.0 137.28 31.94 6.0
+
+100.0 144.68 40.94 87.5 40.5
+
+99.95 28.40 7.0
+
+100.0 103.55 28.19 6.5
+
+100.0 130.71 32.45 21.5 95.0
+
+1150.46 29.70 11.0 97.5 184.04 32.51 44.0 90.0 181.15 34.72 53.0 86.5
+
+179.35 29.44 4.5
+
+98.0 176.62 29.20 18.0 94.5 192.76 30.62 30.0 90.5
+
+147.97 28.32 2.0
+
+100.0 144.76 27.18 28.5
+
+91.0
+
+169.28 29.60 20.0
+
+94.0
+
+106.83 101.56 153.38 185.80 149.05
+142.74 112.40 169.40 188.44 153.50
+
+30.33 26.5 30.16 11.5 29.96 43.5 28.96 23.5 29.95 24.5
+Overall Average 35.03 40.83 29.92 15.28 32.38 41.33 30.12 24.89 28.44 23.89
+
+98.0 97.5 86.5 91.0 92.0
+78.22 95.94 88.06 91.83 92.56
+
+130.81 106.53 185.96 212.54 169.80
+116.14 112.76 181.34 202.75 162.70
+
+37.93 66.0 29.35 15.0 37.17 73.5 33.43 44.0 27.90 40.0
+Empty Map 34.57 29.78 32.87 21.44 35.73 49.11 30.66 18.67 29.51 26.78
+
+57.5 99.0 75.0 85.5 88.0
+86.78 94.11 85.89 94.11 91.33
+
+170.80 144.07 206.20 221.21 178.74
+169.35 112.04 157.46 174.12 144.29
+
+50.11 35.57 40.02 31.65 30.48
+
+129.5 67.5 130.0 96.0 91.5
+
+Ofﬁce Map 35.50 51.89 26.96 9.11 29.03 33.56 29.57 31.11 27.38 21.00
+
+16.5 72.5 62.0 68.0 70.5
+69.67 97.78 90.22 89.56 93.78
+
+decline in performance for scenarios with 10 and 20 obstacles is also evident for MPC and TEB achieving only over 68% success compared to 72.5% by our LM-WP.
+2) Efﬁciency: In terms of efﬁciency, LM-WP achieves an overall average of 112.4 s as opposed to more then 142.74 s by the other approaches. The MPC system requires a smaller path of 28.44 m while requiring more time (avg. of 153.50 s). Similar to the success and collision rates, a decline in efﬁciency for all model-based planners can be noticed for scenarios with increased obstacle numbers and velocities. As stated in Table I, TEB and MPC require an average of 188.44 and 153.5 s respectively with an average path length of 30.12 and 28.44 meters respectively, whereas LM-WP, SUB-WP require 112.4 s and 142.74 s, while the average path length is 29.92 and 35.03 meters respectively. It is notable that although the TEB system accomplishes a short average path length, it took the longest time to reach the goal. This is because TEB tends to stop and wait once obstacles are approaching. Overall, our proposed joint systems using LM-WP and STH-WP achieve shorter trajectories and less collisions in scenarios with more than 10 obstacles and velocities higher than 0.2 m/s. Due to the DRL local planner of our approaches, obstacles can be avoided more efﬁciently.
+V. CONCLUSION
+In this paper, we proposed waypoint generators to connect DRL-based local planners with conventional global planners for long-range-navigation. Therefore, we propose two different methods: a spatial and time horizon based waypoint generator which calculates the waypoint based on the robots state and a build in replanning mechanism, and a landmark based waypoint generator, which generates waypoints while taking obstacle and robot positions and global information
+
+into consideration. We integrated our approaches into the ubiquitously used ROS navigation stack and combined traditional global planner with a DRL-based local planner from our previous work. We demonstrated the feasibility of our approach and compared it against model-based navigation systems. Results showed that our joint navigation systems outperform conventional systems in terms of safety and efﬁciency. Our ongoing work focuses on extensive evaluations in more complex maps like mazes or ofﬁce buildings. Furthermore, we aspire to deploy a DRL-based waypoint generator which learns to spawn optimal waypoints using sensor observations.
+APPENDIX
+The code is publicly available at https://github.com/igncresearch/arena-rosnav.
+REFERENCES
+[1] G. Fragapane, D. Ivanov, M. Peron, F. Sgarbossa, and J. O. Strandhagen, “Increasing ﬂexibility and productivity in industry 4.0 production networks with autonomous mobile robots and smart intralogistics,” Annals of operations research, pp. 1–19, 2020.
+[2] M. B. Alatise and G. P. Hancke, “A review on challenges of autonomous mobile robot and sensor fusion methods,” IEEE Access, vol. 8, pp. 39 830–39 846, 2020.
+[3] A. Faust, K. Oslund, O. Ramirez, A. Francis, L. Tapia, M. Fiser, and J. Davidson, “Prm-rl: Long-range robotic navigation tasks by combining reinforcement learning and sampling-based planning,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 5113–5120.
+[4] H.-T. L. Chiang, A. Faust, M. Fiser, and A. Francis, “Learning navigation behaviors end-to-end with autorl,” IEEE Robotics and Automation Letters, vol. 4, no. 2, pp. 2007–2014, 2019.
+[5] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski et al., “Human-level control through deep reinforcement learning,” nature, vol. 518, no. 7540, pp. 529–533, 2015.
+
+1219
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Empty Map
+
+(i)
+
+(ii)
+
+(iii)
+
+(iv)
+
+(v)
+
+(vi)
+
+(vii)
+
+(viii)
+
+(b) Ofﬁce Map
+
+(i)
+
+(ii)
+
+(iii)
+
+(iv)
+
+(v)
+
+(vi)
+
+(vii)
+
+(viii)
+
+(c) Results from test-runs on (a) the empty map and (b) ofﬁce map. (i) Collisions over number of obstacles and vobs, (ii) average time to reach goal over number of obstacles and
+
+vobs, (iii) Average path length over number of obstacles and vobs. (iv) Success over number of obstacles and vobs. With vobs = (0.1, 0.2, 0.3)m/s, while a high opacity indicates
+
+a lower velocity. (v) Collisions over obstacle velocities, (vi) average time to reach goal over obstacle velocities (lower is better), (vii) Path length over obstacle velocity. (viii)
+
+Success rate over obstacle velocity
+
+[6] D. Dugas, J. Nieto, R. Siegwart, and J. J. Chung, “Navrep: Unsupervised representations for reinforcement learning of robot navigation in dynamic human environments,” arXiv preprint arXiv:2012.04406, 2020.
+[7] Y. F. Chen, M. Liu, M. Everett, and J. P. How, “Decentralized noncommunicating multiagent collision avoidance with deep reinforcement learning,” in 2017 IEEE international conference on robotics and automation (ICRA). IEEE, 2017, pp. 285–292.
+[8] Y. F. Chen, M. Everett, M. Liu, and J. P. How, “Socially aware motion planning with deep reinforcement learning,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2017, pp. 1343–1350.
+[9] M. Everett, Y. F. Chen, and J. P. How, “Motion planning among dynamic, decision-making agents with deep reinforcement learning,” in 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2018, pp. 3052–3059.
+[10] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural computation, vol. 9, no. 8, pp. 1735–1780, 1997.
+[11] C. Chen, S. Majumder, Z. Al-Halah, R. Gao, S. K. Ramakrishnan, and K. Grauman, “Learning to set waypoints for audio-visual navigation,” arXiv preprint arXiv:2008.09622, vol. 1, no. 2, p. 6, 2020.
+[12] C. Chen, U. Jain, C. Schissler, S. V. A. Gari, Z. Al-Halah, V. K. Ithapu, P. Robinson, and K. Grauman, “Soundspaces: Audio-visual navigation in 3d environments,” in Proceedings of the European Conference on Computer Vision (ECCV). Springer, 2020.
+[13] S. Bansal, V. Tolani, S. Gupta, J. Malik, and C. Tomlin, “Combining optimal control and learning for visual navigation in novel environ-
+
+ments,” in Conference on Robot Learning. PMLR, 2020, pp. 420– 429. [14] R. Güldenring, M. Görner, N. Hendrich, N. J. Jacobsen, and J. Zhang, “Learning local planners for human-aware navigation in indoor environments.” [15] P. Regier, L. Gesing, and M. Bennewitz, “Deep reinforcement learning for navigation in cluttered environments,” 2020. [16] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019. [17] K. Qin, “General matrix representations for b-splines,” The Visual Computer, vol. 16, no. 3-4, pp. 177–186, 2000. [18] X. Zhou, Z. Wang, H. Ye, C. Xu, and F. Gao, “Ego-planner: An esdffree gradient-based local planner for quadrotors,” IEEE Robotics and Automation Letters, 2020. [19] L. Kästner, C. Marx, and J. Lambrecht, “Deep-reinforcement-learningbased semantic navigation of mobile robots in dynamic environments,” in 2020 IEEE 16th International Conference on Automation Science and Engineering (CASE). IEEE, 2020, pp. 1110–1115. [20] C. Rösmann, F. Hoffmann, and T. Bertram, “Timed-elastic-bands for time-optimal point-to-point nonlinear model predictive control,” in 2015 european control conference (ECC). IEEE, 2015, pp. 3352– 3357. [21] C. Rösmann, “Time-optimal nonlinear model predictive control,” Ph.D. dissertation, Dissertation, Technische Universität Dortmund, 2019.
+
+1220 Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:30:20 UTC from IEEE Xplore. Restrictions apply.
+

@@ -1,0 +1,802 @@
+2016 IEEE International Conference on Robotics and Automation (ICRA) Stockholm, Sweden, May 16-21, 2016
+
+High-Dimensional Winding-Augmented Motion Planning with 2D Topological Task Projections and Persistent Homology
+Florian T. Pokorny, Danica Kragic, Lydia E. Kavraki, Ken Goldberg
+
+Abstract— Recent progress in motion planning has made it possible to determine homotopy inequivalent trajectories between an initial and terminal conﬁguration in a robot conﬁguration space. Current approaches have however either assumed the knowledge of differential one-forms related to a skeletonization of the collision space, or have relied on a simplicial representation of the free space. Both of these approaches are currently however not yet practical for higher dimensional conﬁguration spaces. We propose 2D topological task projections (TTPs): mappings from the conﬁguration space to 2-dimensional spaces where simplicial complex ﬁltrations and persistent homology can identify topological properties of the high-dimensional free conﬁguration space. Our approach only requires the availability of collision free samples to identify winding centers that can be used to determine homotopy inequivalent trajectories. We propose the Winding Augmented RRT and RRT* (WA-RRT/RRT*) algorithms using which homotopy inequivalent trajectories can be found. We evaluate our approach in experiments with conﬁguration spaces of planar linkages with 2-10 degrees of freedom. Results indicate that our approach can reliably identify suitable topological task projections and our proposed WA-RRT and WA-RRT* algorithms were able to identify a collection of homotopy inequivalent trajectories in each considered conﬁguration space dimension.
+I. INTRODUCTION
+Over the last two decades, sampling based motion planning approaches have enabled the planning of complex motions even for robotic systems with a many degrees of freedom. Algorithms such as Rapidly Exploring Random Trees (RRT) [13] and Probabilistic Roadmaps (PRM) [12] proceed by incrementally constructing a sampling based graph-representation G of the environment using which the connectivity of the free conﬁguration space Cf can be approximated as the number of samples increases. These algorithms can determine feasible trajectories between an initial and a terminal conﬁguration in Cf and recent variants such as RRT* and RRG [11] can asymptotically determine a shortest path. While these methods approximate the pathconnectivity of Cf as the number of samples is increased, they do not capture all topological information about the space of continuous paths in Cf . More precisely, the graph G
+Florian T. Pokorny and Ken Goldberg are with the Department of Computer Science and Electrical Engineering, University of California, Berkeley. Ken Goldberg is also with the Department of Industrial Engineering and Operations Research, University of California, Berkeley. Danica Kragic is with CAS/CVAP, KTH Royal Institute of Technology and Lydia Kavraki is with the Department of Computer Science, Rice University, ftpokorny@berkeley.edu, dani@kth.se, kavraki@rice.edu, goldberg@berkeley.edu. Florian T. Pokorny acknowledges support from the Knut and Alice Wallenberg Foundation. Danica Kragic was supported by the EU grant FLEXBOT (FP7-ERC-279933).
+
+Π1
+
+Cf Π2
+0.5
+
+0
+
+0
+
+0.5
+
+Fig. 1: Illustration of our approach: The top left part of the ﬁgure
+
+illustrates a conﬁguration space Cf with two cylindrical obstacles. Collision free samples X ⊂ Cf in black are projected along two task-projections Π1, Π2 onto the (x, y) and (y, z) coordinates. Our persistent homology approach determines that each projection carries non-trivial information
+
+about homotopy classes in Cf by computing a persistence diagram for each (red and blue points in the diagram in the bottom right). The projection of
+
+Cf is approximated by a simplicial complex and winding centers lying in the projection of the collision space are automatically found (red points in
+
+the projections). Our WA-RRT* algorithm is initialized with these winding
+
+centers and determines four homotopy inequivalent trajectories in Cf .
+
+does not capture higher order topological information about Cf which is contained in the ﬁrst homology and homotopy groups of Cf . These algorithms are hence currently not able to distinguish homotopy classes of trajectories – where two trajectories are called homotopy inequivalent if they cannot be continuously deformed into one another (see Fig. 1).
+We study the problem of ﬁnding a collection of several homotopy inequivalent trajectories between pairs of points in the conﬁguration space. Let us highlight two beneﬁts of being able to ﬁnd such motions: Since continuous trajectory optimization approaches can deform a given initial trajectory only within its homotopy class, an initialization of these algorithms with several sub-optimal trajectories in distinct homotopy classes holds promise to avoid local minima. Furthermore, the ability to reason about homotopy classes, can be useful, for example to replan a trajectory in a different homotopy class when a given trajectory becomes infeasible due to changing environment conditions as homotopy
+
+978-1-4673-8026-3/16/$31.00 ©2016 IEEE
+
+24
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+inequivalent trajectories provide a knowledge of alternative motion classes to the robot. We propose the use of continuous projections Πi : Cf → R2, i ∈ {1, . . . , n} to 2-dimensional spaces for the purpose of determining homotopy inequivalent trajectories between two points s, t ∈ Cf in a collision free conﬁguration space Cf . Our approach uses a ﬁnite set of samples X ⊂ Cf that are mapped to Πi(X) ⊂ R2 and utilizes persistent homology to test whether nontrivial topological information about the fundamental group π1(Cf ) is captured by Πi. We use persistent homology to determine ‘winding centers’ using which we formulate the topological motion planning problem and we introduce an adaptation of RRT and RRT*-based motion planners which we call WARRT and WA-RRT* (Winding Augmented - RRT/RRT*). These algorithms allow incorporating the determined topological information to ﬁnd homotopy inequivalent trajectories and we present an experimental evaluation in conﬁguration spaces of dimension 2-10 using planar linkages.
+II. BACKGROUND Homotopy-Aware Motion Planning: We consider the problem of determining homotopy inequivalent trajectories between two points in a conﬁguration space Cf . Early work on synthesizing homotopy inequivalent trajectories has focused on two dimensional conﬁguration spaces for planar robot motion planning. Jenkins [10] decomposed a 2D conﬁguration space using wedge-sectors around a central point to describe trajectories as words classifying the transition of a path with respect to these wedges. Grigoriev et al [6] considered planar cuts to construct homotopy inequivalent trajectories in the plane while [18] suggested a PRM based approach called Homotopy Preserving Roadmaps in 2D. In [17], homology classes are advocated instead of homotopy classes to plan homotopy inequivalent trajectories by means of winding angles in 2D which was later generalized to higher dimensions [3]. This approach relied on an initial graph representation of the free conﬁguration space which was then augmented by a topological signature integrating a differential one-form along a given path. This differential one-form, capturing information about the topology of the collision space, was assumed to be given and in 2D corresponded to a winding angle and relied on a representative given winding center in the interior of each obstacle surrounded by free space. We build on these prior works, but here only assume the ability to sample collision free points in Cf . We furthermore propose the use of continuous projections to 2 dimensional space Πi : Cf → R2 and a ﬁrst method to automatically extract winding points in a sampling driven manner by using persistent homology. Topological approaches have inspired the work of [20] utilizing writhe to form a representation for motion planning to efﬁciently plan twisting motions. This work has however not studied the generation of homotopy inequivalent trajectories. Our work [16] utilizes winding angles to plan enveloping motions of a hand to cage an object, but homotopy classes of motions are not the focus of this work. Our work is related to these approaches in that we also use winding angles. Our
+
+approach utilizes a winding augmented covering space on
+
+which our RRT/RRT* based planners perform incremental
+
+search resulting in homotopy inequivalent trajectories. A
+
+further difference to our approach is that we only assume the
+
+availability of collision free samples in Cf without analytic information about the obstacles.
+
+In [15], we used persistent cohomology and represented
+
+the free conﬁguration space of a robot in a sampling based
+
+manner by means of a ﬁltration of simplicial complexes to
+
+plan trajectories in distinct homology classes in dimensions
+
+up to 4. The construction of these simplicial complexes is
+
+however currently impractical in higher dimensions since
+
+these methods are based on Delaunay triangulations of
+
+samples X whose complexity in dimensions higher than 4
+
+quickly becomes infeasible for large numbers of samples.
+
+In this work, we also utilize persistent homology, but only
+
+under a projection to 2D task spaces. We thus avoid the
+
+‘curse of dimensionality’ of constructing high-dimensional
+
+simplicial approximations of Cf itself. Our approach to use projections is also inspired by the planner KPIECE [19] that
+
+utilizes projections to lower dimensions to efﬁciently guide
+
+a tree-based motion planner.
+
+Path Homotopy Classes and Homology: In order to
+
+identify whether two trajectories are homotopy inequivalent,
+
+we require topological information about the free conﬁg-
+
+uration space Cf beyond the path-connectivity of Cf . The fundamental group π1(Cf , x0), whose elements are given by equivalence classes of closed trajectories based at a point
+
+x0 ∈ Cf can distinguish homotopy classes of trajectories because two trajectories γ1, γ2 : [0, 1] → Cf between x0 and another point x1 ∈ Cf yield a closed loop l = γ1 ◦ −γ2 : [0, 1] → Cf following γ1 from x0 to x1 and then γ2 from x1 to x0. The loop l corresponds to the identity element in π1(Cf , x0) precisely if γ1, γ2 are homotopy equivalent. When Cf is path-connected, π1(Cf , x0) is independent of the base point [7]. Typically, the fundamental group has inﬁnite
+
+cardinality and forms a highly complex group that is typically
+
+non-commutative. To avoid the complexity of π1(Cf ), we consider a commutative version of π1(Cf ) which is provided by the ﬁrst homology group H1(Cf ) [17].
+Simplicial Complexes and Persistent Homology: One
+
+of the key problems we address in this paper is the detec-
+
+tion of topologically non-trivial information as identiﬁed by
+
+π1(Cf ). In order to detect that π1(Cf ) is non-trivial based on collision free samples – and to therefore detect the fact
+
+that homotopically distinct trajectories exist – we will utilize
+
+persistent homology [4] which we review now.
+
+Given a sample of points X ⊂ Rd, we can consider the
+
+family of union of balls spaces Xr = x∈X {y ∈ Rd :
+
+x−y
+
+r}, for r 0 as in prior work [15]. For
+
+each r, Xr is homotopy equivalent to the Delaunay-Cˇ ech
+
+complex DCr(X) [1], which is a simplicial complex deﬁned
+
+for the ﬁnite set X ⊂ Rd and a radius parameter r which
+
+in this context is called the ﬁltration value. Let us recall
+
+here that a geometric k-simplex σ = [v0, . . . , vk] in Rd is a convex hull of k + 1 ordered afﬁnely independent elements
+
+v0, . . . , vk ∈ Rd and a convex hull of an ordered subset of
+
+25
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+these elements is called a face τ of σ, indicated by τ σ.
+
+We call k the dimension of a k-simplex. A (ﬁnite) simplicial
+
+complex K is a non-empty set of simplices such that if σ ∈ K
+
+and τ σ, then τ ∈ K and if σ, σ ∈ K then σ ∩ σ is
+
+empty or an element of K. We write |K| for set of points
+
+in Rd contained in the union of all simplices in K. The set
+
+|K| is a topological space with the subspace topology from
+
+Rd. Let D(X) denote the simplicial complex corresponding
+
+to the Delaunay triangulation of X with simplices deﬁned
+
+by D(X) = {[v0, . . . , vk] : vi ∈ X, ∩ki=0Vvi = ∅ for k ∈
+
+{0, 1, . . . , d}}, where Vx denotes the Voronoi cell containing
+
+x. For each k-simplex σ = [v0, . . . , vk] ∈ D(X), deﬁne
+
+f (σ) = min{r : {y ∈ Rd : x − y
+
+k i=0
+
+Br
+
+(vi)
+
+r}. The
+
+=Del∅a}u,nawy-hCˇeerechBcro(mx)ple=x
+
+DCr(X), for r 0 is the sub-complex of D(X) deﬁned by DCr(X) = f −1((−∞, r]). The key point about this construction is that, since DCr(X) is homotopy equivalent to Xr, we can now compute topological information about Xr from DCr(X) at all scales r 0 using persistent homology.
+Persistent Homology: Whenever the ﬁrst homology
+
+group H1(Xr) is non-trivial, π1(Xr) is also non-trivial, since homology yields an Abelianization of the fundamental group
+
+[7]. As a result, we can conclude that Xr contains distinct homotopy classes if the ﬁrst homology group H1(Xr) is non-trivial (but the converse does not hold in general). Our
+
+approach is to investigate H1(Xr) at all radii r > 0 by means of the ﬁrst persistent homology of DCr(X). We omit the technical details of persistence here, more details can
+
+be found in [4], [15]. Fig. 2 illustrates the output of the
+
+persistence algorithm, called the ﬁrst persistence diagram.
+
+The diagram displays along the horizontal axis the birth
+
+radius rb at which a given holes in Xr are ﬁrst formed (voids that are fully enclosed by Xr). Along the vertical axis, the death ‘ﬁltration value’ rd at which a given hole disappear because it is fully covered by Xr is also recorded (formally, this corresponds to rank changes in the ﬁrst
+
+persistent homology groups). Since rb rd, all points in the diagram lie above the diagonal and the number of voids
+
+at radius r (formally the dimension of H1(Xr)) can be read off by counting the number of points (rb, rd) with rb r and rd > r. In the example, there exists one such point in the shown dashed quadrant for r = 0.1. A point (rb, rd) in the persistence diagram is also referred to as a persistence
+
+interval. The difference ε = rd − rb is called the persistence of the topological feature corresponding to (rb, rd). Points with large persistence have a large vertical distance to the
+
+diagonal and are noise-robust [5]. Points close to the diagonal
+
+can be considered as topological noise – e.g. small voids that
+
+appear and disappear quickly as r changes. In the example, a
+
+single large void exists in the point-cloud, corresponding to
+
+the red point in the ﬁrst persistence diagram. Corresponding
+
+to each point in the diagram, the computation of persistence
+
+also returns one or more closed paths of edges (1-simplices)
+
+called a 1-cycle which represents a non-trivial element in
+
+the ﬁrst homology group H1(DCr(X)) with coefﬁcients in Z2. The 1-cycle is displayed in red in the ﬁgure to the left and surrounds the non-trivial hole which is identiﬁed by the
+
+0.5
+
+0.1
+
+0
+
+0
+
+0.1
+
+0.5
+
+Fig. 2: Persistent homology analysis for a point-cloud X ⊂ R2 where
+samples are given by vertices (black dots) of the depicted simplicial complex. The union of balls-space Xr for r = 0.1 as illustrated by blue discs is approximated by the gray and black simplicial complex DCr(X). We use the ﬁrst persistence diagram shown on the right to identify a radius parameter r = 0.1 such that Xr contains a single hole (there exists just one point (x, y) in the diagram with x r and y > r. The hole corresponds to a computed collection of 1-simplices (a 1-cycle) displayed in red which surround the identiﬁed hole.
+
+cycle. For more details, see [4], [15]. Winding Numbers: Given a continuous curve γ :
+[0, 1] → R2 − {0}, where (r(t), θ(t)) ∈ R>0 × R denote continuous polar coordinates of γ, we deﬁne
+
+1 W (γ) = (θ(1) − θ(0)).
+2π
+
+If γ is a closed curve, W (γ) ∈ Z is called the winding
+
+number and measures the total number ot times γ winds
+
+around the origin (with sign). In Cartesian coordinates
+
+γ(t) = (x(t), y(t)) and for differentiable γ, we can compute
+
+W
+
+by
+
+the
+
+integral
+
+formula
+
+W (γ)
+
+=
+
+1 2π
+
+1 0
+
+y˙(t)x(t)−x˙ (t)y(t) x(t)2 +y (t)2
+
+dt
+
+while if γ is a piecewise-linear curve W (γ) can be computed
+
+by an explicit formula involving tan−1 [8].
+
+For a point w ∈ R2 and a continuous curve γ : [0, 1] →
+
+R2 − {w}, we deﬁne the winding around the winding center
+
+w by W (γ, w) = W (γ − w), where γ − w denotes the
+
+translated curve t → γ(t) − w for t ∈ [0, 1]. For x ∈ R2,
+
+π1(R2 − {x}) = Z and W in fact provides an isomorphism, mapping any closed curve in R2 −{x} to an integer. Winding
+
+numbers have been used classically, e.g. in complex analysis
+
+(Cauchy’s residue theorem). We will use the following result:
+
+Lemma 2.1: Let S = {w1, . . . , wk} ⊂ R2. And let α, β : [0, 1] → R2 − S be continuous curves such that α(0) =
+
+β(0) and α(1) = β(1). If there exists i ∈ {1, . . . , k} such
+
+that W (α, wi) = W (β, wi), then α and β are homotopy inequivalent.
+
+Proof: We observe that the closed curve γ following
+
+α from α(0) to α(1) and then β from β(1) = α(1)
+
+backwards to β(0) = α(0) satisﬁes W (γ, wi) = W (α, wi)− W (β, wi) = 0. Therefore γ is a non-trivial element of π1(R2 − {wi}) and hence α, β are homotopy inequivalent in R2 − {wi}. Since R2 − S ⊆ R2 − {wi} this implies that α, β are homotopy inequivalent in R2 − S also.
+
+III. METHODOLOGY We now formalize the planning problem and propose to determine a collection of homotopy inequivalent trajectories between given initial and terminal positions, x, y ∈ Cf by considering a purely sampling-driven approach. To accommodate high-dimensional spaces Cf , we propose to utilize a
+
+26
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+ﬁnite collection of topological task projections Π1, . . . , Πk : Cf → R2 to identify non-trivial topological information about the fundamental group πi(Cf ). We now discuss how such projections Πi can be deﬁned and identiﬁed by means of persistent homology before focusing on our Winding-
+
+Augmented RRT and RRT* algorithms.
+
+Topological Task Projection and Winding Centers: We
+
+observe that Lemma 2.1 is useful in order to distinguish
+
+homotopy classes in a general 2D free conﬁguration space
+
+Cf ⊂ R2 if we can identify suitable representative points S = {w1, . . . , wk} ⊂ R2 − Cf . In order to generalize this idea to higher dimensions, we observe:
+
+Lemma 3.1: Let X, Y be topological spaces and let Π :
+
+X → Y be a continuous function. Consider two continuous
+
+curves α, β : [0, 1] → X such that α(0) = β(0) and α(1) =
+
+β(1). Suppose that the curves Π ◦ α, Π ◦ β : [0, 1] → Y are
+
+homotopy inequivalent in Y . Then α, β must be homotopy
+
+inequivalent in X.
+
+Proof: Suppose there was a homotopy H : [0, 1] ×
+
+[0, 1] → X, H(s, 0) = α(s), H(s, 1) = β(s) for all s ∈
+
+[0, 1], then (s, t) → π(H(s, t)) yields a homotopy between
+
+π ◦ α and π ◦ β, which leads to a contradiction.
+
+The above lemma opens a possibility to detect homotopy
+
+inequivalence by means of continuous maps Π : Cf → R2. However, this approach is only feasible if Π(Cf ) contains non-trivial homotopy classes of curves which we can test by
+
+considering π1(Π(Cf )): Deﬁnition 3.2: For a path-connected topological space Cf ,
+let Π : Cf → Rn be a continuous map such that π1(Π(Cf )) is non-trivial. We call Π an n-dimensional topological task
+
+projection of Cf . Here, we utilize 2-dimensional topological task projections.
+
+Since H1(Π(Cf )) = 0, computed over ﬁnite ﬁeld coefﬁcients implies that π1(Π(Cf )) is non-trivial, we use the computationally more amenable ﬁrst homology group H1(Cf ) to test whether a map Π : Cf → R2 is in fact a topological task projection. While it might be possible to compute H1(Π(Cf )) when Π(Cf ) is analytically determined, we work under the assumption that we are only able to obtain samples in Cf .
+Topological Task Projection Identiﬁcation: Given a
+
+collection of samples X ⊂ Cf and a continuous candidate map Π : Cf → R2, we would like to evaluate whether H1(Π(Cf )) is non-trivial. We recall the following manifold reconstruction result of Niyogi:
+
+Theorem 3.3 (Niyogi [14]): Let X = {x1, . . . , xn} ⊂ Rd
+
+such that X Riemannian
+
+misan2rif-odlednsweitahndcolnedtitMion
+
+⊂ Rd be number τ
+
+a .
+
+compact Then for
+
+any r
+
+3 5
+
+τ
+
+,
+
+Xr
+
+deformation
+
+retracts
+
+to
+
+M.
+
+Therefore
+
+the
+
+homology of M is isomorphic to the homology of Xr.
+
+In the above, the condition number τ encodes the tame-
+
+ness of M , quantiﬁed in local and global curvature condi-
+
+tions. Thus, if we can obtain a sufﬁciently dense sample
+
+X = {x1, . . . , xn} ⊂ Cf such that the projected sample Y = Π(X) satisﬁes the conditions above, H1(Π(Cf )) = H1(Yr) = H1(DCr(Y )) for appropriate r and Yr = ∪ni=1Br(Y ). Since τ is however typically not computable in practice, we rely on the identiﬁcation of noise-robust
+
+0.5
+
+0
+
+0
+
+0.5
+
+Fig. 3: Identiﬁcation of winding centers with persistent homology. Top:
+Collision free samples (in blue) and simplicial approximation of Xr at r = 0.05 where two holes are identiﬁed by two points in the ﬁrst persistence diagram shown to the right. Each of the two red points yields a 1-cycle shown as a red closed curve in the bottom row. The 2-boundary corresponding to each 1-cycle yield triangles in the interior of the 1-cycle. The triangles in each 2-boundary with ﬁltration larger than r yield green approximations of obstacles. While 1-cycles may enclose more than a single hole, there exists a unique triangle of maximal ﬁltration index/ﬁltration value for each corresponding 2-boundary. For each 1-cycle this triangle is shaded in dark green in the bottom ﬁgures and its barycenter is chosen as a winding center (one blue point for each ﬁgure in the bottom row).
+homological information and appropriate radii r > 0 by means of the persistence diagram of H1(DCr(X) for all r > 0. Persistent homology generators with large persistence have been proven to provide features that are robust to noise, see [5]. In summary, to evaluate a candidate projection Π : Cf → R2 in practice, we compute a sample X ⊂ Cf and determine the ﬁrst persistence diagram of Y = Π(X). Given a threshold ε > 0, we deem the projection to be a topological task projection if there exist points in the persistence diagram with persistence larger than ε. For example, if we obtain samples Y ⊂ R2 and a persistence diagram with a single point with large persistence as in Fig. 2, we empirically deem the projection a valid topological task projection.
+Winding Centers: Given a topological task projection Π : Cf → R2, we will require representative winding points w1, . . . , wk ∈ R2 such that Π−1(wi) lies in the collision space for each i ∈ {1, . . . , k}. To identify such points, we ﬁrst attempt to identify a ﬁxed ﬁltration value r > 0 such that only points of large persistence are alive in Yr DCr(Y ). When H1(Yr) is n-dimensional, we compute a resulting basis of 1-cycles c1, . . . , cn such that [c1], . . . [cn] form a basis of H1(Xr). This basis can be extracted from the standard matrix reduction algorithm for persistent homology, for example. Since H1(XR) = 0 for sufﬁciently large R > 0, we can furthermore extract a collection of 2boundaries b1, . . . , bn, such that ∂bi = ci [15]. Each 2boundary intuitively corresponds to the triangulated surface interior to each 1-cycle (see Fig 3).
+
+27
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+1
+xstart
+
+w
+
+xend
+
+−1
+
+−1
+
+1
+
+Fig. 4: Left: Planning problem from xstart to xend with central winding
+point w and disc obstacle in blue. Right: Expansive Tree (our WA-RRT*) in Winding Covering Space modulo 2. The z-coordinate corresponds to the winding angle around w and is taken modulo 2, so that the ends of the spiral are ‘glued together’. The blue path in the covering space jumps from the top layer of the covering space to the bottom layer and we can distinguish between the two red and green homotopy inequivalent trajectories since they have differing terminal z-coordinate in the winding augmented covering space. Path length in the winding augmented space is given by the path length of the resulting projection onto Cf .
+
+By considering the subset of triangles in bi that have ﬁltration values larger than r, we obtain a geometric representation of the holes in Yr as shown in green in Fig. 3. While cycles can surround more than a single obstacle as in the
+
+case of the bottom left cycle, each obstacle contains a unique
+
+triangle of maximal ﬁltration index whose barycentric center
+
+we use as a winding point for the obstacle. This triangle is
+
+shaded in dark green in the ﬁgure and the resulting winding
+
+points are displayed in blue.
+
+Planning with Winding Augmentation: Let us now consider the topological motion planning problem. We ﬁrst
+
+discuss the 2-dimensional case before proposing our algo-
+
+rithm utilizing topological task projections. Given a 2D-
+
+conﬁguration space Cf ⊂ R2 and a collection of points w1, . . . , wk, Bhattacharya et al. [2] consider representing Cf by a ﬁxed graph representation and to plan trajectories in a type of covering space over the graph in Cf to plan homotopically distinct trajectories. For each path
+
+γ : [0, 1] → Cf , a point γ(t) = (x(t), y(t)) on the graph is represented by an augmented topological coordinate: γˆ(t) = (x(t), y(t), W1(t), . . . , Wk(t)), where Wl(t) = Wl(γ([0, 1])) mod mk denotes the winding angle from γ(0) to γ(1) modulo a chosen integer mk 2.
+We observe now that this construction can be generalized
+
+to higher dimensions by using topological task projections.
+
+Furthermore, we observe here that we can utilize this repre-
+
+sentation not just on a ﬁxed graph, but for any curve in Cf . We hence propose to instead dynamically explore a winding
+
+augmented space based on task-projections with RRT-based
+
+incremental algorithms:
+
+Projections and Winding Augmentation: Consider a
+
+conﬁguration space Cf given by a topological space, and
+
+a number of k topological task projections Π1, . . . , Πk :
+
+Cf → R2 and corresponding winding centers wi,1, . . . , wi,ni for each projection Πi and consider integers mi,j > 2 for
+
+each winding center. Denote by M =
+
+k i=1
+
+ni
+
+the
+
+total
+
+number of winding centers across all projections. Consider
+
+an initial conﬁguration x0 ∈ Cf and a continuous path
+
+γ : [0, 1] → Cf , and deﬁne Wi,j(γ, t) to be the total winding angle W (Πi(γ([0, t]))) of the projected path segment Πi(γ([0, t])) ⊂ R2 under the projection Πi : Cf → R2 modulo mi,j and with respect to the winding point wi,j ∈ R2. We deﬁne the augmented winding coordinates of γ(t) ∈ Cf to be γˆ(t) = (γ(t), W1,1(γ, t), . . . , Wk,nk (γ, t)) ∈ Cf × Z, where Z = [0, m1,1) × . . . × [0, mk,nk ) ∈ RM . We observe
+Lemma 3.4: Let α, β : [0, 1] → Cf be two continuous paths such that α(0) = β(0) = x0 and α(1) = β(1), but αˆ(1) = βˆ(1). Then α and β are homotopy inequivalent.
+Proof: We have Wi,j(α, 1) = Wi,j(β, 1) for some i ∈ {1, . . . , k} and j ∈ {1, . . . , ni}. But then, by Lemma 2.1, the projections Πi(α) and Πi(β) are homotopy inequivalent. By Lemma 3.1, this implies that α, β are themselves homotopy inequivalent. Note that since we consider the winding coordinates modulo mi,j, our lifted coordinates can only distinguish between paths winding up to mi,j − 1 times around each corresponding winding point wi,j – however, as a result, the space of all possible lifting coordinates is bounded and of volume that can be controlled by empirically setting the size of mi,j.
+We propose to use winding augmented coordinates to perform incremental motion planning, using RRT-based algorithms in dimension 2 and higher. Fig. 4 visualizes an example application of WA-RRT* an RRT* based algorithm in the trivial case with a 2-dimensional space Cf and a single winding point and task projection equal to the identity map, while Fig. 1 illustrates a 3 dimensional case with two linear task projections (m1,1 = m2,1 = 2). Note that linear projections to R2 are not sufﬁcient in all cases, as in the case of a torus obstacle in R3 and more general non-linear task projection to Rn, n > 2 might in such cases be of interest. For the current work, we will however focus on 2D projections.
+IV. ALGORITHMIC DETAILS AND IMPLEMENTATION
+Given Cf , we denote our winding augmentation by A = (Π1, . . . , Πk, (w1,1, m1,1), . . . , , (wk,nk , mk,nk )), where Πi : Cf → R2 denotes the i-th topological task projection, wi,j the j-th winding center for Πi and mi,j denotes the integer modulo which we consider winding around wi,j. We consider an initial state q0 ∈ Cf and a goal region Ω ⊂ Cf that we would like to reach via a path from q0.
+Winding Augmented RRT (WA-RRT): Like the standard RRT motion planner [13], WA-RRT consists of a main for loop shown in Alg. 1 which incrementally constructs a tree. However, our tree (V, E) consists of vertices V ⊆ Cf × Z and edges E ⊆ Cf × Z augmented by winding angles with respect to all chosen winding centers wi,j in Z. Alg. 1 is similar to the RRT algorithm with goal set Ω and goal bias PGoalBias, but at each iteration we sample both a state qrand ∈ Cf , either from the goal set Ω or uniformly from Cf , and an appropriate winding coordinate tuple wrand ∈ Z. To sample winding coordinates for a new point qrand, RandomWindingLayer(q0, qrand) determines, for each i, j the winding λi,j of the straight line segment from Πi(q0) to Πi(qrand) with respect to wi,j ∈ R2 and adds a random
+
+28
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+Algorithm 1 WA-RRT(q0, Ω, A = ({Πi}, {wi,j, mi,j}))
+
+1: E ← ∅; w0 ← 0 ∈ RM ; x0 ← (q0, w0); V ← {x0}
+
+2: for i = 1 . . . N do
+
+3: if with some probability PGoalBias then
+
+4:
+
+qrand ← RandomElement(Ω)
+
+5: else
+
+6:
+
+qrand ← RandomState(Cf )
+
+7: end if
+
+8: wrand ← RandomWindingLayer(q0, qrand, A)∈ Z
+
+9:
+
+xrand ← (qrand, wrand)
+
+10: Extend-WA-RRT((V, E), xrand, A)
+
+11: end for
+
+Algorithm 2 Extend-WA-RRT((V, E), xrand, A)
+1: xnearest ← Nearest((V, E), xrand, A) 2: xnew ← Steer(xnearest, xrand, A) 3: if CollisionFree(xnearest, xnew) then 4: V ← V ∪ {xnew}; E ← E ∪ {(xnearest, xnew)} 5: end if
+integer in [0, mi,j −1] (chosen with equal probability) to each λi,j before returning the resulting tuple wrand of winding coordinates modulo mi,j. The purpose of this procedure is to yield random samples xrand = (qrand, wrand) covering the winding augmented covering space. In the simplest case of a single winding coordinate as in Fig. 4 and m1,1 = 2, the procedure ﬁrst selects a random sample from Cf and then chooses a ‘height level’ in {0, 1} that is added modulo 2 to the winding from q0. The Extend-WA-RRT (Alg. 2) method is structurally identical to the RRT extension method, however since we are passing tuples xrand = (qrand, wrand) we need to adapt the function calls to consider points in the winding augmented covering space and in particular, the Nearest function. The purpose of Nearest((V, E), xrand) is to return a nearest vertex xnearest ∈ V to xrand = (qrand, wrand) in the winding augmented space. Since a computation of geodesic distances in the full winding space is challenging between points whose winding difference exceeds 0.5, we instead return the Cf -nearest neighbor only within a chart (see also Atlas RRT [9]) deﬁned by the set N (qrand, wrand, A) of vertices that have a winding difference smaller than 0.5 (i.e. < ±π in polar coordinates) to any of the winding coordinates of qrand, where N (qrand, wrand) = {(q, w) ∈ V : maxi,j |wi,j − wir,ajnd| < 0.5}.
+The distance between xrand = (qrand, wrand) and any point x = (q, w) in N (qrand, wrand) is then given by the distance of qrand and q in Cf . The nearest neighbor query when restricted to N (qrand, wrand) hence reduces to the standard nearest neighbor problem in Cf . When no neighbor exists within this set, the algorithm proceeds by resampling a new xrand. For a returned nearest neighbor with winding differences less than 0.5, Steer returns a new state by locally steering towards xnew = (qnew, wnew) as in the standard RRT Steer method but also returns the winding coordinates wnew ∈ Z by adding the winding angle of the new path segment to the winding coordinates of xnearest in each topological task projection. CollisionFree(xnearest, xnew), for xnew = (qnew, wnew), xnearest = (qnearest, wnearest)
+
+1
+0.5
+0 100
+1
+0.5
+0 100
+
+r = 0.03 r = 0.05 r = 0.1 r = 0.2
+
+500
+
+1000
+
+10000
+
+r = 0.03 r = 0.05 r = 0.1 r = 0.2
+
+500
+
+1000
+
+10000
+
+Fig. 5: Top: We display the mean ratio of identiﬁed winding centers (y-
+axis) under the projection Π1 in C(r) corresponding to persistence intervals with persistence of at least r/2 as the number of samples (x-axis) and radius r is changed. Bottom: mean number of false positives under the projection Π2 as deﬁned by the ratio of times a persistence interval with persistence larger than r/2 exists under the projection Π2. Both ratios converge as the number of samples increases.
+returns True if the path segment from qnearest to qnew is collision free.
+Winding Augmented RRT* (WA-RRT*): WA-RRT* is based on RRT* and utilizes the WA-RRT main loop, but then calls a modiﬁed Extend method that at the notational level is identical Extend-RRT* of RRT* (please see Alg. 4 [11]). Instead of a state in Cf , our xrand however lies in the winding augmented covering space and we utilize the previously discussed modiﬁcations of CollisionFree, Nearest and Steer. RRT* further requires a method Near((V, E), xnew, |V |)) returning all nearest neighbors within a ball of radius ε(|V |) depending on |V | [11]. We adapted Near to return all vertices of distance less than ε(|V |) and lying within the set N (xnew). Recall here ε(|V |) indicates a radius parameter that asymptotically tends to zero as the number of vertices |V | is increased [11].
+
+V. EXPERIMENTS
+
+Topological Task Projections and Winding Centers
+
+Sample and obstacle size dependence: We investigate
+
+the reliability and parameter dependence of our topological
+
+task projection and winding angle detection algorithm. De-
+
+note by C(r) = {x = (x1, . . . , xd) ∈ [−1, 1]d : x21 + x22 > r2} ⊂ Rd, B(r) = {x = (x1, . . . , xd) ∈ [−1, 1]d : x 1, x21 + x22 > r2} ⊂ Rd, the unit cube and ball with a cylindrical hole of radius r along the x1, x2 axes. We ﬁrst considered d = 5, varied r ∈ {0.03, 0.05, 0.1, 0.2}
+
+and sampled between n = 100 and n = 10000 samples
+
+uniformly from C(r). We study the linear projections Π1, Π2 of C(r) onto (x1, x2) by Π1 and onto (x2, x3) by Π2. Note that Π1 reveals the cylindrical void, while Π2 can only result in false positives as the hole is not revealed by Π2. For 50 trials per parameter setting, Fig.5 displays the mean fraction
+
+of times a winding correctly identiﬁed
+
+center with persistence larger than in the projection of C(r) under
+
+Π2r 1waass
+
+the radius r and the sample size is varied. The bottom part
+
+displays the analogous results for Π2 as an approximation to the false positive rate. As the number of samples increases to
+
+10000 we obtain a success rate of one and false positive rate
+
+of zero. The mean time to compute the persistence diagram
+
+and winding centers increases from 0.9ms for 100 samples
+
+to 0.36s for 10000 samples.
+
+29
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+1
+
+r = 0.2
+
+π
+
+r = 0.6
+
+0.5
+
+r = 0.8
+
+3
+
+0
+
+r = 0.9
+
+2
+
+3
+
+4
+
+5
+
+6
+
+1
+
+0
+
+0
+
+r = 0.2
+
+r = 0.6 0.5
+r = 0.8
+
+0
+
+r = 0.9
+
+−3
+
+2
+
+3
+
+4
+
+5
+
+6
+
+−π
+
+Fig. 6: Success ratio of recovering a winding coordinate with persistence
+
+−3
+
+0
+
+3
+
+−π
+
+0
+
+π
+
+larger than 0.1 by means of random orthogonal linear task projection from 1
+
+C(r) (top ﬁgure) and B(r) (bottom ﬁgure) for dimensions 2 to 6 (x-
+
+axis). While on average 26% of projections from C(0.9) still revealed the
+
+cylindrical hole, none of the 100 trials per setting revealed the hole for B(r)
+
+for dimensions larger than 4.
+
+Choosing projection candidates: We now investigate identifying a topological task projection by random linear orthogonal projections from C(r) and B(r) to R2. For 10000 samples from C(r), B(r) and in 100 trials per parameter setting respectively, Fig.6 displays the fraction of times a persistence interval with persistence larger than 0.1 was recovered as the dimension d is varied. Since C(r) degenerates to a thin ring as r tends to one, we can recover the hole even for d = 6, while for B(r) many projections do not reveal the cylindrical hole in higher dimensions (bottom ﬁgure), and we were not able to ﬁnd a projection with persistence larger than 0.1 over 100 trials for dimensions larger than 4. This exempliﬁes that the probability of determining topological task projections in a randomized manner is highly conﬁguration-space dependent. In practice, the use of domain knowledge can be employed to determine the number and type of projections. Natural projections along the ith and jth joint-angles of a robotic system as well as non-linear maps to end-effector positions can serve as an alternative approach to random search for ﬁnding an initial candidate set of projections.
+
+Planning with multi-joint planar linkages
+
+We evaluate our WA-RRT/RRT* algorithms using simu-
+
+lated planar linkages that are attached to the origin and with
+
+2 d 10 degrees of freedom. The linkages consist of a
+
+segment of length 1.5 followed by a segment of length 1
+
+and between 0 and 8 segments of length 0.5. The arm is
+
+placed in an environment with the obstacles displayed by
+
+disks in Fig.7 and arm self-collisions as well as collisions
+
+with the obstacles are disallowed. Joint angles are denoted by
+
+θ = (θ1, . . . , θd) and θj ∈ (−π, π). From an initial position
+
+with arm
+
+θstart = ( is required
+
+π4to,
+
+0, . . . , move
+
+0) to from
+
+θagosatlra=igh(t−enπ4ed,
+
+0, . . . , 0), position
+
+the just
+
+left of the top obstacle to a straightened position just right
+
+of the top obstacle. Fig. 7 illustrates one such arm for d = 6
+
+and 30.000 samples from Cf are visualized.
+
+Homotopy Classes for Planar Linkages: Note that even
+
+for simple planar linkages, there exists a wealth of distinct
+
+topological task projections and homotopy classes. Firstly,
+
+if we consider a goal region deﬁned by Ω = Π−1(x),
+
+where Π : Cf → R2 denotes the map to the endeffector
+
+0
+
+0
+
+1
+
+Fig. 7: Planar 6DOF robot arm from our family of 2-10 DOF arms
+and 30.000 sampled joint-conﬁgurations displayed by color coded endpoint positions of the resulting link placements (top left). Bottom left: ﬁrst persistence diagram (computed in 0.52s) for these samples reveals three holes in the (θ1, θ2) projection Π. The projected samples X correspond to vertices of DC0.1(X) shown in the top right ﬁgure. The three large colored points in the persistence diagram correspond to the colored winding centers in the top right. Bottom right: Projections of WA-RRT* trajectories in (θ1, θ2)-coordinates for a 2 DOF arm, illustrating different found homotopy classes. Please see the supplementary video for animations.
+
+position, winding coordinates around any winding point in the interior of an obstacle determine homotopy inequivalent trajectories in end-effector space that wind differently around the obstacle, as illustrated in the right part of Fig.9. Similarly, if self-collisions are allowed and without joint-limits (e.g. corresponding to a 3D robot with joints stacked along zcoordinate), we can consider the i-th joint angle θi embedded onto a unit circle centered at the origin and with winding center given by the origin. The resulting map Πi : Cf → R2 is a topological task projection and trajectories planned with Πi allow us to control the number of times the i-th link rotates around the i-th joint. For animations of some examples of homotopy inequivalent motions planned with our approach, please see the supplementary video.
+For our main experimental evaluation, we focus on the complexity of our approach in various dimensions and chose to investigate the projection Π : Cf → R2 onto (θ1, θ2) (Fig.7). For this projection Π, each hole corresponds to one of the three obstacles in Cf and a path moving above a corresponding hole in (θ1, θ2) corresponds to rotating the second link to the left as we pass the narrow passage created by the obstacle while passing below moves the second link to the right as the obstacle is passed. Winding around a hole clockwise corresponds to passing the narrow passage near the obstacle with the second link angled to the right and then returning, passing the passage with the second link angled to the left. Fig.7 displays found examples from different homotopy classes in the 2DOF case, for higher DOF, the remaining links fold to avoid the obstacles, but the topological winding under Π only depends only on (θ1, θ2).
+Complexity of WA-RRT: For a maximal RRT stepsize of 200, collision tests in steps of 0.1, a linear steering function
+
+30
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+
+300
+
+100
+
+200 50
+100
+
+0
+
+0
+
+12345678
+
+1 5 10 15 20
+
+27
+
+Fig. 8: Left: We investigated the mean time in seconds (y-axis) to ﬁnd
+k homotopy inequivalent solution trajectories (x-axis) with WA-RRT for mi,j = 2 (left) and the three found winding centers for planar linkages with 2 to 10 DOF and averaged over 5 trials. While, for d = (2, 3, 4, 5), all 8 classes were found in (0.36, 0.55, 0.48, 1.97) seconds on average, for d = 6, 8, 10 (black, blue, red) we obtain the performance shown in the left plot for the chosen maximal step size of 200 and goal bias 0.01. Middle ﬁgure: For mi,j = 3, the winding augmented search space increases in volume and there are up to 33 = 27 homotopy classes. The ﬁgure displays the mean time over 5 trials to ﬁnd k homotopy inequivalent trajectories in dimensions d = 2, 3, 4, 5, 6, 8, 10 with plots steepening with the dimension. Right: A projection of a found 10DOF arm trajectory for mi,j = 3 which winds more than once around the rightmost winding point.
+
+60
+
+3 40
+0 20
+−3
+
+0
+
+0
+
+100
+
+200
+
+−3
+
+0
+
+3
+
+Fig. 9: Left: Typical incremental path length (y-axis) reduction of WA-
+RRT* against runtime in seconds (x-axis) illustrating how paths in separate homotopy classes can converge to distinct path lengths under WA-RRT*. In this experiment, we considered a 4DOF linkage, ε(1) = 0.005 and our three winding centers resulting in 23 = 8 homotopy classes (mi,j = 2). Right: Our approach can also be applied to obtain homotopy classes under forward-kinematics. A 4DOF planar linkage and a winding center w in R2 corresponding to the cross in the smallest obstacle and a goal set Ω = Π−1(x) is used. Here, x denotes the blue point to the right of the red cross and Π denotes the end-effector forward kinematics map. Using Π, w and m1,1 = 2, we obtain two solution trajectories of the arm that are homotopy inequivalent in R2 as visualized by end-effector trajectories in red and blue.
+
+in joint space and with a goal bias of 0.01, we studied the mean time to determine the k homotopy classes for the three winding points for our robot arms for various dimensions using our C++ implementation of WA-RRT/RRT* on an Intel i7 laptop with 8GB RAM. Fig. 8 (left) displays the result for m1,1 = m1,2 = m1,3 = 2 winding layers per winding center (23 = 8 classes). For mi,j = 3, we obtain at most 33 = 27 classes in the middle part of of Fig.8. In this case some classes are more difﬁcult to ﬁnd due to the increased size of the winding augmented space for mi,j = 3.
+Convergence of WA-RRT*: WA-RRT* discovers trajectories at the same iteration as WA-RRT for identical samples, but additionally optimizes the path incrementally. Fig.9 displays convergence of the length of various homotopy classes for a 4DOF planar linkage and with an initial RRT* neighborhood radius of ε(1) = 0.005.
+
+VI. CONCLUSIONS We have introduced topological task projections (TTPs) and a persistence based approach to detect winding centers for high-dimensional homotopy aware motion planning. We introduced two incremental algorithms, WA-RRT and WARRT* which enable us to determine homotopy inequivalent trajectories and demonstrated our approach with 2-10 DOF planar linkages resulting in a novel demonstration of topological motion planning in conﬁguration spaces of dimension higher than 4. In future work, we intend to investigate the probabilistic completeness of the proposed algorithms.
+REFERENCES
+[1] U. Bauer and H. Edelsbrunner, “The Morse theory of Cˇ ech and Delaunay ﬁltrations,” in Proc. of the Thirtieth Annual Symp. on Comp. Geometry, ser. SOCG’14. New York, NY, USA: ACM, 2014.
+[2] S. Bhattacharya, R. Ghrist, and V. Kumar, “Persistent homology for path planning in uncertain environments,” Robotics, IEEE Trans., vol. 31, no. 3, pp. 578–590, June 2015.
+[3] S. Bhattacharya, D. Lipsky, R. Ghrist, and V. Kumar, “Invariants for homology classes with application to optimal search and planning problem in robotics,” Annals of Math. and Artif. Intell. (AMAI), 2013.
+[4] H. Edelsbrunner and J. Harer, “Persistent homology-a survey,” Contemporary mathematics, vol. 453, pp. 257–282, 2008.
+[5] H. Edelsbrunner and J. L. Harer, Computational topology: an introduction. AMS Bookstore, 2010.
+[6] D. Grigoriev and A. Slissenko, “Polytime algorithm for the shortest path in a homotopy class amidst semi-algebraic obstacles in the plane,” ISSAC ’98, 1998.
+[7] A. Hatcher, Algebraic topology. Cambridge University Press, 2002. [8] K. Hormann and A. Agathos, “The point in polygon problem for arbi-
+trary polygons,” Computational Geometry. Theory and Applications, vol. 20, no. 3, pp. 131–144, Nov. 2001. [9] L. G. Jaillet and P. Pleite, “Path planning with loop closure constraints using an atlas-based rrt,” 2011. [10] K. D. Jenkins, “The shortest path problem in the plane with obstacles: A graph modeling approach to producing ﬁnite search lists of homotopy classes,” DTIC Document, Tech. Rep., 1991. [11] S. Karaman and E. Frazzoli, “Incremental sampling-based algorithms for optimal motion planning,” in Proceedings of Robotics: Science and Systems, Zaragoza, Spain, June 2010. [12] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces,” IEEE Trans. on Robotics and Automation, vol. 12, no. 4, pp. 566–580, 1996. [13] S. M. LaValle and S. A. Hutchinson, “Optimal motion planning for multiple robots having independent goals,” Robotics and Automation, IEEE Transactions on, vol. 14, no. 6, pp. 912–925, 1998. [14] P. Niyogi, S. Smale, and S. Weinberger, “Finding the homology of submanifolds with high conﬁdence from random samples,” Discrete and Comp. Geometry, vol. 39, no. 1-3, pp. 419–441, 2008. [15] F. T. Pokorny and D. Kragic, “Data-driven topological motion planning with persistent cohomology,” in Proceedings of Robotics: Science and Systems, Rome, Italy, July 2015. [16] F. T. Pokorny, J. A. Stork, and D. Kragic, “Grasping objects with holes: A topological approach,” in Proc. of the IEEE International Conference on Robotics and Automation (ICRA), 2013. [17] M. L. S. Bhattacharya, V. Kumar, “Search-based path planning with homotopy class constraints,” in Proc. of The Twenty-Fourth AAAI Conf. on Artiﬁcial Intelligence, 11-15 July 2010. [18] E. Schmitzberger, J. L. Bouchet, M. Dufaut, D. Wolf, and R. Husson, “Capture of homotopy classes with probabilistic road map,” in Intelligent Robots and Systems, 2002. IEEE/RSJ International Conference on, vol. 3, 2002, pp. 2317–2322 vol.3. [19] I. Sucan and L. E. Kavraki, “A sampling-based tree planner for systems with complex dynamics,” IEEE Trans. on Robotics, vol. 28, no. 1, pp. 116–131, 2012. [20] D. Zarubin, V. Ivan, M. Toussaint, T. Komura, and S. Vijayakumar, “Hierarchical motion planning in topological representations,” in Proceedings of Robotics: Science and Systems, Sydney, Australia, July 2012.
+
+31
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 13:17:22 UTC from IEEE Xplore. Restrictions apply.
+

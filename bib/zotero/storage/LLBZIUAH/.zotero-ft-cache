@@ -1,0 +1,597 @@
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+Regarding Jump Point Search and Subgoal Graphs
+Daniel D. Harabor1 , Tansel Uras2 , Peter J. Stuckey1 and Sven Koenig2
+1Faculty of Information Technology, Monash University, Melbourne, Australia 2Computer Science Department, University of Southern California, Los Angeles, USA
+{daniel.harabor, peter.stuckey}@monash.edu, {turas, skoenig}@usc.edu
+
+Abstract
+In this paper, we deﬁne Jump Point Graphs (JP), a preprocessing-based path-planning technique similar to Subgoal Graphs (SG). JP allows for the ﬁrst time the combination of Jump Point Search style pruning in the context of abstraction-based speedup techniques, such as Contraction Hierarchies. We compare JP with SG and its variants and report new state-of-the-art results for grid-based pathﬁnding.
+1 Introduction
+Subgoal Graphs (SG) [Uras et al., 2013] and Jump Point Search (JPS) [Harabor and Grastien, 2011] are two popular and successful symmetry-breaking algorithms for optimal pathﬁnding on grid maps. Similar in spirit, these methods proceed quite differently in practice, and the relationship between them, in terms of strengths and weaknesses, has not been well understood. We address this gap in the literature with a new graph-theoretic description of JPS and a direct comparative analysis with SGs.
+Our ﬁrst result shows that JPS, like SG, connects pairs of vertices to one another using a direct reachability relation. Moreover, when pairs of vertices are not direct reachable, JPS guarantees that the path is covered by a distinguished set of vertices, namely, the set of all jump points. One disadvantage of JPS, compared to SG, is its dependence on gridscanning and target-detection operations. JPS performs these operations repeatedly during vertex expansions, and their necessity complicates the integration of JPS with in-principle orthogonal speedup techniques.
+Our second result is to overcome these limitations by extracting a graph of all jump points. The new algorithm — Jump Point Graphs (JP) — has the same strong symmetry-breaking properties as Jump Point Search but only refers to the input grid while inserting the start and target.
+Our third result is an empirical evaluation that shows JP can be fruitfully combined with a variety of orthogonal speedup techniques, including bi-directional search and Contraction Hierarchies [Geisberger et al., 2008]. We also compare JP and a number of variants against leading methods from the literature, including SG. We ﬁnd that JP can signiﬁcantly reduce the average number of vertex expansions and also average runtime on some popular grid benchmarks.
+
+2 Preliminaries and Notation
+We consider shortest path search on an 8-neighbour grid graph G = (V, E) constructed from a grid map M. Each cell n ∈ M is marked as blocked or unblocked. There are 8 available move actions v (equiv. directions), which serve to transition the search from o√ne cell to the next. Straight moves cost 1 and diagonal moves 2. A move v from a cell n to n is unblocked (that is, (n, n ) ∈ E) iff n and n are adjacent unblocked cells and, if v is diagonal, then there is no blocked cell adjacent to both n and n (no-corner-cutting constraint).
+We say that a diagonal direction d results from combining
+two cardinal directions; i.e. d = c1 + c2. Directions v1 and v2 are perpendicular, written v1 ⊥ v2, when the angle between them is a right angle. We also use the algebra n = n + k1 × v1 + k2 × v2, with k1 and k2 as integers, to say that cell n is reached from cell n with k1 moves in direction v1 followed by k2 moves in direction v2. We sometimes refer to cardinal directions by name: U(p), D(own), L(eft), and R(ight).
+A path π = n1 = s, . . . , nk = t is an ordered sequence of cells from a distinguished cell called the start = s to a distinguished cell called the target = t such that there exists a valid move to connect every pair of adjacent cells on the path. When discussing paths, we sometimes refer to their valid continuations. A continuation is a move v whose application extends the path by one or more cells. For example, π + k × v extends path π with k moves in direction v.
+We refer to the (8-neighbor) grid graph constructed from M by assuming that all cells are unblocked as freespace. We refer to a shortest path π in freespace as a freespace-shortest path, and say that π is unblocked (on G) iff it is also a path on G. We use a heuristic function h to measure distances in freespace, also referred to as the Octile distance heuristic.
+3 Subgoal Graphs
+Subgoal Graphs [Uras et al., 2013; Uras and Koenig, 2017] (SGs) is the name of an abstraction-based algorithm developed for fast and optimal pathﬁnding in directed weighted graphs. During an ofﬂine preprocessing step, a distinguished set of vertices, known as subgoals, are identiﬁed. Each subgoal appears as a vertex in an eponymous SG, and each edge in an SG corresponds to a shortest graph path. However, edges are only added to the SG between pairs of subgoals that satisfy a given reachability relation.
+
+1241
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+We now adapt deﬁnitions from [Uras and Koenig, 2017]:
+Deﬁnition 1. A reachability relation on G = (V, E) is a relation R ⊆ V × V that satisﬁes:
+1. ∀s ∈ V, (s, s) ∈ R
+2. ∀(s, t) ∈ E, (s, t) ∈ R (edge property)
+Deﬁnition 2. S ⊆ V is an R-shortest-path-cover (R-SPC) on G iff, for all s, t ∈ V , if (s, t) ∈ R, then at least one shortest s-t path on G passes through some v ∈ S.
+Deﬁnition 3. t is Direct-R-reachable (DR) from s (with respect to S) on G iff (s, t) ∈ R and no shortest s-t path on G passes through any v ∈ S.
+Deﬁnition 4. GS = (S, ES) is a subgoal graph on G with respect to R iff S is an R-SPC on G and, ∀u = v ∈ V , (u, v) ∈ ES iff v is direct-R-reachable from u (with respect to S) on G.
+These deﬁnitions are adapted from [Uras et al., 2013]:
+Deﬁnition 5. An unblocked cell s is a convex corner (of a blocked cell) iff there are two perpendicular cardinal directions c1 and c2 such that s + c1 + c2 is blocked and s + c1 and s + c2 are not blocked.
+Deﬁnition 6. Two cells s and t are freespace-reachable [FR] iff at least one freespace-shortest path between them is unblocked on G. Two cells s and t are safe-freespace-reachable [SFR] iff all freespace-shortest paths between them are unblocked on G.
+SGs are instantiated on grid graphs using SFR as the reachability relation and by selecting S as the set of convex corners of blocked cells. Searching for shortest paths with a SG is a simple three step process sometimes referred to as ConnectSearch-Reﬁne:
+1. Connect: The algorithm temporarily inserts s and t into the SG (assuming they do not already appear) and connects each of them to all DR subgoals and possibly to one another, in case that s and t are themselves DR.
+2. Search: The algorithm executes a best-ﬁrst search in the query SG from s to t. Figure 3 shows an example.
+3. Reﬁne: Having found a subgoal path such as π = v0 = s, . . . , vk = t the algorithm ﬁnds paths between each pair of adjacent subgoals vi and vi+1 on G.
+In [Uras and Koenig, 2017], it is shown that the ConnectSearch-Reﬁne process using SGs always ﬁnds shortest paths between any two vertices. Meanwhile, in [Uras et al., 2013], it is (implicitly) shown that the set of convex corners is an SFR-SPC on G. Using SFR as the reachability relation has a number of beneﬁts:
+• Reﬁnement is trivial: For any (s, t) ∈ SFR, by deﬁnition, any freespace-shortest path is also a path on G.
+• Edge costs are not stored (they’re equal to Octile distance).
+• The set of all Direct SFR (DSFR) subgoals for any cell can be identiﬁed fast using pre-computed distance-toobstacle data (equiv. clearance values). This data also helps to speed up the Connection phase of the algorithm.
+
+B
+
+1
+
+2
+
+3
+
+1
+
+2
+
+3
+
+4
+
+5
+
+4
+
+5
+
+A
+(a)
+
+6
+
+7
+
+8
+
+(b)
+
+6
+
+7
+
+8
+
+(c)
+
+Figure 1: (a) Three equivalent paths connect A and B. JPS breaks such symmetries by taking the bold path, where diagonal moves appear ﬁrst. (b) This diagonal jump point has three diagonal-ﬁrst continuations: 2, 3 and 5. (c) This straight jump point also has three diagonal-ﬁrst continuations: 1, 2, 4. Grey cells are pruned.
+
+4 Jump Point Search
+In uniform-cost grids many symmetric paths can connect the same pair of vertices. Figure 1(a) shows an example.
+Deﬁnition 7. [Harabor and Grastien, 2011] Two grid paths are symmetric iff: (i) they share the same start and target and; (ii) they have the same cost and; (iii) their constituent moves can be re-ordered to derive one path from the other.
+In the presence of symmetry, otherwise efﬁcient search algorithms, such as A*, waste time, exploring many equivalent partial paths and making slow progress to the target. The Jump Point Search (JPS) family of algorithms break symmetries by maintaining the following invariant during search: when a node n is added or updated on the A* open list, the path to that node is diagonal-ﬁrst. This property means that the only successors generated when n is expanded are those which allow the current path to continue from n in a way that is taut and which guarantees that diagonal moves appear as early as possible. All other successors can be safely pruned.
+Deﬁnition 8. A path π = s, . . . , t is taut iff every subpath of length two ni−1, ni, ni+1 ∈ π is also a shortest path.
+Deﬁnition 9. [Harabor and Grastien, 2011] A path π is diagonal-ﬁrst iff it contains no straight-to-diagonal turning point nk−1, nk, nk+1 which could be replaced by a diagonal-to-straight turning point nk−1, nk, nk+1 to produce a new valid path on G.
+The diagonal-ﬁrst invariant reduces the branching factor of each expanded node, often to just 0 or 1. Rather than adding such nodes to the open list, JPS immediately processes them as part of a recursive and eponymous jumping procedure. Jumping allows the search to generate and expand only a distinguished set of nodes at which diagonal-ﬁrst paths can branch. These nodes are called jump points, of which there exist two different types:
+Deﬁnition 10. A straight jump point is a tuple (n, c) where n is a cell and c is a cardinal travel direction such that, for some c ⊥ c: (i) n − c is unblocked; (ii) n + c is unblocked; and (iii) (n − c) + c is blocked.
+Deﬁnition 11. A diagonal jump point is a tuple (n, d) where
+n is a cell and d = c1 + c2 is a diagonal direction such that, for some k: (i) n+k ×c1 is an unblocked path from n to a cell n such that (n , c1) is a straight jump point or; (ii) n + k × c2
+
+1242
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+1
+
+2
+
+1S
+
+2
+
+3 4 5 6
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+T
+
+Figure 2: JPS searches from S to T. Diagonal jump points are ﬁlled (blue) while straight jump points are not. Dashed lines indicate recursive scans. When expanding S only one successor is generated: ((2, 1), R). From here JPS recurses in three directions: R and D, which produce no successors, and R+D which produces ((4, 3), R+D). The search continues in this way until ((9, 6), R), where JPS recurses in direction U and generates the target.
+
+is an unblocked path from n to a cell n such that (n , c2) is a straight jump point; or (iii) n + k × c1 or n + k × c2 is an unblocked path from n to the target.
+Target Detection: JPS treats the target as a special case. While scanning the grid and jumping from one node to the next, JPS detects the target and generates it as a successor.
+Figures 1(b) and 1(c) show different jump points and their taut diagonal-ﬁrst continuations. Figure 2 shows a complete JPS example: only diagonal-ﬁrst paths are explored and every turning point is a jump point. Together with target detection, these features are sufﬁcient to ﬁnd a shortest path, from any start to any target, if a path exists at all.
+Lemma 1. For every shortest path π on G, there exists an equivalent path π on G which is diagonal-ﬁrst.
+Some advantages of JPS compared to SG: (i) it runs entirely online; (ii) it requires no preprocessing or insertion; and (iii) it prunes successors more aggressively and often ﬁnds the target faster [Harabor and Grastien, 2014]. Some disadvantages:
+• The jumping rules are not easily reversed, which means JPS is implemented only as a uni-directional search;
+• JPS constantly refers to the input grid to break symmetries and detect the target. These features make JPS difﬁcult to integrate with speedup techniques such as Contraction Hierarchies [Geisberger et al., 2008].
+To overcome these limitations, we are going to develop a new and graph-theoretic perspective of JPS. In the process, we also show that JPS and SG are closely related.
+5 Jump Point Graphs
+To begin, we formalise the search space of JPS as a graph G∗.
+Deﬁnition 12. Let G = (V, E) be a grid graph. Its corresponding direction-extended grid graph G∗ = (V ∗, E∗) is deﬁned as:
+• For each vertex n ∈ V and each possible grid move v, there exists a vertex (n, v) ∈ V ∗.
+
+• For each (n1, n2) ∈ E and each pair of grid moves v1 and v2, there exists ((n1, v1), (n2, v2)) ∈ E∗ iff:
+1. n1 + v2 = n2
+2. n1 − v1, n1, n2 is diagonal-ﬁrst and taut.
+G∗ is analogous to G but each cell appears 8 times: once for each direction. Intuitively, G∗ labels each vertex n of G with each possible incoming direction v, and limits the outgoing directions v from (n, v) to be diagonal-ﬁrst and taut with v.
+Lemma 2. Any path π∗ on G∗ is diagonal-ﬁrst and taut.
+Proof. G∗’s edges are deﬁned such that (1) for each vertex (n, v) ∈ V ∗, (n, v) is reachable only with move v, and (2) each move corresponding to an outgoing edge of (n, v) is diagonal-ﬁrst and taut with v. Thus, for any path π∗ on G∗, any two consecutive moves are diagonal-ﬁrst and taut.
+Lemma 3. Let π = n0, . . . , nk be a diagonal-ﬁrst and taut path on G. Then, there exists v0, . . . , vk such that π∗ = (n0, v0), . . . , (nk, vk) is a path on G∗.
+Proof. The proof follows from Deﬁnition 12 by selecting, for i = 1, . . . , k, vi as the direction that satisﬁes ni−1 + vi = ni, and selecting v0 = v1.
+Recall that, for any s, t ∈ V , there exists a diagonal-ﬁrst shortest s-t path on G (Lemma 1) which, by Lemma 3, is preserved on G∗. Therefore, we can use G∗ for ﬁnding shortest s-t paths on G, by treating all (s, v) as start vertices and treating all (t, v) as target vertices, for all directions v.
+By deﬁnition, G∗ contains any (straight or diagonal) jump point on G. We now show that the set of straight jump points is a freespace-reachability-SPC on G∗, by extending the deﬁnitions of freespace-shortest paths and freespace-reachability (Deﬁnition 6) to G∗. We use the preﬁx diagonal-ﬁrst to distinguish these deﬁnitions on G∗ from their counterparts on G, and to better characterise their properties.
+Deﬁnition 13. The diagonal-ﬁrst freespace-shortest path from a cell n to n is a freespace-shortest path where all diagonal moves appear before cardinal ones. A vertex (n , v ) ∈ V ∗ is diagonal-ﬁrst freespace reachable [DFFR] from (n, v) ∈ V ∗ iff a path from (n, v) to (n , v ) on G∗ corresponds to the diagonal-ﬁrst freespace-shortest path from n to n . We use DDFFR to denote Direct-DFFR-Reachable.
+Theorem 1. Straight jump points form a DFFR-SPC on G∗.
+Proof. Let s∗ = (s, v), t∗ = (t, v) ∈ V ∗, such that an s∗-t∗ path exists on G∗. We show that, if (s∗, t∗) ∈ DFFR, then a shortest s∗-t∗ path on G∗ passes through a straight jump point. For contradiction, assume that (s∗, t∗) ∈ DFFR, and that no shortest s∗-t∗ path on G∗ passes through a straight jump point. Let π∗ be any shortest s∗-t∗ path on G∗. By our assumption, π∗ does not pass through a straight jump point. By Lemma 2, π∗ is diagonal-ﬁrst and taut. π∗ cannot have a cardinal-to-cardinal turn because, otherwise, it is either non-taut or it passes through a jump point. π∗ cannot have a diagonal-to-diagonal turn because, otherwise, it is non-taut. π∗ cannot have a cardinal-to-diagonal turn because, otherwise, it is either non-diagonal-ﬁrst or it passes
+
+1243
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+1
+
+2
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+T
+
+3
+
+4
+
+S
+
+Figure 3: The nodes S and T are direct reachable with DDFFR but a search with DSFR expands every corner point along the way. Dashed lines are temporary (i.e., inserted) vertices and edges.
+
+through a jump point. Therefore π∗ can only have diagonalto-cardinal turns. There is only one such possible π∗, which
+corresponds to the diagonal-ﬁrst freespace-shortest s-t path
+π. But then, the diagonal-ﬁrst freespace-shortest s-t path is unblocked, contradicting that (s∗, t∗) ∈ DFFR.
+
+We may formalise the relation between SG and JPS as so:
+Theorem 2. Subgoal reachability is a more restrictive notion than jump point reachability. Formally, DSFR⊆ di(DDFFR), where di(R) is the relation deﬁned as (s, t) ∈ di(R) iff ∃v1, v2. ((s, v1), (t, v2)) ∈ R.
+
+Proof. Consider (s, t) ∈ DSFR. By deﬁnition, the diagonal-
+ﬁrst freespace-shortest s-t path π is unblocked and does not pass through a subgoal. For some s∗ = (s, v1) and t∗ = (t, v2), let π∗ be an s∗-t∗ path on G∗ that corresponds to π. By Lemma 3, such v1, v2, and π∗ exists since π is diagonal-ﬁrst and taut (freespace-shortest). Since π does not pass through corner points, π∗ does not pass through straight jump points.
+Therefore, (s, t) ∈ di(DDFFR).
+
+Theorem 2 suggests that searching over jump points may re-
+
+quire fewer expansions per instance than searching over an
+
+equivalent SG. Consider that JPS travels from one vertex to
+
+the next, stopping only at corner vertices where shortest paths
+
+can bend. By comparison, SG search will stop at every corner
+
+vertex along the way. Figure 3 shows an example.
+
+Next, structed
+
+consider the on G∗ using
+
+subgoal graph G∗J the set of straight
+
+= (J, EJ ) jump points
+
+conJ as
+
+subgoals. From the theory presented in [Uras and Koenig,
+
+2017] and the result of Theorem 1, G∗J can be used to ﬁnd shortest paths as long as the following conditions hold:
+
+(1) (Preprocessing) We add edges between every pair of
+
+straight jump points that are DDFFR from one another. (2) We connect the start s: to every straight jump point that is
+
+DDFFR from (s, v), for any direction of v. (3) We connect the target t: from every straight jump point
+
+for which (t, v) is DDFFR, for any direction of v. (4) We connect the start to the target: iff, for some directions
+
+v, and v , (t, v ) is DDFFR from (s, v).
+
+We call the resulting method the Jump Point Graph (JP). Since JP can be considered a Subgoal Graph on G*, we discuss in the following sections: how to efﬁciently identify its edges, how to quickly perform the Connection step and how to combine JP with other orthogonal speed-up techniques, including bi-directional search and Contraction Hierarchies.
+
+Algorithm 1: SG connect and JP forward connect. We adjust line 3 as appropriate and execute or ignore Lines 9-11 as appropriate.
+
+1 function CardinalScan(s, c, &D)
+
+2 if C[s, c] > 0 then
+
+3
+
+add to D: s + c × C[s, c] or (s + c × C[s, c], c);
+
+4 function DiagonalFirstScan(s, d, &D)
+
+5 assign c1, c2 such that c1 + c2 = d; 6 n ← s;
+
+7 while C[n, d] > 0 do
+
+8
+
+n ← n + d × C[n, d];
+
+9
+
+if n is a subgoal then
+
+10
+
+add n to D;
+
+11
+
+return;
+
+12
+
+CardinalScan(n, c1, D);
+
+13
+
+CardinalScan(n, c2, D);
+
+14 function ForwardConnect(s)
+
+15 D ← ∅;
+
+16 foreach cardinal grid direction c do
+
+17
+
+CardinalScan(s, c, D);
+
+18 foreach diagonal grid direction d do
+
+19
+
+DiagonalFirstScan(s, d, D);
+
+20 return D;
+
+6 Connection Using Clearances
+Using precomputed clearances (distances to important cells in a certain direction) is an optimisation technique used by both SGs [Uras et al., 2013] and JPS [Harabor and Grastien, 2012; 2014] to improve query times. For SG, clearances help to speed-up the process of identifying a set of DSFR subgoals from any given cell, and they are used when constructing the graph and when connecting the start and target to it. For JPS, clearances are used for quickly scanning the grid to generate jump-point successors. In this section, we show that both algorithms use clearances in a very similar way (the similarities and differences are shown in Algorithm 1). We also show that SGs can be constructed, using clearances, in an amount of time (and using an amount of space) that is linear with respect to the of the size of the input grid.
+Algorithm 1 can be considered as a systematic scan of all diagonal-ﬁrst freespace trajectories that originate from a given source cell s: c cardinal scans (lines 1-3) scan those trajectories where the ﬁrst move is c, by repeatedly moving in
+direction c. The d = c1 + c2 diagonal-ﬁrst scans (lines 4-13) scan those trajectories where the ﬁrst move is diagonal, by re-
+peatedly moving in direction d and branching off into c1 and c2 cardinal scans at every visited cell. It uses precomputed clearance values in both cardinal and diagonal directions to speed-up the scans. A c cardinal clearance C[n, c] from a cell n is the number of c cardinal moves that can be made from n to reach an important cell m (subgoals for SG connection, jump points with direction c for JP connection). If such m does not exist, C[n, c] is 0. Using cardinal clearances reduces cardinal scans to a simple table look-up (line 3) that requires O(1) time, and the scanning algorithm reduces to a sequence of clearance look-ups along the diagonals that extend from s.
+
+1244
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+A B C D E F G H I J J L MNO P
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+s
+
+7
+
+8
+
+9
+
+Figure 4: SG and JP connecting the start node s. Empty (blue) discs indicate cells that are DSFR from the source node S, while solid (red) discs indicate straight jump points DDFFR from S. Dashed (blue) lines indicate clearance look-ups by SG while red (solid) lines indicate clearance look-ups by JP. Squares (black) indicate convex corners that are not DSFR or not DDSFR from S. These do not appear in the set of successors for S with SG or with JP.
+
+A d diagonal clearance C[n, d] from a cell n is the number
+of d diagonal moves that can be made from n to reach a cell m where C[m, c1] > 0 or C[m, c2] > 0 (that is, the row or column of m contains an important cell). C[n, d] = 0 if such m does not exist. Diagonal clearances allow one to quickly traverse the diagonal by skipping the rows and columns that do not contain important cells.
+The main difference between SG connect and JP forward connect is when they terminate their scans. Namely, a c cardi-
+nal or d diagonal-ﬁrst scan of SG connect stops immediately when it ﬁnds a subgoal (as any continuation of the scan can only ﬁnd subgoals that are not DSFR), whereas a c cardinal scan of JP stops when it ﬁnds a jump point with direction c.
+(The d diagonal-ﬁrst scan can only stop when it ﬁnds a jump
+point with direction d, but such jump points are not straightjump points and are therefore not included in JP). This difference can be observed in the example in Figure 4, and is reﬂected in lines 9-11 of Algorithm 1 (and partially obscured since it is encoded in the cardinal, and, implicitly, diagonal clearances). Another difference, which is omitted from Algorithm 1, is a small optimisation that allows SG connect to prune any non-DSFR subgoals from the scan , which allows constructing the edges of SG exactly (an example is location M4 in Figure 4). This difference is not relevant to our discussion, and we refer the interested reader to [Uras et al., 2013] for further details.
+Theorem 3. Using cardinal clearances, an explicit SG can be constructed on a W × H grid in time O(WH), and therefore its number of edges is O(WH).
+Proof. The set of subgoals can be identiﬁed in time O(WH) since it sufﬁces to check the eight surrounding cells to determine whether a cell is a convex corner. Cardinal clearances can be computed in time O(WH) by scanning the grid row by row or column by column while maintaining the clearance to the last encountered convex corner. The edges of a SG can be
+
+identiﬁed in O(WH) time, by running Algorithm 1 from every subgoal, as we discuss below.
+Suppose that we perform a c cardinal scan from every subgoal. Since each cardinal scan requires O(1) time to look-up a clearance value, and since there are O(WH) subgoals, the total time required for all c cardinal scans is O(WH). Suppose
+that we perform a diagonal-ﬁrst d = c1 + c2 scan from every subgoal. Each scan moves d diagonally from its source s and, for each visited cell, performs in O(1) time a c1 and c2 cardinal clearance look-up The d diagonal that extends from each subgoal stops when another subgoal is found. Therefore, any
+grid cell is visited at most once by moving d diagonally from
+all the subgoals during their d diagonal-ﬁrst scans. Since each cell is visited at most once, each visited cell requires O(1)
+time, and there are O(WH) cells, d diagonal-ﬁrst scans from every subgoal requires O(WH) time. Since there are a constant number of directions, the total effort for performing all the scans from every subgoal takes O(WH) time.
+This result does not apply to constructing JP, however, as JP diagonal-ﬁrst scans do not necessarily terminate at convex corners and, as a result, some cells can be visited multiple
+times by JP d diagonal-ﬁrst scans from different cells. Figure 4 shows an example: The cells F6 and E5 both contain a jump point in the Up direction. The Up+Left diagonal-ﬁrst scan from (F6, Up) does not stop at E5 since E5 does not have a jump point (F5, Up+Left).
+7 Diagonal Merged Jump Point Graphs
+In this section we describe a variant of JP that achieves O(WH) preprocessing time and contains O(WH) edges, similar to SG. As hinted in the previous section and in the proof of
+Theorem 3, this new variant should terminate its d diagonalﬁrst scans when the scan reaches a convex corner. This can be achieved by adding additional jump points in diagonal directions at every convex corner. Namely, for any convex cor-
+ner n where n − c1 and n − c2 is unblocked but n − d is blocked (with d = c1 + c2 diagonal), we add the jump points (n, c1 − c2) and (n, c2 − c1). This variant still contains all the straight jump-points and, therefore, its set of jump points is a DFFR-SPC. The only differences is that, by adding more jump points, we allow Algorithm 1 to terminate its scans earlier. We call this variant JPD. For instance, in Figure 4, adding the diagonal jump point (E5, Up+Left) results in the Up+Left diagonal-ﬁrst scan from (F6, Up) to terminate at E5, the ﬁrst convex corner that it scans.
+At ﬁrst glance JPD seems to add many nodes to the jump point graph. However, each new diagonal jump point is equivalent to an existing straight jump point. In Figure 4 we can see that (E5,Up+Left) has the same successors as (E5,Up). Hence we merge these two jump points in JPD into a single jump point without changing the graph connectivity. Since each new diagonal jump point is merged with an existing straight jump point, JPD has no more jump points than JP. Notice however that JPD search may stop at corner points where JP search would not. We will see this in experiments.
+
+1245
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+A B C D E F G H I J J L MNO P
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+T
+
+7
+
+8
+
+9
+
+Figure 5: To insert the target JP performs cardinal-ﬁrst scans to identify all incoming jump points. Unlike start insertion, diagonal recursions of JP (but not JPD) target insertion do not terminate at the ﬁrst (incoming) jump point.
+
+Theorem 4. Using cardinal clearances, JPD can be constructed using an amount of time and space that is O(WH).
+Proof. The proof is similar to that of Theorem 3.
+8 Searching with Jump Point Graphs
+JPs and JPDs use a similar Connect-Search-Reﬁne procedure as SGs. We discuss the main steps:
+Start Insertion: To begin, we look for jump point successors of s in each of the 4 cardinal directions. The cost is four constant-time calls to C, the set of clearance values stored for every grid cell. We then jump (equiv. recurse) from s in each of the 4 diagonal directions. At each step we look for straight jump point successors at a cost of 2 further constanttime lookups into C. For both JP and JPD, the total complexity is linear in the smaller of the map dimensions H and W .
+Target Insertion: This is similar to start insertion but in reverse: we identify a set of predecessors which covers every incoming diagonal-ﬁrst shortest path, from all other nodes to t. Computing predecessors fast requires a set of reverse clearance values. A reverse clearance [(x, y), v] measures the distance from a jump point (or a blocked cell, if no jump point exists) to cell (x, y) in direction −v. In JP, the complexity of target insertion with reverse-clearances is worst-case linear in the size of the grid; i.e., we visit every vertex in the row and column of the target and we recurse along every intersecting diagonal. In JPD, complexity is linear in the smaller of the map dimensions H and W , since we do not recurse when scanning diagonals. Figure 5 shows JP target insertion. JPD is similar but does not recurse at D3, D5 and L5.
+Direct Reachable Paths: Sometimes the shortest path between the start and the target may not involve any vertex from the DFFR-SPC. These cases can be handled similar to SG: by applying target detection during insertion of the start node.
+Search: After insertion, we run an optimal search (e.g. A* or a bi-directional variant) in the JP or JPD, from the start to the target. The resulting path π is made up entirely of jump
+
+C
+
+x a
+b
+x
+Figure 6: A concave graph illustrating convex corner points.
+points. In this representation there is no need for explicit reﬁnement: for every pair of adjacent vertices ni, ni+1 ∈ π, there always exists a diagonal-ﬁrst sequence of unblocked cells in the grid, which can be generated without search.
+Avoidance Tables: We now discuss how to speed up insertion of the start and target. Notice in Figure 6 that there are 4 convex corner points, and 8 jump points, two at each marked location. Yet only jump points a and b are interesting: the x jump points cannot be reached except if we connect to them during the insertion of the start or target. In graphs with concave components, there can be a large number of these uninteresting jump points. To reduce the overhead of start and target insertion, we introduce an avoidance table for such jump points. When we insert the start, we mark in the avoidance table each such jump point that it connects to. When inserting the target, if we try to connect to a jump point in the avoidance table which is not marked, we omit the connection (since the jump point has no predecessors including the start).
+9 Experimental Setup
+We run experiments on a large set of standard grid-based pathﬁnding benchmarks [Sturtevant, 2012] and on the subset of instances from the 2014 Grid-based Path Planning Competition (GPPC). Our reference point in this comparison is CHG, a fast implementation of Contraction Hierarchies [Geisberger et al., 2008] which appears undominated at the competition. This algorithm stores no downward edges and uses bi-directional Dijkstra search to ﬁnd a path. It also beneﬁts from stall-on-demand, a common optimisation. To reﬁne a path CH-G uses midpointer unpacking.
+Our main experiment compares the following algorithms:
+• SG, also called Subgoal Simple in [Uras et al., 2013];
+• JP and JPD, as described in the current paper;
+• CH-SG, CH-JP and CH-JPD, all of which apply CH on top of each basic method.
+Our test machine is a 3.6GHz Intel Core i7-7700 CPU with 32GB of RAM. Our implementations are based on C++ code from CH-SG [Uras and Koenig, 2018]. From this common base we derive all algorithms except CH-G. Similar to [Uras and Koenig, 2018], all searches use the Octile distance heuristic and a binary heap priority queue. Unlike [Uras and Koenig, 2018], SG and CH-SG store clearances in all eight directions per grid cell (cf. only four). JP and CH-JP
+
+1246
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+store forward and backward clearances, making for a total of 16 values per cell. Each clearance requires 1 byte and values longer than 255 are extracted in multiple steps.
+
+3.14 longer preprocessing time. In comparison CH-JP is 4.83 times faster than CH-G, uses 49% less storage, and has 51% shorter preprocessing. Hence CH-JP improves upon JPS+BB.
+
+10 Results
+We begin with Table 1 which compares the different methods on the set of maps and instances from GPPC 2014 that are drawn from games. Games are one of the principal uses of grid maps and here we clearly see the impact of Theorem 2: JP has many fewer edges than SG, it expands many fewer nodes, it has a smaller branching factor and its runtime performance is faster by several factors. In combination with Contraction Hierarchies the performance gap is reduced. Here we make three observations: (i) most of the advantage that CH-JP has vs. CH-SG comes from having a faster Search and faster Reﬁne stage. (ii) the Connect stage of both algorithms is comparable; i.e. despite JP target insertion having worst-case linear time requirements we ﬁnd that the procedure is fast in practice; (iii) both CH-JP and CH-SG faster than CH-G, a method that is undominated at the competition.
+In Table 2 we include additional benchmarks from Sturtevant’s well known repository and we consider the full set of maps and instances from GPPC 2014. We again observe that JP and JPD achieve shorter query times than SG. However, when combined with CH, we observe that CH-SG is faster than CH-JP and CH-JPD on each of: random, room, and maze maps with small corridor widths. We think that JP and JPD do not combine with CH as well as SG for the following reason: In JP and JPD, multiple jump points may share a cell, but are treated as different vertices. Moreover, the shortest paths between some pairs of jump points in JP or JPD might be longer than the shortest path between the cells that contain these jump points (for instance, if the start jump point has the wrong direction to lead the search to the target jump point). When applying CH to JP or JPD without prior knowledge of this fact, the CH construction algorithm tries to preserve these suboptimal paths, which can introduce redundant edges. Our CH-JP and CH-JPD implementations eliminate most of these redundant edges during contractions, by performing distance queries on JP or JPD to check whether new shortcuts are redundant. We consider other optimisations to improve the combination of JP or JPD with CH as a future work.
+vs. JPS+: JPS+ is a preprocessing-based variant of online JPS which stores clearance value data to speed up search. Although not a direct competitor here we may compare against this algorithm based on its performance at GPPC 2014. At the competition JPS+ is reported to be 21.36x slower than the same implementation of of CH-G appearing in our experiments [Sturtevant et al., 2015]. In Table 2, row GPPC-all we see that JP is slower than CH-G by a factor of 7.48. Observe also that JP is faster than CH-G for all subsets of benchmarks at GPPC except random. Here JP is two orders slower than CH-G, which accounts for the overall result.
+vs. JPS+BB: JPS+BB [Rabin and Sturtevant, 2016] is a combination of jump point search and bounding boxes. Running the GPPC benchmarks the authors found JPS+BB to be 2.42 faster than CH-G and required 16% less storage, but
+
+11 Conclusion
+In summary, we introduce JP which is uniformly better than SG, even on random maps where there end up being many more jump points than subgoals. We allow the use of contraction hierarchies for jump point search for the ﬁrst time, improving the state-of-the-art in path planning for the important category of game maps.
+12 Acknowledgements
+Daniel Harabor is funded by the Australian Research Council grant DE160100007. Research at the University of Southern California was supported by the National Science Foundation (NSF) under grant numbers 1724392, 1409987, 1817189 and 1837779. Views and conclusions in this document are those of the authors and should not be interpreted as representing the ofﬁcial policies, either expressed or implied, of the sponsoring organisations, agencies or the U.S. government.
+References
+[Geisberger et al., 2008] Robert Geisberger, Peter Sanders, Dominik Schultes, and Daniel Delling. Contraction hierarchies: Faster and simpler hierarchical routing in road networks. In WEA, pages 319–333. Springer, 2008.
+[Harabor and Grastien, 2011] Daniel Damir Harabor and Alban Grastien. Online Graph Pruning for Pathﬁnding On Grid Maps. In AAAI, pages 1114–1119, 2011.
+[Harabor and Grastien, 2012] Daniel Harabor and Alban Grastien. The JPS Pathﬁnding System. In SoCS, 2012.
+[Harabor and Grastien, 2014] Daniel Harabor and Alban Grastien. Improving Jump Point Search. In ICAPS, pages 128–135, 2014.
+[Rabin and Sturtevant, 2016] Steve Rabin and Nathan Sturtevant. Combining Bounding Boxes and JPS to Prune Grid Pathﬁnding. In AAAI, pages 746–752, 2016.
+[Sturtevant et al., 2015] Nathan R Sturtevant, Jason Traish, James Tulip, Tansel Uras, Sven Koenig, Ben Strasser, Adi Botea, Daniel Harabor, and Steve Rabin. The Grid-Based Path Planning Competition: 2014 Entries and Results. In SoCS, pages 241–251, 2015.
+[Sturtevant, 2012] Nathan Sturtevant. Benchmarks for GridBased Pathﬁnding. Transactions on Computational Intelligence and AI in Games, 4(2):144 – 148, 2012.
+[Uras and Koenig, 2017] Tansel Uras and Sven Koenig. Feasibility Study: Subgoal Graphs on State Lattices. In SoCS, pages 100–108, 2017.
+[Uras and Koenig, 2018] Tansel Uras and Sven Koenig. Understanding Subgoal Graphs by Augmenting Contraction Hierarchies. In IJCAI, pages 1506–1513, 2018.
+[Uras et al., 2013] Tansel Uras, Sven Koenig, and Carlos Herna´ndez. Subgoal Graphs for Optimal Pathﬁnding in Eight-Neighbor Grids. In ICAPS, pages 224–232, 2013.
+
+1247
+
+Proceedings of the Twenty-Eighth International Joint Conference on Artiﬁcial Intelligence (IJCAI-19)
+
+A* CH-G SG JP JPD CH-SG CH-JP CH-JPD
+
+Prep. time (s)
+37.12
+0.01 0.02 0.02 11.94 0.57 0.23
+
+Memory (MB) 2.81 4.43 1.68 3.24 3.23 1.78 3.35 3.33
+
+|V | 48250 48250
+1364 2764 2753 1364 2764 2753
+
+|E| 367992 387136
+20196 8799 7021
+11426 9742 8367
+
+Expanded 21840.03
+139.15 703.34 186.16 230.12
+59.12 34.72 36.98
+
+Successors per exp. 7.61 7.73 14.41 1.78 1.44 9.01 2.13 1.93
+
+Connect 5.37 5.40 4.82 4.99 5.34 4.80
+
+Time (µs) Search Reﬁne 4085.79 -
+55.45 23.31 119.02 2.64
+22.46 1.64 24.55 1.93 13.12 4.85 5.42 3.33 5.54 3.81
+
+Total 4085.79
+78.76 127.03
+29.50 31.30 22.96 14.09 14.14
+
+Table 1: Comparison on the subset of GPPC 2014 maps and instances which are drawn from computer games. There are 27 maps from DAO, 67 maps from DA2 and 11 from StarCraft. We give average graph size for each algorithm (A* runs on input grid maps) and we report performance metrics for nodes (average expansions, average successors per expansion) and runtime (total as well as for each of ConnectSearch-Reﬁne). Columns Prep and Memory indicate overheads.
+
+bg bg-512 dao da2 sc wc3-512 maze-1 maze-2 maze-4 maze-8 maze-16 maze-32 random-10 random-15 random-20 random-25 random-30 random-35 random-40 room-8 room-16 room-32 room-64 street-256 street-512 street-1024 GPPC-game GPPC-maze GPPC-random GPPC-room GPPC-All
+
+CH-G 89.2
+111.4 98.6 93.1
+110.9 108.7
+85.8 62.1 65.6 80.5 93.3 101.7 104.7 98.9 92.6 85.5 78.5 71.5 66.6 69.8 81.0 92.9 101.6 103.4 112.5 118.7 105.2 88.2 74.8 111.0 98.2
+
+Edges relative to G (%) CH- CH-
+SG JP JPD SG JP 13.4 5.8 4.1 8.1 6.6
+1.4 0.4 0.4 0.8 0.5 6.3 3.2 2.5 3.8 3.9 4.8 2.1 1.9 2.8 2.4 5.1 2.4 1.9 2.8 2.6 1.6 0.9 0.7 0.9 1.0 27.6 38.4 38.4 23.5 60.4 6.6 5.9 5.9 5.0 8.7 1.8 1.4 1.4 1.2 1.8 0.4 0.4 0.3 0.3 0.4 0.1 0.1 0.1 0.1 0.1 0.0 0.0 0.0 0.0 0.0 30.2 47.6 34.1 42.6 178.5 34.8 50.3 37.6 47.3 174.2 37.2 50.9 40.0 47.1 153.9 38.2 50.3 41.4 43.6 129.1 38.3 49.3 42.4 38.7 105.7 37.7 47.5 42.6 32.9 84.0 37.1 46.4 42.8 28.5 69.9 3.2 4.2 4.1 4.1 10.2 0.6 0.8 0.8 0.8 1.8 0.1 0.2 0.2 0.2 0.3 0.0 0.0 0.0 0.0 0.1 7.4 3.1 2.1 4.4 3.8 6.3 1.6 1.0 3.5 1.8 4.8 0.7 0.4 2.5 0.7 5.5 2.4 1.9 3.1 2.6 0.3 0.2 0.2 0.2 0.3 38.1 48.4 42.7 35.8 94.1 0.6 0.9 0.9 0.5 1.8 6.0 6.7 5.9 5.2 12.6
+
+CHJPD
+5.8 0.5 3.4 2.3 2.1 0.9 60.4 8.7 1.9 0.5 0.1 0.0 135.4 138.5 129.3 113.8 97.3 80.2 68.4 10.1 1.8 0.3 0.1 3.1 1.4 0.5 2.3 0.3 88.6 1.7 11.8
+
+CH-G 21.2 17.6 40.9 30.0 60.4 13.5 91.1
+164.1 222.6 225.6 211.0 158.6
+9.2 16.7 28.3 47.7 81.6 154.8 193.8 127.6 158.2 147.1 95.4
+7.0 7.8 9.0 51.9 480.0 208.7 47.2 305.3
+
+SG 10.1 59.1 24.6 25.3 41.5 82.2
+4.0 11.4 43.6 172.6 598.5 1705.3
+3.1 2.8 2.6 2.6 2.5 2.6 2.8 23.6 110.8 398.4 1137.4 17.8 34.4 66.8 32.2 399.5 2.3 261.6 34.8
+
+Speed up over A* on G
+
+CH-
+
+JP JPD SG
+
+41.9 34.2 34.7
+
+220.5 207.6 161.4
+
+80.3 77.1 121.4
+
+92.6 83.2 74.1
+
+210.1 199.0 289.6
+
+212.7 212.5 190.4
+
+4.1
+
+4.2 159.6
+
+16.4 16.4 376.6
+
+102.7 91.2 772.3
+
+395.5 359.0 1279.4
+
+1218.7 1127.0 1917.8
+
+2656.6 2531.7 2527.8
+
+3.4
+
+3.6 35.5
+
+3.0
+
+3.0 45.6
+
+2.7
+
+2.7 60.3
+
+2.8
+
+2.7 84.8
+
+2.9
+
+2.8 121.7
+
+3.3
+
+3.1 190.5
+
+4.3
+
+3.8 204.4
+
+23.7 24.2 257.3
+
+119.4 119.6 445.5
+
+449.0 446.6 761.5
+
+1208.1 1199.9 1214.8
+
+55.9 52.1 47.0
+
+151.7 137.5 113.7
+
+512.3 418.8 254.2
+
+138.5 130.5 178.0
+
+921.2 821.2 4827.2
+
+2.5
+
+2.4 328.1
+
+275.9 271.9 657.2
+
+40.8 39.2 1757.2
+
+CHJP 49.9 246.3 159.2 105.6 498.4 230.1 129.8 351.8 864.6 1416.4 2114.0 2687.2 12.2 16.4 22.8 36.2 59.9 117.8 178.6 152.9 333.0 659.3 1156.7 64.1 198.1 701.7 289.9 5394.4 170.7 408.6 1477.5
+
+CHJPD 49.6 246.8 161.8 104.5 506.8 237.4 128.7 354.8 826.4 1363.5 2030.6 2646.4 16.5 20.0 27.1 40.8 64.9 119.1 167.1 156.1 333.9 659.4 1149.2 67.1 204.4 735.9 288.9 5173.5 176.7 405.2 1485.5
+
+Table 2: Number of edges relative to the grid graph G and the speed up over A* on G. All maps from MovingAI benchmarks are included, except for the (lexically) last 20 of the 30 street-1024 maps, due to high CH-SG preprocessing times.
+
+1248
+

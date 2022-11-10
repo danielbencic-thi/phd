@@ -1,0 +1,1583 @@
+Choset-79066 book February 22, 2005 17:27
+8 Kalman Filtering
+HERETOFORE, WE have assumed that the planner has access either to an exact geometric description of its environment, or to a suite of sensors (e.g., sonars) that provide perfect information about the environment. In this chapter, we begin to consider cases for which the robot’s knowledge of the world derives from measurements provided by imperfect, noisy sensors.
+The Kalman ﬁlter is one of the most useful estimation tools available today. Loosely speaking, Kalman ﬁltering provides a recursive method of estimating the state of a dynamical system in the presence of noise [215, 313]. A key feature of the Kalman ﬁlter is that it simultaneously maintains estimates of both the state vector (xˆ) and the estimate error covariance matrix (P), which is equivalent to saying that the output of a Kalman ﬁlter is a Gaussian probability density function (PDF) with mean xˆ and covariance P. In the context of localization, the Kalman ﬁlter output is then a distribution of likely robot positions instead of a single position estimate. As such, the Kalman ﬁlter is a speciﬁc example of a more general technique known as probabilistic estimation. Some of more general probabilistic estimation techniques are presented in chapter 9.
+We begin this chapter by presenting a conceptual overview of probabilistic estimation in section 8.1. Section 8.2 carefully derives the Kalman ﬁlter for linear systems. The approach taken here begins with a simpliﬁed version of the problem, then gradually adds complexity until the full Kalman ﬁltering equations are reached. Section 8.3 describes the extended Kalman ﬁlter (EKF), which is a Kalman ﬁltering variant that can be used on nonlinear systems. Examples that use the EKF for mobile robot localization are presented and discussed. Section 8.4 concludes the chapter by introducing
+
+Choset-79066 book February 22, 2005 17:27
+
+270
+
+8 Kalman Filtering
+
+the problem of simultaneous localization and mapping (SLAM) and showing how it can be solved using a Kalman ﬁlter.
+
+8.1 Probabilistic Estimation
+In this section, we introduce the concept of probabilistic estimation by considering the fundamental problem of estimating the location of a mobile robot. Probabilistic localization is a probabilistic algorithm: instead of maintaining a single hypothesis as to where in the world a robot might be, probabilistic localization maintains a probability distribution over the space of all such hypotheses. The probabilistic representation allows for the uncertainties that arise from uncertain motion models and noisy sensor readings to be accounted for in a principled way. The challenge is then to maintain a position probability density over all possible robot poses. Such a density can have arbitrary forms representing various kinds of information about the robot’s position. For example, the robot can start with a uniform distribution representing that it is completely uncertain about its position, i.e., that the robot could be in any location with equal probability. It furthermore can contain multiple modes in the case of ambiguous situations. In the usual case, in which the robot is highly certain about its position, it consists of a unimodal distribution centered around the true position of the robot. This chapter discusses Kalman ﬁltering, which is a form of probabilistic estimation where the estimate is assumed to be a Gaussian (unimodal) PDF. Other probabilistic estimation methods, such as Bayesian methods and particle ﬁltering, can handle more general distributions and are discussed in chapter 9.
+One crude method of mobile robot localization is achieved by simply integrating robot velocity commands from a known starting position. When the commands are executed perfectly and the robot starting position is perfectly known, this method gives a perfect estimate of position. Of course, perfect performance and knowledge are impossible to achieve in the real world. Errors between the velocity commands and the actual robot velocities will accumulate over time. In other words, as the robot moves, it is continuously losing information about its location. Eventually, the robot will lose so much information that the command integration estimate becomes meaningless for any practical purpose. A similar approach is to integrate robot velocity measurements reported by onboard odometry sensors. Figure 8.1 shows typical odometry data of a B21 robot as it is recorded with its odometry sensors. Note that the error in odometry quickly accumulates over time up to a rotational error of almost 45 degrees.
+With just a few extensions, command integration can be thought of as a probabilistic estimation method. First, consider the robot starting location. Since, in the real world, the starting position cannot be perfectly known, it makes sense to represent the starting
+
+Choset-79066 book February 22, 2005 17:27
+
+8.1 Probabilistic Estimation
+
+271
+
+Figure 8.1 Odometry measurements of a B21 robot.
+location as a PDF over the state space, i.e., the space of possible robot positions. If a good estimate of the starting position is available, the PDF will have a peak at that location, and the “sharpness” of the peak will represent the certainty of the initial estimate: the more certain the initial estimate, the higher and narrower the peak. Now the challenge is to propagate this PDF as the robot moves. The location of the peak is propagated by integrating the velocity commands just as before. However, since the commands are not executed perfectly, the estimate becomes more uncertain as time progresses and the peak of the PDF will become smaller and more spread out. The rate at which the peak spreads is determined by the amount of error (noise) in the velocity command: the greater the noise, the faster the peak spreads. Eventually, the peak will become so ﬂat that the estimate provided by the PDF is meaningless.
+It goes without saying that the goal of probabilistic estimation (or any estimation method, for that matter) is to provide a meaningful estimate of the system state, which in this case is the robot pose. The problem with the command integration method is that information is continually lost and no new information is ever gained. The solution to this is to inject new information into the system through the use of sensors that gather infomation about the environment. Consider, e.g., a robot equipped with a sensor capable of measuring the range and bearing to a landmark with a known location. Such a measurement adds new information to the system and can be used (at least partially) to compensate for the information that was lost by integrating. The new
+
+Choset-79066 book February 22, 2005 17:27
+
+272
+
+8 Kalman Filtering
+
+information can be represented as a PDF in sensor space, usually with a peak at the value of the sensor reading. As we have already described, knowledge about the robot location prior to the sensor measurement is described by a PDF in the state space. The crux of the probabilistic estimation problem is to merge these two distributions in a meaningful way.
+Generally, any probabilistic estimation method can be thought of as a two–step process of prediction and update. Given an estimate of the system state in the form of a PDF, the prediction propagates the PDF according to robot commands together with a motion model for the robot. The update step then corrects the prediction by merging the predicted PDF with information collected by the sensors. The “new” estimate is given by the updated PDF, and the process is iterated. Note that in each iteration, the prediction step accounts for the information lost due to errors in the motion model while the update step incorporates information gained by the sensors.
+The following sections describe the well-known Kalman ﬁlter, which is a speciﬁc probabilistic estimation technique. In Kalman ﬁltering, the motion model is assumed to be a linear function of the state variables and the inputs (commands). The quantities measured by the sensors are assumed to be linear functions of the state variables. Errors in both the motion model and the sensor model are assumed to be zero-mean white Gaussian noise. Because of this simple form, it is possible to derive closedform equations to perform the prediction and update steps, making Kalman ﬁlter implementation a straightforward process.
+
+8.2 Linear Kalman Filtering
+One reason that Kalman ﬁltering has become such a popular estimation method is that it is extremely easy to implement for linear systems. The equations in section 8.2.5 can be implemented directly with little understanding of the underlying theory. This feature makes Kalman ﬁltering useful and accessible to a broad range of potential users, but it does not mean that the underlying theory is unimportant. In fact, most modern applications of Kalman ﬁltering employ substantial modiﬁcations of the original equations. For example, modiﬁcations are necessary to address nonlinear sensor models or non-Gaussian noise models in robot localization and mapping problems. Other modiﬁcations are often used to reduce computational complexity.
+This section is intended to provide the reader with an understanding of the fundamentals of Kalman ﬁltering for linear systems. The approach taken here is intuitive and uses basic facts from geometry and linear algebra to reconstruct Kalman’s equations. Some knowledge of multivariate Gaussian distributions is assumed (see the statistics primer in appendix I for an overview). We begin with a simpliﬁed version
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+273
+
+of the Kalman ﬁltering problem to illustrate the basic concept, then we incrementally add complexity until we arrive at the full Kalman equations. An example illustrating the application of the Kalman ﬁlter equations is presented, and the property of observability in linear systems is introduced. With the understanding provided here, the reader should be able to modify the Kalman ﬁlter to ﬁt the needs of a speciﬁc estimation problem.
+
+8.2.1 Overview
+
+In order to apply Kalman ﬁltering to the problem of robot localization, it is necessary to deﬁne equations that can be used to model the dynamics and sensors of the robot system. The vector x is used to denote the system (robot) state as it evolves through time. This chapter uses discrete time models, meaning that the continuously varying robot state is sampled at discrete, regularly spaced intervals of time to create the sequence x(k), k ∈ {0, 1, 2, . . .}. Speciﬁcally, if x(0) is the value of the state at time t = t0, then x(k) is the value of the state at time t0 + T k, where T is deﬁned to be the sampling time step.
+For now we assume that the evolution of the robot state and the values measured by the robot sensors can be modeled as a linear dynamical discrete–time system:
+
+(8.1) x(k + 1) = F(k)x(k) + G(k)u(k) + v(k)
+
+(8.2)
+
+y(k) = H(k)x(k) + w(k).
+
+The vector x(k) ∈ Rn denotes the full system state. The vector u(k) ∈ Rm is used to
+represent the system input such as velocity commands, torques, or forces intentionally applied to the robot. The vector y(k) ∈ Rp is the system output and contains the values reported by the system sensors. The matrix F(k) ∈ Rn×n encodes the dynamics of the system, and G(k) ∈ Rn×m describes how the inputs drive the dynamics. The vector v(k) ∈ Rn is called the process noise and is assumed to be white Gaussian noise with zero mean and covariance matrix V (k).1 The process noise is used to account for
+unmodeled disturbances (such as slipping wheels) that affect the system dynamics. The matrix H (k) ∈ Rp×n describes how state vectors are mapped into outputs. The measurement noise vector w(k) ∈ Rp is assumed to be white Gaussian noise with
+zero mean and covariance matrix W (k). Here we assume that H (k) is full row rank
+for all k, although it may not be square.
+
+1. Here the term “white” means that the vector v(k) is independent of v(k − 1) for all k. The properties of a Gaussian distribution, which is deﬁned entirely by its mean vector and covariance matrix, is discussed in more detail later in this chapter.
+
+Choset-79066 book February 22, 2005 17:27
+
+274
+
+8 Kalman Filtering
+
+The objective of Kalman ﬁltering is to determine the “best” estimate of the state x at the kth time step given a previous estimate together with the known input u(k) and output y(k). In order to achieve this there are two separate difﬁculties that must be overcome. The ﬁrst is the presence of the unknown and unmeasurable noise vectors v(k) and w(k). Hence, as its name implies, one task of the Kalman ﬁlter is to ﬁlter out these unwanted disturbances. The second difﬁculty is that the state in general cannot be directly observed from the outputs because H (k) may not be invertible. This means that the state estimate must be reconstructed using the time history of the known signals y(k) and u(k) together with known parameters F(k), G(k), H (k), V (k), and W (k).2 A device that does this is called an observer. The Kalman ﬁlter is both an observer and a ﬁlter.
+In this section we build up to Kalman’s equations by ﬁrst building an observer for a system with no measurement noise. Speciﬁcally, we derive the equations for a simple two-step observer using only a few simple facts from linear algebra. We then introduce the concept of using a multivariate Gaussian distribution as a state estimate, and we rederive the simple observer equations that use this kind of estimate. This leads naturally to the derivation of the Kalman ﬁlter equations for linear discrete time systems.
+
+8.2.2 A Simple Observer
+
+Here we consider a linear discrete time system with no noise:
+
+(8.3) x(k + 1) = F(k)x(k) + G(k)u(k)
+
+(8.4)
+
+y(k) = H(k)x(k)
+
+Here, H (k) is assumed to be full row rank at every k. The objective is to build an observer for this system, i.e., we would like to ﬁnd a set of equations that allows us to reconstruct the state x. The observer we build will be recursive3: it will take the most recent estimate together with the most recent input u and output y, and then return the next estimate. If the observer works (and the assumptions are valid), then the estimate will converge to the actual value of x over time.
+Before we begin deriving the necessary equations, we ﬁrst introduce some notation to make the job of keeping track of the estimate easier. Given two integers k1 and k2
+
+2. For this to be possible the pair ( F, H ) must be observable, a property which is discussed brieﬂy in section 8.2.7. Observability is also discussed in the overview of linear time invariant control systems in appendix J. A more thorough discussion can be found in any good linear systems theory textbook, e.g., [214]. 3. Note that the deﬁnition of recursive is subtly different from what is commonly found in computer science.
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+275
+
+with k1 ≥ k2, we use xˆ(k1 | k2) to denote the value of the state estimate at time k1 given the value of the output at all times up to k2. The symbol xˆ(k1 | k2) is pronounced “x hat at k-one given k-two.” This notation may seem cumbersome at ﬁrst, but its usefulness will soon become apparent.
+Now the observer follows an intuitive two-step process. Given the current state estimate xˆ(k | k), we ﬁrst generate a prediction xˆ(k + 1 | k) by propagating the prior estimate according to the system dynamics in equation (8.3). We then correct the prediction based on the output y(k + 1) to generate the next estimate xˆ(k + 1 | k + 1). We call these two steps the prediction and update steps, respectively.
+For the prediction step, we simply substitute xˆ(k | k) into equation (8.3) to get
+(8.5) xˆ(k + 1 | k) = F(k)xˆ(k | k) + G(k)u(k).
+To perform the update, we ﬁrst note that given the output y(k + 1), the system state is constrained to lie on the hyperplane
+= {x ∈ Rn|H (k + 1)x = y(k + 1)}.
+Note that is the set of states that are consistent with the measurement y(k + 1). For our simple observer, we choose the next estimate xˆ(k + 1 | k + 1) to be the point in that has the shortest distance to the prediction xˆ(k + 1 | k). This is an intuitive choice: we have some reason to believe that xˆ(k + 1 | k) is close to the actual state value, and we know that the actual state must be in . So it makes sense to choose the update to be the point in that is closest to xˆ(k + 1 | k). This choice of update is depicted graphically in ﬁgure 8.2. We can use algebra to ﬁnd an expression for xˆ(k + 1 | k + 1). Deﬁne the vector x to be the vector that points from xˆ(k+1 | k) to xˆ(k+1 | k+1), i.e.,
+x = xˆ(k + 1 | k + 1) − xˆ(k + 1 | k).
+
+x(k + 1|k) x
+
+= {x|H(k + 1)x = y(k + 1)}
+
+Figure 8.2 The set corresponds to the states consistent with the current output y(k + 1). The corrected state lies in this set and is the state closest to the predicted estimate.
+
+Choset-79066 book February 22, 2005 17:27
+
+276
+
+8 Kalman Filtering
+
+By our choice of xˆ(k +1 | k +1), x is the shortest vector pointing from xˆ(k +1 | k) to . This means that x must be orthogonal to by the standard inner product on Rn, i.e., we must have aT x = 0 for any a that is parallel to .4 Now we need two basic facts from linear algebra [398]:
+1. A vector a ∈ Rn is parallel to if and only if H (k + 1)a = 0. The set of all such a is called the null space of H (k + 1) and is denoted by null( H (k + 1)).
+2. A vector b ∈ Rn is orthogonal to every vector in the space null( H (k + 1)) if and only if b is in the column space of H (k + 1)T , where the column space of H (k + 1)T is denoted column( H (k + 1)T ) and is deﬁned to be the span of the columns of H (k + 1)T .
+Note that any vector b ∈ column( H (k + 1)T ) can be written as a weighted sum of the columns of H (k + 1)T , which is equivalent to saying that b = H (k + 1)T γ for some γ ∈ Rp. Combining these two facts, we see that in order to have x orthogonal to , we must have
+x = H (k + 1)T γ
+for some vector γ in Rp. Next, we will try to ﬁnd γ . Deﬁne the innovation error ν to be the difference between the actual output y(k +1)
+and the predicted output H (k + 1)xˆ(k + 1 | k). In other words, ν is the difference between what the sensors reported and what they would have reported if the prediction was correct. The larger the discrepancy between the actual and predicted measurements, the larger the necessary correction x will be. So for now we make the guess that γ can be written as a linear function of ν, i.e., γ = K ν for some K ∈ Rp×p. This yields the equation
+x = H (k + 1)T K ν = H (k + 1)T K ( y(k + 1) − H (k + 1)x(k + 1 | k)).
+If we can ﬁnd a K such that H (k+1) (xˆ(k + 1 | k) + x) agrees with the measurement y(k + 1) (i.e., (xˆ(k + 1 | k) + x) ∈ ), then our guess is correct and we have an expression for xˆ(k + 1 | k + 1). To ﬁnd K , we start with the requirement that
+(8.6) H (k + 1) (xˆ(k + 1 | k) + x) = y(k + 1),
+which implies that
+H (k + 1) x = y(k + 1) − H (k + 1)xˆ(k + 1 | k) = ν.
+
+4. Technically, we must also deﬁne what we mean by “parallel.” We say a vector a is parallel to a hyperplane if x + a ∈ for every x ∈ .
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+277
+
+Substituting x = H (k + 1)T K ν yields
+(8.7) H (k + 1) H (k + 1)T K ν = ν,
+which implies that K = ( H (k +1) H (k +1)T )−1. Note that the matrix H (k +1) H (k + 1)T is guaranteed to be invertible by the assumption that H (k + 1) is full row rank for all k. We were able to ﬁnd a K that solves equation (8.7) meaning that for the choice x = K ν, equation (8.6) is satisﬁed. Our guess that x is a linear function of ν is then veriﬁed. As a result, we now have equations that fully express our simple two-step observer:
+prediction:
+xˆ(k + 1 | k) = F(k)xˆ(k | k) + G(k)u(k)
+update:
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + H T ( H H T )−1 ( y(k + 1) − H xˆ(k + 1 | k))
+Note that in the update equation we have denoted H (k + 1) simply by H to keep the expression manageable.
+It turns out that there are some problems with this observer. Our choice of the update is naive. Since the update is always perpendicular to the set , only the component of the state that directly affects the current sensor reading is updated. Estimate errors in the direction parallel to are never corrected. As a result, the estimate xˆ will not in general converge to x. However, what is important is that the intuitive notions of prediction and correction are the same as those used in the Kalman ﬁlter. In the following discussion we follow this intuition toward Kalman’s equations, and in the process we ﬁx the problems associated with our simple observer.
+8.2.3 Observing with Probability Distributions
+The estimate produced by the simple observer discussed in the previous section is a vector. In contrast, the estimate produced by a Kalman ﬁlter is a multivariate Gaussian probability distribution over the state space. In addition to providing a vector estimate xˆ(k | k), a Kalman ﬁlter also provides an estimate of the error covariance P(k | k) associated with xˆ(k | k). In this section, we advance the simple observer from the previous section one step toward Kalman’s ﬁlter by augmenting it to provide a covariance estimate.
+First we review some basic facts about multivariate Gaussian distributions. A more detailed discussion can be found in the statistics primer in appendix I. For x ∈ Rn, a
+
+Choset-79066 book February 22, 2005 17:27
+
+278
+
+8 Kalman Filtering
+
+(8.8)
+(8.9) (8.10)
+(8.11)
+
+multivariate Gaussian distribution has a PDF of the form
+
+p(x) = √ 1
+
+e , −
+
+1 2
+
+(
+
+x
+
+−x¯
+
+)
+
+T
+
+P
+
+−1
+
+(
+
+x
+
+−x¯
+
+)
+
+(2π )n|P|
+
+where x¯ is a vector in Rn and P is a symmetric, positive deﬁnite n ×n matrix. It is clear that p(x) is entirely deﬁned by x¯ and P. Further, E[x] = x¯ and E[(x − x¯)(x − x¯)T ] =
+
+P, so x¯ and P are called the mean vector and covariance matrix, respectively. In the
+
+Kalman ﬁlter, we maintain a state estimate which will be the mean of a Gaussian
+
+distribution, so in the sequel we replace x¯ with xˆ.
+
+In this section, we consider linear discrete time systems with process noise but no
+
+measurement noise, i.e.,
+
+x(k + 1) = F(k)x(k) + G(k)u(k) + v(k) y(k) = H(k)x(k).
+
+As before, v(k) ∈ Rn is assumed to be white noise chosen from a zero-mean Gaussian distribution with covariance matrix V (k) and the matrix H (k) is assumed to be full row rank for all k.
+Here we follow the same basic steps of prediction and update that were used for the simple observer. The main difference is that this time we must generate both a state vector estimate xˆ(k | k) and a covariance matrix estimate P(k | k). Hence the prediction step will generate xˆ(k + 1 | k) and P(k + 1 | k), and the update step will generate the next estimate given by xˆ(k + 1 | k + 1) and P(k + 1 | k + 1).
+The state vector prediction xˆ(k + 1 | k) is found by substituting xˆ(k | k) into equation (8.9). Since the expected value of v(k) is zero, the resulting prediction is
+
+xˆ(k + 1 | k) = F(k)xˆ(k | k) + G(k)u(k).
+
+To compute the predicted covariance matrix we start with the deﬁnition of the covariance matrix:
+P(k + 1 | k) = E (x(k + 1) − xˆ(k + 1 | k)) (x(k + 1) − xˆ(k + 1 | k))T
+
+Substituting x(k + 1) from equation (8.9) and xˆ(k + 1 | k) from equation (8.11), then multiplying the terms inside the expectation, yields
+P(k + 1 | k) = E F(k) (x(k) − xˆ(k | k)) (x(k) − xˆ(k | k))T F(k)T + 2F(k) (x(k) − xˆ(k | k)) v(k)T + v(k)v(k)T .
+The fact that v(k) is independent of both x(k) and xˆ(k | k) implies that E[(x(k) − xˆ(k | k))v(k)] = E[x(k) − xˆ(k | k)]E[v(k)], which is zero due to the fact that v(k) is assumed to be zero mean. Using this fact together with the linearity property of the
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+279
+
+(8.12)
+
+expectation yields P(k + 1 | k) = F(k) E (x(k) − xˆ(k | k)) (x(k) − xˆ(k | k))T F(k)T
++E v(k)v(k)T .
+
+The ﬁrst expectation term in this equation matches the deﬁnition of the covariance matrix P(k | k), while the second expectation term matches the deﬁnition of the covariance matrix V (k). As a result we can write the prediction equation
+
+P(k + 1 | k) = F(k)P(k | k)F(k)T + V (k).
+
+To perform the update step, we choose xˆ(k + 1 | k + 1) to be the most likely point x in the set
+
+= {x ∈ Rn | H (k + 1)x = y(k + 1)}.
+
+Hence, we look for x ∈ that maximizes the Gaussian distribution deﬁned by xˆ(k + 1 | k) and P(k + 1 | k), i.e.,
+
+p(x) = √
+
+1
+
+e . −
+
+1 2
+
+(
+
+x
+
+−xˆ
+
+(k
+
++1
+
+|
+
+k))
+
+T
+
+P
+
+(k
+
++1
+
+|
+
+k)−1
+
+(x
+
+−xˆ
+
+(k
+
++1
+
+|
+
+k
+
+))
+
+(2π )n |P(k + 1 | k)|
+
+Because the exponential is monotonically increasing, p(x) is maximized when (x − xˆ(k + 1 | k))T P(k + 1 | k)−1(x − xˆ(k + 1 | k)) is minimized. With this in mind, we introduce a new notion of distance with the norm5
+
+x
+
+2 M
+
+= xT P(k
+
++ 1 | k)−1x,
+
+which is derived from the new inner product on Rn,
+
+x1, x2 M = x1T P(k + 1 | k)−1x2.
+Deﬁne x = xˆ(k + 1 | k + 1) − xˆ(k + 1 | k). So we want to ﬁnd xˆ(k + 1 | k + 1) such that
+
+1. x M is minimized.
+
+2. (xˆ(k + 1 | k) + x) ∈ .
+The ﬁrst condition means that the vector x is orthogonal to the hyperplane with respect to the inner product ·, · M . This notion is depicted graphically in ﬁgure 8.3. The ellipses in this ﬁgure represent sets of points that are equidistant to xˆ(k + 1 | k) according to the · M norm. With this notion of distance, choosing xˆ(k + 1 | k + 1) to be the closest point on to xˆ(k + 1 | k) is equivalent to choosing the point at which
+
+5. dM (x, xˆ) = x − xˆ M is called the Mahalanobis distance between x and xˆ. The Mahalanobis distance indicates how far away the point x is from the mean xˆ in units of standard deviations.
+
+Choset-79066 book February 22, 2005 17:27
+280
+
+8 Kalman Filtering
+
+x(k + 1|k)
+
+= {x|H(k + 1)x = y(k + 1)}
+
+Figure 8.3 Correction determines the “closest” and “most likely” state on the set of states .
+
+(8.13)
+
+one of the equidistant ellipses tangentially intersects . The resulting x must be orthogonal to , but our notion of orthogonality is skewed by P(k + 1 | k)−1. This means that we must have a P(k + 1 | k)−1( x) = 0
+for all a ∈ null( H (k +1)). In the remainder of this section, we simply denote H (k +1) by H for brevity. Using the linear algebra facts presented earlier, this expression can only be true if x ∈ column( P(k + 1 | k) H T ), which means that
+x = P(k + 1 | k)HT γ
+for some γ ∈ Rp. As in the case of the simple observer, we guess that γ can be expressed as a linear function of the innovation error ν = y(k + 1) − H x(k + 1 | k), i.e.,
+x = P(k + 1 | k)HT Kν for some K ∈ Rp ×p. Now we enforce (xˆ(k + 1 | k) + x) ∈ , i.e.,
+H (xˆ(k + 1 | k) + x) = y(k + 1),
+which implies that H x = ν. Substituting for x from equation (8.13) yields
+H P(k + 1 | k)HT K ν = ν,
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+281
+
+(8.14)
+(8.15)
+(8.16) (8.17) (8.18) (8.19) (8.20) (8.21)
+
+which means that we must have K = H P(k + 1 | k) H T −1 .
+The resulting update equation for the state vector estimate is xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + P(k + 1 | k) H T H P(k + 1 | k) H T −1 ν.
+To ease notation, we deﬁne R = P(k + 1 | k) H T H P(k + 1 | k) H T −1
+so that the update equation can be written simply
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + Rν.
+To ﬁnd the update equation for the covariance matrix estimate, we use the deﬁnition of the covariance matrix together with the update equation for the state vector estimate to get
+P(k + 1 | k + 1) = P(k + 1 | k) − R H P(k + 1 | k).
+The details of this derivation are the subject of problem 7. Summarizing the observer derived in this section:
+prediction:
+xˆ(k + 1 | k) = F(k)xˆ(k | k) + G(k)u(k) P(k + 1 | k) = F(k)P(k | k)F(k)T + V (k)
+update:
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + Rν P(k + 1 | k + 1) = P(k + 1 | k) − R H P(k + 1 | k)
+where
+ν = y(k + 1) − H x(k + 1 | k) R = P(k + 1 | k) H T H P(k + 1 | k) H T −1
+and H is shorthand for H (k + 1). As in the case of the simple observer, this observer also has some problems. Because
+we assumed no sensor noise, the update equations will cause the covariance matrix estimate to become singular. This makes sense: noiseless measurements mean that the uncertainty in the directions associated with the sensor measurements will be zero. But the singular covariance makes the resulting notions of Gaussian distribution and Mahalanobis distance meaningless since they rely on the inverse of P. Still, the intuition behind using and propagating a Gaussian distribution as a state estimate is in line
+
+Choset-79066 book February 22, 2005 17:27
+
+282
+
+8 Kalman Filtering
+
+with the intuition behind the Kalman ﬁlter in spite of this problem. In the next section, we advance this intuition one ﬁnal step to derive the full Kalman ﬁlter equations.
+
+8.2.4 The Kalman Filter
+
+(8.22) (8.23)
+
+Consider the system described at the beginning of this chapter:
+x(k + 1) = F(k)x(k) + G(k)u(k) + v(k)
+y(k) = H(k)x(k) + w(k)
+The only difference between this system and the system in the previous section is that we have included the sensor noise term w(k), a zero-mean white Gaussian random vector with covariance matrix W (k).
+Since the dynamic equation has not changed, the prediction step for the Kalman ﬁlter is identical to the prediction step for the observer deﬁned in section 8.2.3. The addition of noise to the sensor equation signiﬁcantly changes the update step, however. In the previous case, the output y(k +1) constrained the next estimate xˆ(k +1 | k +1) to lie in the hyperplane . We knew exactly what the output y(k + 1) had to be, and we chose xˆ(k + 1 | k + 1) to match it. As a result, we could use the algebraic equation y(k + 1) = H (k + 1)xˆ(k + 1 | k + 1) to ﬁnd xˆ(k + 1 | k + 1). In the current case, there is no such algebraic constraint. We do not know exactly what the output should be; we only know that it is drawn from a Gaussian distribution in Rp with mean y(k + 1) and covariance matrix W (k). Without this constraint, we cannot use the same algebraic approach to deﬁne xˆ(k + 1 | k + 1). Instead, we will ﬁrst look for the most likely output y∗ given the prediction (xˆ(k + 1 | k), P(k + 1 | k)) together with the measured output y(k + 1). Once we have y∗, we can introduce the algebraic constraint y∗ = H (k + 1)xˆ(k + 1 | k + 1) and proceed as before.
+We begin to ﬁnd y∗ by projecting the prediction into output space. Using the output map H (k +1) and the deﬁnition of covariance, we see that the state space distribution with mean xˆ(k + 1 | k) and covariance matrix P(k + 1 | k) projects into a Gaussian distribution in the output space (Rp) with mean
+yˆ(k + 1) = H (k + 1)xˆ(k + 1 | k)
+and covariance matrix
+W = E ( yˆ(k + 1) − y(k + 1)) ( yˆ(k + 1) − y(k + 1))T
+= E H (k + 1) xˆ(k + 1 | k) − x(k + 1) xˆ(k + 1)
+− x(k + 1) T H (k + 1)T
+= H (k + 1) P(k + 1 | k) H (k + 1)T .
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+283
+
+The most likely output y∗ is then deﬁned to be the most likely point in the output space Rp given the Gaussian distribution that results from projecting the prediction and the Gaussian distribution that results from taking the measurement. The projected prediction and output distributions have mean-covariance pairs ( yˆ, W ) and ( y(k +1), W (k +1)), respectively. Since these distributions are independent, y∗ will be the peak of the function that results from taking their product. Fortunately the product of two Gaussian distributions is also Gaussian and the result can be obtained using a wellknown formula [389]. We summarize the required result as a theorem:
+
+THEOREM 8.2.1 (Product of Gaussians) The product of two Gaussian distributions with mean-covariance pairs (z1, C1) and (z2, C2) is proportional to a third Gaussian with mean vector z3 = z1 + Q(z2 − z1) and covariance matrix C3 = C1 − QC1, where Q = C1(C1 + C2)−1.
+
+(8.24)
+
+To sketch the proof of this theorem, we use the property that the product of two exponentials is the exponential of the sum of the exponents. A clever reordering of the terms in the resulting sum yields the result. See problem 8 for the details of the proof.
+Applying theorem 8.2.1,
+y∗ = yˆ + W (W + W (k + 1))−1( yˆ − y(k + 1)).
+Now that we have found the most likely output y∗, we can deﬁne ∗ = {x ∈ Rn |H (k +1)x = y∗} and, as in the previous section, proceed to ﬁnd the x = xˆ(k + 1 | k +1) − xˆ(k +1 | k) that minimizes x M while satisfying xˆ(k +1 | k +1) ∈ ∗ (see ﬁgure 8.4). Using H to denote H (k + 1), we get the result
+x = P(k + 1 | k) H T H P(k + 1 | k) H T −1 (y∗ − Hx(k + 1 | k))
+= P(k + 1 | k) H T H P(k + 1 | k) H T + W (k) −1 ν,
+where, as before, ν = y(k + 1) − H x(k + 1 | k) is the innovation error. Deﬁning R = P(k + 1 | k) H T H P(k + 1 | k) H T + W (k + 1) −1 ,
+we can write the state vector estimate update equation
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + Rν.
+
+Choset-79066 book February 22, 2005 17:27
+284
+
+8 Kalman Filtering * = {x|H(k + 1)x = y*} x(k + 1|k)
+
+= {x|H(k + 1)x = y(k +1)}
+
+Figure 8.4 The sensor noise distribution is projected into the state space and is an extruded
+Gaussian centered on the states consistent with the current sensor reading. The most likely output y∗ is determined by multiplying the Gaussian distribution that results from the mea-
+surement y(k + 1) with the Gaussian distribution that results from projecting the prediction into the output space. This then corresponds to a set of states ∗. The update is the point on
+∗ that is closest to the prediction xˆ(k + 1 | k) in the sense of Mahalanobis distance.
+
+(8.25)
+
+To ﬁnd the update equation for the covariance matrix estimate, we use the deﬁnition of the covariance matrix together with the update equation for the state vector estimate to get
+P(k + 1 | k + 1) = P(k + 1 | k) − R H P(k + 1 | k).
+
+8.2.5 Kalman Filter Summary
+
+(8.26) (8.27)
+
+The Kalman ﬁlter equations are summarized as follows: prediction:
+xˆ(k + 1 | k) = F(k)xˆ(k | k) + G(k)u(k) P(k + 1 | k) = F(k)P(k | k)F(k)T + V (k)
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+285
+
+(8.28) (8.29)
+(8.30) (8.31) (8.32)
+
+update:
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + Rν P(k + 1 | k + 1) = P(k + 1 | k) − R H (k + 1) P(k + 1 | k)
+where
+ν = y(k + 1) − H (k + 1)x(k + 1 | k)) S = H (k + 1) P(k + 1 | k) H (k + 1)T + W (k + 1) R = P(k + 1 | k) H (k + 1)T S−1.
+These equations provide the optimal estimate of x in the sense that the expected value of the error between x(k) and xˆ(k | k) is minimized at every k. One can view R as the weighting factor that takes into account the relationship between the accuracy of the predicted estimate and the measurement noise. If R is “large,” then the sensor readings are more believable than the prediction and the Kalman ﬁlter weights the sensor reading highly when computing the updated estimate. If R is “small,” then the sensor readings are not as believable and, as a result, they do not have as much inﬂunce in the update step.
+In this chapter we have chosen to present the derivation of the Kalman ﬁlter equations as an optimization problem because we believe that to be an intuitive approach. It is important to note, however, that the state and covariance estimates that result from the use of these equations are not only the “best” estimates, they are also the “correct” estimates. If the estimate at time k is Gaussian and described by (xˆ(k | k), P(k | k)), then the correct distribution at time k + 1 (i.e., the posterior distribution) is in fact also Gaussian and is described by (xˆ(k + 1 | k + 1), P(k + 1 | k + 1)).
+If we allow the noise terms v(k) and w(k) to have non-Gaussian distributions, then these equations still provide the best linear estimator, but there may be nonlinear estimators that do a better job.
+
+8.2.6 Example: Kalman Filter for Dead Reckoning
+
+In mobile robotics, the term dead reckoning typically refers to a position estimate
+
+achieved by integrating odometry measurements. Here we present an example of a
+
+more sophisticated form of dead reckoning where a Kalman ﬁlter is used to fuse the
+
+robot commands (inputs) with measurements from odometry sensors.
+
+Consider a mobile robot constrained to move along a straight line. The robot state
+
+is deﬁned to be x = [xr , vr ]T where xr and vr are the robot position and velocity,
+
+respectively. The input u is a real–valued force applied to the robot. Newton’s law
+
+states that
+
+d vr dt
+
+=
+
+u m
+
+,
+
+where m
+
+is the mass of the robot. This can be approximated by
+
+Choset-79066 book February 22, 2005 17:27
+
+286
+
+8 Kalman Filtering
+
+(8.33) (8.34)
+
+the discrete time equation
+
+vr (k
+
++ 1)
+
+− vr (k)
+
+=
+
+u(k) ,
+
+T
+
+m
+
+where T is the sampling rate (in seconds) of the discretization. So then the discrete time state equation can be written as
+
+x(k + 1) =
+
+1 0
+
+T 1
+
+x(k) +
+
+0
+T m
+
+u(k) + v(k)
+
+= Fx(k) + Gu(k) + v(k),
+where the process noise term v(k) is used to account for errors that arise from unmodeled sources such as discretization and friction. The vector v(k) is assumed to be zero-mean white Gaussian noise with covariance matrix V .
+We assume that the robot is equipped with a sensor that measures velocity. We also assume that the error in this measurement is well modeled as zero-mean white Gaussian noise with known variance W . Then the output y(k) can be written
+
+y(k + 1) = 0 1 x(k) + w(k) = Gx(k) + w(k),
+
+where w is the noise term. Now the Kalman ﬁlter can be applied using the sequence of equations listed in
+section 8.2.5. We simulated this example in MATLAB using the parameters m = 1, W = .5, T = 0.5, and
+
+V=
+
+0.2 0.05
+
+0.05 0.1
+
+.
+
+Assume that the input at time k is known to be u(k) = 0, and assume an initial state estimate of xˆ(k | k) = [2, 4]T and an initial covariance estimate of
+
+P(k | k) =
+
+1 0
+
+0 2
+
+.
+
+Further, assume that the (unknown) value of the actual state is x(k + 1) = [1.8, 2]T . The sequence of prediction, combining prediction with measurement in output space, and update are depicted graphically in ﬁgures 8.5, 8.6, and 8.7. Here, the twodimensional Gaussian distributions that result from xˆ and P are represented by conﬁdence ellipses. Speciﬁcally, these ellipses are chosen so that the probability that the actual value of the state x is contained within the ellipse is 0.95.
+
+Choset-79066 book February 22, 2005 17:27
+
+8.2 Linear Kalman Filtering
+
+287
+
+Prediction Step
+
+10
+
+P(k |k) x(k + 1|k)
+
+8
+
+x (k |k)
+
+P(k + 1|k)
+
+6
+
+velocity (vr)
+
+4
+
+2
+
+0
+x(k + 1)
+
+-2
+
+-2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+position (xr)
+
+Figure 8.5 The initial estimate xˆ(k | k) has an uncertainty P(k | k) which grows to P(k +1 | k) when the robot moves, reﬂecting the increase in uncertainty. This increase in uncertainty is depicted by plotting the 0.95 conﬁdence ellipses.
+
+8.2.7 Observability in Linear Systems
+Note that in the update step of the previous example, the updated ellipse is “squished” signiﬁcantly in the vertical direction. This squishing corresponds to the information gained from the velocity measurement. For this particular example, each iteration of the Kalman ﬁlter will reﬂect a gain of information in the velocity direction and a loss of information in the position direction. As a result, the expected error on the position estimate will grow monotonically without bound. This failure is not the fault of the Kalman ﬁlter, which is guaranteed to provide the best possible estimate. The problem instead lies with the system itself; speciﬁcally, the system dynamics and output equations do not interact in a way that allows the state to be recovered from the available outputs. In other words, the system in the example fails to be observable.
+Loosely speaking, a system is said to be observable if the full state can be reconstructed by observing the input u and the output y over some period of time (see appendix J for a discussion of observability in linear systems.) For linear systems where the system matrices F(k) and H (k) do not vary with k, there is a simple test to determine observability:
+
+Choset-79066 book February 22, 2005 17:27
+
+288
+
+8 Kalman Filtering
+
+Finding Most Likely Ouput 0.8
+
+0.7
+
+y(k + 1) y*
+
+Hx(k +1|k) = y(k +1)
+
+0.6
+
+p(y)
+
+0.5 PDF from measurement
+0.4
+0.3
+
+Combined PDF
+
+PDF from projected prediction
+
+0.2
+
+0.1
+
+0
+
+–2 –1
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+Velocity measurement (y)
+
+Figure 8.6 Measurements and predictions are then merged. The PDF plotted with the dotdashed line results from the combination of the measurement PDF and the PDF of the prediction projected into output space, where the combination is computed using theorem 8.2.1. The most likely output y∗ is the value at which this combined distribution reaches its peak.
+
+THEOREM 8.2.2 (Observability Test) The linear time-invariant discrete time system
+
+x(k + 1) = F x(k) + Gu(k) + v(k) y(k) = Hx(k) + w(k)
+
+is observable if and only if the observability matrix
+
+
+
+
+
+H
+
+Q = 
+
+HF H F2
+...
+
+
+
+H F (n−1)
+
+has rank n.
+
+Choset-79066 book February 22, 2005 17:27
+
+8.3 Extended Kalman Filter
+
+289
+
+Update Step
+10
+x(k +1|k) P(k +1|k)
+8
+
+velocity (v)
+
+6
+* 4
+
+2
+
+0
+
+P(k +1|k +1)
+
+x(k +1)
+
+x(k +1|k +1)
+
+–2
+
+–2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+position (x)
+
+Figure 8.7 The updated estimate xˆ(k +1 | k +1) is the point on ∗ that is closest to xˆ(k +1 | k)
+in terms of Mahalanobis distance. The smaller of the two dotted ellipses is the smallest ellipse that intersects ∗, hence xˆ(k + 1 | k + 1) is deﬁned by this intersection. Note that the line ∗ represents the set of states that are consistent with the most likely output y∗ that was found in
+ﬁgure 8.6.
+
+For any observable linear system, the estimate provided by the Kalman ﬁlter is guaranteed to converge in the sense that the expected error between the actual and estimated state will be bounded for all time.
+
+8.3 Extended Kalman Filter
+
+(8.35) (8.36)
+
+The Kalman ﬁlter is a powerful tool for linear systems, but many systems encountered in practice are nonlinear. Consider the system
+x(k + 1) = f (x(k), u(k), k) + v(k) y(k) = h(x(k), k) + w(k),
+where x, y, u, v, and w are as before and f : Rn × Rm × Z+ → Rn
+
+Choset-79066 book February 22, 2005 17:27
+
+290
+
+8 Kalman Filtering
+
+(8.37) (8.38)
+(8.39)
+(8.40) (8.41) (8.42) (8.43) (8.44)
+(8.45)
+
+and h : Rn × Z+ → Rp
+
+are both continuously differentiable in x(k). One approach to state estimation for systems of this type is to linearize the equations about the current estimate and then apply Kalman’s equations using the resulting approximation. This formulation is called the extended Kalman ﬁltering. The EKF equations are:
+prediction:
+
+xˆ(k + 1 | k) = f (xˆ(k | k), u(k), k) P(k + 1 | k) = F(k)P(k | k)F(k)T + V (k)
+
+where
+
+ ∂ f1
+
+F(k) =
+
+∂f ∂x
+
+x=xˆ(k | k)
+
+=
+
+
+
+∂ x1
+∂ f2
+∂...x1
+
+∂ f1 ∂ x2
+∂ f2
+∂...x2
+
+···
+··· ...
+
+∂ f1 
+
+∂ xn
+∂ f2
+∂ ...xn
+
+
+
+.
+
+∂ fn ∂ x1
+
+∂ fn ∂ x2
+
+···
+
+∂ fn ∂ xn
+
+x=xˆ(k | k)
+
+update:
+
+xˆ(k + 1 | k + 1) = xˆ(k + 1 | k) + Rν P(k + 1 | k + 1) = P(k + 1 | k) − R H (k + 1) P(k + 1 | k)
+
+where
+
+ν = y(k + 1) − h(x(k + 1 | k), k + 1) S = H (k + 1) P(k + 1 | k) H (k + 1)T + W (k + 1) R = P(k + 1 | k) H (k + 1)T S−1
+
+and
+
+ ∂h1
+
+H(k
+
++ 1) =
+
+∂h ∂x
+
+x=xˆ(k +1 | k)
+
+=
+
+
+
+∂ x1
+∂h2
+∂...x1
+
+∂h1 ∂ x2
+∂h2
+∂...x2
+
+···
+··· ...
+
+∂h1 
+
+∂ xn
+∂h2
+∂ ...xn
+
+
+
+.
+
+∂hp ∂ x1
+
+∂hp ∂ x2
+
+···
+
+∂hp ∂ xn
+
+x=xˆ(k +1 | k)
+
+8.3.1 EKF for Range and Bearing Localization
+The EKF is well suited to the problem of localizing a mobile robot equipped with sensors that can detect range and bearing to previously mapped landmarks in the
+
+Choset-79066 book February 22, 2005 17:27
+
+8.3 Extended Kalman Filter
+
+291
+
+environment [278]. Consider a robot whose state at time k is given by x(k) =
+
+[xr (k), yr (k), θr (k)]T , where (xr (k), yr (k)) denotes its position in the plane and θ (k) denotes its orientation. The input is u(k) = [u1(k), u2(k)]T , where u1(k) and u2(k)
+
+denote the forward and angular velocities of the robot, respectively. The process model
+
+for this robot nonlinear, i.e.,
+
+
+
+
+
+cos θr (k)u1(k) + xr (k)
+
+x(k + 1) =  sin θr (k)u1(k) + yr (k)  + v(k),
+
+u2(k) + θr (k)
+
+where v(k) is a random vector from a Gaussian distribution whose mean is zero and
+
+covariance is V (k).
+
+The robot is equipped with sensors that can measure the range and bearing to
+
+certain landmarks in the environment. Assume that the free space is populated with n
+
+landmarks whose locations are known to be (x i , y i ), i = 1, 2, . . . , n . At any time k, the robot can only see the subset of landmarks that is within the range of its sensors, so
+
+the number of measurements taken varies with k. The number of measurements taken
+
+at the kth timestep is denoted by p(k). Each measurement has two components, a
+
+range component and a bearing component. We also assume for now that for each
+
+measurement, we somehow know which landmark was observed. We introduce the
+
+association map a: {1, 2, . . . , p(k)} → {1, 2, . . . , n } which is deﬁned such that the
+
+ith measurement at time k corresponds to the a(i)th landmark. The output equation
+
+for this system is then given as
+
+ y(k) = 
+
+h1(x(k), a(1))
+h2(x(k), a(2)) ...
+
+
+
+
+
+w1(k)
+
+ + 
+
+w2(k) ...
+
+ ,
+
+h p(k)(x(k), a( p(k)))
+
+w p(k)(k)
+
+where, for i = 1, 2, . . . , p(k),
+
+h j(x(k), j) =
+
+(xr (k) − x j )2 + ( yr (k) − y j )2 atan2( yr (k) − y j , xr (k) − x j ) − θr (k)
+
+and wi (k) ∈ R2 is a random vector taken from a Gaussian distribution with zero mean and covariance matrix Wi (k).
+In order to linearize, we differentiate the process and sensor models with
+
+F(k) =
+
+∂f ∂x
+
+x =xˆ (k |k )
+
+Choset-79066 book February 22, 2005 17:27
+
+292
+
+8 Kalman Filtering
+
+and
+
+
+
+
+
+H(k
+
++ 1)
+
+=
+
+
+
+
+
+H1(k + 1, a(1))
+
+
+
+H2(k
+
++ 1, a(2)) ...
+
+
+
+Hp(k +1)(k + 1, a( p(k + 1)))
+
+=
+
+
+
+∂h1 ∂ x x=xˆ(k +1 | k) ∂h2 ∂ x x=xˆ(k +1 | k)
+...
+∂ h p(k +1)
+
+
+
+∂ x x=xˆ(k +1 | k)
+
+resulting in  10
+F = 0 1
+00
+
+ − sin θr (k)u1(k) cos θr (k)u1(k) 
+1
+
+and
+
+Hi (k √
+
++ 1, j) =
+(xˆr (k +1|k)−x j )
+
+
+
+(xˆr (k +1|k)−x j )2+( yˆr (k +1|k)−y j )2 −( yˆr (k +1|k)−y j )
+
+( ) 1+
+
+yˆr (k +1|k)−y j xˆr (k +1|k)−x j
+
+2 xˆr (k +1|k)−x j 2
+
+√
+
+( yˆr (k +1|k)−y j )
+
+(xˆr (k +1|k)−x j )2+( yˆr (k +1|k)−y j )2
+
+1
+
+1+
+
+yˆr (k +1|k)−y j xˆr (k +1|k)−x j
+
+2
+(xˆr (k +1|k)−x j )
+
+ 0 −1  .
+
+With these matrices in hand, we can use the linearized Kalman ﬁlter equations to estimate the robot state.
+
+8.3.2 Data Association
+The solution presented in the previous section glosses over one very important aspect of localization: it assumes that each measurement is automatically associated with the correct landmark. In practice, landmarks have similar properties which make them good features but often make them difﬁcult to distinguish one from another. When this happens, we must address the problem of data association, which is the question of which landmark corresponds to a particular measurement. This is equivalent to ﬁnding the association map used in the previous section.
+The basic idea used for data association is as follows. Consider the ith measurement yi (k + 1). For each landmark in the map, we compute the innovation νi j which is deﬁned to be the difference between the actual measurement yi (k + 1) and the measurement that we would expect if yi (k + 1) corresponded to the jth landmark and the prediction xˆ(k + 1 | k) was correct. This means that
+νi j = yi (k + 1) − hi (xˆ(k + 1 | k), j ).
+
+Choset-79066 book February 22, 2005 17:27
+
+8.3 Extended Kalman Filter
+
+293
+
+The smaller the innovation νi j , the more likely it is that the ith measurement corresponds to the jth landmark. We then can make a good guess of which landmark corresponds to the measurement by choosing the landmark that yields the smallest innovation. However, the notion of size must be weighted by the uncertainties in the predictions and measurements. Fortunately, these uncertainties are encoded in the matrix S from the Kalman ﬁlter update equation (8.31), and S can be used to create a Mahalanobis norm for νi j which indicates the size of the innovation in units of standard deviations. We write this measure of the innovation as
+χi2j = νi j Si−j 1νiTj ,
+where
+Si j = Hi (k + 1, j ) P(k + 1 | k) Hi (k + 1, j )T + Wi (k + 1).
+We then can build the data association function a() by setting a(i) equal to the value of j that minimizes χi j .
+Figure 8.8 contains an example of localization using an extended Kalman ﬁlter. The actual path, i.e., ground truth, is displayed along with estimates of the robot’s location and its uncertainty of that estimate as the robot moves along the path. Note that the estimate converges to the actual path as the robot moves along the path and as more measurements are taken. Also, note that the uncertainty of the estimate considerably decreases as well.
+
+Figure 8.8 The dotted line displays the actual path of the Nomad Scout mobile robot. The triangles and ellipses correspond to the estimated location and variance, respectively, of the robot’s location. The stars correspond to the measured location of the beacon, which also has an associated variance (due to noise) which is not displayed.
+
+Choset-79066 book February 22, 2005 17:27
+
+294
+
+8 Kalman Filtering
+
+8.3.3 EKF for Range-Only Localization
+The EKF solution to the problem of localization using range-only sensors is a trivial extension to the range and bearing case. The only difference is that the output equation will not contain any bearing information, so we simply remove the rows from h and H that correspond to the bearing measurements. The EKF equations are then applied in the usual manner.
+
+8.4 Kalman Filter for SLAM
+In this section we introduce the use of the Kalman ﬁlter to solve the problem SLAM which has been an active topic of research in recent years (see, e.g., [99, 128, 321, 390]). We begin with a very simple case where the robot is able to measure the relative displacement between itself and a number of ﬁxed landmarks. The simple example also assumes that each sensor reading is automatically associated with the correct landmark so that the robot does not have to determine which landmark corresponds to any given measurement. After using this simple example to demonstrate the basic concept of Kalman ﬁlter-based SLAM, we present a more realistic example where the robot measures range and bearing to ﬁxed landmarks and the data association problem is not automatically solved.
+8.4.1 Simple SLAM
+One common approach to solving the SLAM problem is to use a Kalman ﬁlter to simultaneously estimate the position of a moving vehicle along with the positions of landmarks seen by the vehicle. This technique was originally suggested by Smith, Self, and Cheeseman [390]. Here we present the most basic example of this technique: we assume an omnidirectional motion model for the vehicle and we assume that the vehicle has sensors capable of uniquely identifying each landmark and providing a measurement of the relative displacement between the vehicle and the landmark. We assume that the vehicle’s sensor can see every landmark at every instant of time.
+We ﬁrst deﬁne the state to be the location of the vehicle (xr , yr ) together with the locations of each of the landmarks, (x i , y i ), i = 1, 2, . . . , n , where n is the total number of landmarks. In other words,
+x = [xr yr x 1 y 1 x 2 y 2 · · · x n y n ]T .
+We assume that the control inputs are ux and uy, the vehicle velocities in the x- and y-directions, respectively. We model the errors associated with this motion with the
+
+Choset-79066 book February 22, 2005 17:27
+
+8.4 Kalman Filter for SLAM
+
+295
+
+random vector vr (k) = [vrx (k), vry(k)]T , which is zero-mean white Gaussian noise
+
+with covariance matrix Vr (k). The landmarks do not move, so the resulting dynamic
+
+equations for the system are
+
+
+
+
+
+
+
+10
+
+vrx (k)
+
+x(k
+
++ 1)
+
+=
+
+x(k)
+
++
+
+
+
+0 0 0...
+
+1 0 0...
+
+
+
+ux (k) uy(k)
+
++
+
+
+
+vr
+
+y( 0 0...
+
+k
+
+)
+
+
+
+.
+
+00
+
+0
+
+This equation can clearly be written in the form
+
+x(k + 1) = F x(k) + Gu(k) + v(k),
+
+where v(k) is a zero-mean white Gaussian noise with covariance matrix
+
+
+
+
+
+Vr (k) 0 · · · 0
+
+V (k) =  0...
+
+0...
+
+··· ...
+
+0...  .
+
+0 0 ··· 0
+
+The measurement to the ith landmark is the position of the landmark relative to the vehicle plus some noise, i.e.,
+
+yi (k) =
+
+x i (k) − xr (k) y i (k) − yr (k)
+
++ wi(k),
+
+where wi (k) is an independently distributed Gaussian random vector with covariance matrix Wi (k). Note the yi (k) is a linear function of the system state x(k). Speciﬁcally, we can write
+
+yi (k) = Hi x(k) + wi (k),
+
+where
+
+Hi =
+
+−1 0
+
+0 −1
+
+0 0
+
+··· ···
+
+0 0
+
+1 0
+
+0 1
+
+0 0
+
+··· ···
+
+0 0
+
+.
+
+The ﬁrst row of H has a −1 in the ﬁrst column that to corresponds xr and a 1 in the (2i + 1)th column that corresponds to x i , and zeros everywhere else. Similarly, the second row is all zeros except for a −1 in the second column and a 1 in the (2i + 2)th
+column.
+
+Choset-79066 book February 22, 2005 17:27
+
+296
+
+8 Kalman Filtering
+
+With this notation, we can stack all of the measurements together to create one big measurement vector y = [y1, y2, . . . , yn ]T which gives the measurement equation
+y(k) = Hx(k) + w(k),
+
+where
+
+
+
+
+
+
+
+H1
+
+w1(k)
+
+H =  H...2  , and w(k) =  w2...(k)  ,
+
+Hn
+
+wn (k)
+
+and the covariance matrix associated with w(k) is
+
+
+
+W1(k)
+
+W (k) = 
+
+0 ...
+
+0 W2(k)
+...
+
+··· ... ...
+
+
+
+0... 0
+
+ ,
+
+0
+
+· · · 0 Wn
+
+where Wi (k) is the covariance matrix associated with wi (k). The problem has now been put into a form suitable for the Kalman ﬁltering equations in section 8.2.5. Kalman estimates of the system state x provide estimates of both vehicle and landmark locations, hence solving the SLAM problem.
+
+8.4.2 Range and Bearing SLAM
+
+Now we consider the SLAM problem for a mobile robot whose inputs are forward velocity and angular velocity and whose measurements are range and bearing readings. In a sense, we are combining the range-bearing localization approach from section 8.3.1 with the SLAM approach described above in section 8.4.1. The difference is that the number of columns in the H matrix is the same as the number of rows in the state vector. Moreover, the H matrix now contains partial derivatives of the measurement equations with respect to the state.
+The measurement equations are the same as in the range and bearing localization example, i.e.,
+
+(8.46)
+
+yi (k) =
+
+(x i (k) − xr (k))2 + ( y i (k) − yr (k))2 atan2(( y i (k) − yr (k)), (x i (k) − xr (k)) − θr (k)
+
++ wi(k).
+
+The ﬁrst three columns of the H matrix will be fairly dense since the planar location of the robot is part of both measurement equations. The columns to the right will be
+
+Choset-79066 book February 22, 2005 17:27
+
+Problems
+
+297
+
+(8.47) (8.48)
+
+sparse as in the last example of EKF SLAM since the measurement of each landmark is only a function of the robot position and that landmark’s position.
+
+∂ yi
+
+Hi =
+
+∂ xr ∂ yi
+
+∂ yr
+
+
+
+−x i (k)+xr (k)
+
+=
+
+ρi y i (k)−yr (k)
+
+ρi2
+
+−y i (k)+yr (k) ρi
+−x i (k)+xr (k) ρi2
+
+0
+
+...
+
+x i (k)−xr (k) ρi
+
+−1
+
+...
+
+−y i (k)+yr (k) ρi2
+
+y i (k)−yr (k) ρi
+x i (k)−xr (k) ρi2
+
+ ...
+ ...
+
+where ρi is the range of the landmark as given in the measurement equation. Now, we substitute the modiﬁed H matrix into the previously deﬁned framework for Kalman
+
+ﬁlter SLAM.
+
+Again, we have the problem of data association, i.e., we must determine which
+
+landmark corresponds to each measurement. We also have to determine when a new
+
+landmark has been encountered. Once again, we use the Mahalanobis distance met-
+
+ric to compare the ith measurement with the measurement prediction for the jth
+
+landmark, i.e.,
+
+χi2j = y(k)i − h(k) j )T Si j ( y(k)i − h(k) j .
+Once the χi j has been calculated for each combination of landmarks and measurements, the minimum is checked against an acceptance threshold to assure that the match is likely enough. If the minimum χ is above a high threshold, then the measurement is not likely to have come from any existing landmark. Therefore, we have an indication that a new landmark should be initialized and added to the map.
+
+Problems
+1. The methods presented in this chapter generally assume that the noise is modeled as a zeromean white Gaussian random process and that the noise enters the system dynamics and measurement equations through addition. It is important to understand that this is always an approximation; real systems never contain such nice noise. For each of the noise sources listed below, brieﬂy describe how the zero-mean white Gaussian noise assumption used in the Kalman ﬁlter fails:
+(a) distance measurements; (b) bearing measurements; (c) odometry error in a differentially steered wheeled robot due to a mismatch in wheel
+size; (d) odometry error in a wheeled robot due to wheel slippage; (e) sonar errors due to multipath reﬂections; (f) temperature dependent drift in a rate gyro.
+
+Choset-79066 book February 22, 2005 17:27
+
+298
+
+8 Kalman Filtering
+
+Fext Fs = –kz
+
+m Fd = z
+
+Figure 8.9 Mass–spring–damper.
+
+2. The mass–spring–damper system shown in ﬁgure 8.9 with mass m, spring constant k, and damping coefﬁcient γ can be modeled by the second order differential equation
+
+m z¨ + γ z˙ + kz = 0.
+
+Deﬁne the system state to be x = [z z˙]T . In discrete time with sampling time step T , the
+
+derivative
+
+d dt
+
+can be approximated as
+
+x(k + 1) − x(k)
+
+x˙(t) ≈
+
+.
+
+t =k T
+
+T
+
+Use this approximation to write the mass–spring–damper system as a linear discrete time
+
+system in state space.
+
+3. Consider the linear time invariant, noise-free, zero-input, single-output discrete time system
+
+x(k + 1) = F x(k); y(k) = H x(k),
+
+where x(k) ∈ R2.
+(a) Describe the set of states x(k) that are possible given the measurement y(k). (b) Describe the set of states x(k + 1) that are possible given the measurement y(k) (but
+not y(k + 1)). (c) Given the measurement y(k +1), under what condition will the set of possible x(k +1)
+be a single point? How does this relate to the result in theorem 8.2.2?
+
+4. Let xˆ ∈ Rn, y ∈ Rp, and H ∈ Rp ×n. Deﬁne the hyperplane = {x ∈ Rn | H x = y}. Let P be a positive deﬁnite matrix and deﬁne the norm x P = x T P x. Show that, with respect to this norm, the shortest vector x that satisﬁes H (x + x) = y must be orthogonal to , i.e., x T Pa must be zero for every a that is parallel to .
+
+Choset-79066 book February 22, 2005 17:27
+
+Problems
+
+299
+
+5. Using the deﬁnitions from problem4, show that null( H ) is parallel to .
+
+6. Show that for a matrix A, null( A) is orthogonal to column( AT ).
+
+7. The solutions to the following sequence of problems combine to form the derivation of
+
+equation (8.15). To make the expressions more manageable, we introduce the notation
+
+xk
+
+=
+
+x(k),
+
+xˆ k
+
+=
+
+xˆ(k | k),
+
+xˆ
+
+− k +1
+
+=
+
+xˆ (k
+
++ 1 | k),
+
+Pk
+
+=
+
+P(k | k), and
+
+Pk−+1
+
+=
+
+P(k
+
++ 1 | k).
+
+We also denote the innovation as ν = ν(k + 1) = y(k + 1) − H (k)xk.
+
+(a) Starting with the deﬁnition of Pk,
+
+Pk = E (xk +1 − xˆ k +1)(xk +1 − xˆ k +1)T ,
+
+show that
+
+Pk = E (xk +1 − xˆ −k +1)(xk +1 − xˆ −k +1)T
+
+− 2Rν(xk +1
+
+−
+
+xˆ
+
+− k +1
+
+)T
+
+−
+
+Rν( Rν)T
+
+.
+
+(b) Continue to show that
+
+Pk = Pk−+1 − 2R H Pk−+1 + R H Pk−+1 H T RT .
+
+(c) Next show that
+
+Pk = Pk−+1 − 2R H Pk−+1 H T RT + R H Pk−+1 H T RT .
+
+Equation (8.15) follows trivially from this last expression.
+
+8. The solutions to the following sequence of problems combine to form the proof of theorem 8.2.1. Consider two multivariate Gaussian distributions with mean-covariance pairs (z1, C1) and (z2, C2).
+
+(a) Show that the product of these two Gaussian distributions is proportional to
+
+e . −
+
+1 2
+
+(
+
+z
+
+T
+
+(C1−1
+
++C2−1
+
+)z−2zT
+
+(C1−1
+
+z1
+
++C2−1
+
+z2
+
+)+z1T
+
+C1−1
+
+z1
+
++z2T
+
+C2−1
+
+z2
+
+)
+
+(b) Consider the term in the exponential of a Gaussian with mean-covariance pair (z3, C3). By equating the terms that are quadratic in z, show that
+
+C3 = C1 − QC1,
+where Q = C1(C1 + C2)−1. (c) By equating the terms that are linear in z, show that
+
+z3 = z1 + Q(z2 − z1).
+
+9. Consider the nonlinear discrete time system
+
+
+
+
+
+x1(k) + T u1(k)cos(x3(k))
+
+x(k + 1) =  x2(k) + T u1(k)sin(x3(k))  ;
+
+x3(k) + T u2(k)
+
+y(k) = x1(k) + w(k),
+
+Choset-79066 book February 22, 2005 17:27
+
+300
+
+8 Kalman Filtering
+
+where v(k) is Gaussian white noise with zero mean and variance 0.5. Suppose the estimate
+
+xˆ (1|1)
+
+=
+
+[1
+
+0.5
+
+π 4
+
+]T
+
+,
+
+the
+
+input
+
+u(1)
+
+=
+
+[3 π], and the time step T
+
+=
+
+0.25. Also suppose
+
+that the covariance estimate P(1|1) is the 3×3 identity matrix. Using the extended Kalman
+
+ﬁlter formulation,
+
+(a) compute the predicted estimate and covariance, xˆ(2|1) and P(2|1). (b) given the measurement y(2) = 1.7, compute xˆ(2|2) and P(2|2).
+
+10. Consider the system of problem 9 with noise added to the inputs: u1(k) is replaced by
+u1(k) + s1(k) and u2(k) is replaced by u2(k) + s2(k), where s1 and s2 are Gaussian white noise with variances σ12 and σ22 respectively. Given an estimate xˆ(k | k), state the equation used to ﬁnd the estimate covariance prediction P(k + 1 | k).
+
+11. Consider the system given by equations (8.1) and (8.2) with all of the standard assumptions. Show that if the initial estimate xˆ(0|0) is such that the expected value of the intitial estimate error E[x(0) − xˆ(0|0)] = 0, then the expected value of the error of the estimate provided by the Kalman ﬁlter remains zero for all k.
+

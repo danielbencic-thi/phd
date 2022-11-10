@@ -1,0 +1,492 @@
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) September 27 - October 1, 2021. Prague, Czech Republic
+Unsupervised Path Regression Networks
+Michal Pa´ndy1, Daniel Lenton2, Ronald Clark2
+
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-1714-3/21/$31.00 ©2021 IEEE | DOI: 10.1109/IROS51168.2021.9636818
+
+Abstract— We demonstrate that challenging shortest path problems can be solved via direct spline regression from a neural network, trained in an unsupervised manner (i.e. without requiring ground truth optimal paths for training). To achieve this, we derive a geometry-dependent optimal cost function whose minima guarantees collision-free solutions. Our method beats state-of-the-art supervised learning baselines for shortest path planning, with a much more scalable training pipeline, and a signiﬁcant speedup in inference time.
+I. INTRODUCTION
+Motion planning is essential for most robotics and embodied AI applications, but is also an exceptionally difﬁcult problem for multiple reasons. Firstly, the planner is often required to ﬁnd paths of minimal length in order to minimize power consumption and execution time. Secondly, a usable path must avoid obstacles (taking quadcopter as an example, a collision might cause fatal damage). Thirdly, the motion of many real systems (e.g., robot arms) is limited by the controllable actuators and this limits the set of feasible trajectories. Finally, real-world robots are limited to partial observations of their surroundings, acquired from on-board sensors.
+Existing methods based on sampling, grid, or tree searches successfully avoid obstacles by querying points in the conﬁguration space and checking whether collisions occur. These approaches are accurate and have high success rates, but their run-time can be prohibitive. These limitations are addressed by gradient-based planners, which can efﬁciently ﬁnd smooth trajectories. However, formulating a suitable cost function for these approaches is challenging as the two terms, collision cost and path length, are inherently conﬂicting. The collision cost is a hard binary constraint that is non-differentiable by nature. The most common approach to address this is to relax the collision cost by a soft signed distance function, but this has two major disadvantages:
+1) The relaxed cost function does not guarantee the shortest paths to be found at its optimum.
+2) A hyperparameter which trades between collision and path length needs to be tuned (see Fig. 1).
+In this paper we propose to train a network that directly regresses an entire path from start to goal in a single forward pass, by minimising a novel unsupervised cost function at training time. The cost function we propose is similar in form to those in the optimization-based planning
+1Michal Pa´ndy (mp988@cam.ac.uk) is at the Department of Computer Science and Technology, University of Cambridge.
+2Daniel Lenton (daniel.lenton11@imperial.ac.uk) and Ronald Clark (ronald.clark@imperial.ac.uk) are at the Department of Computing, Imperial College London.
+
+Start
+
+Target
+
+Increasing collision weight
+
+Fig. 1: Path length and collision cost are conﬂicting objectives. Here, we show an application of motion planning where a robot arm needs to estimate a path to move the cup from a start conﬁguration to a target conﬁguration. Most planning methods tune a weighted combination of path length l and collision c to ﬁnd a path. In this paper, we design l and c to guarantee collision-free paths to be found at the optimum of the cost function and avoid the need for a weighting between the two objectives.
+
+literature [40], [29], but unlike existing methods, our novel formulation guarantees collision-free shortest paths to be found at the minima, which is the main contribution of this work. The trained network is conditioned on some form of scene description, but our method does not limit the parameterization of the scene description. For example, we show that our method works with scenes speciﬁed as a list of objects (their locations and shapes), and also with scenes parameterized as an RGBD image. This makes our approach applicable for sim-to-real learning, where we can leverage the full state of the simulator to construct the optimal loss at training time, to train a network which only receives image observations at inference time.
+We demonstrate state-of-the-art performance for learningonly approaches on benchmark tasks, including point-mass path-planning in 3D space and reaching target joint conﬁgurations in the presence of obstacles for a 6-DoF robotic manipulator. Importantly, our method does not need to precompute a dataset of shortest paths for training, so we are also able to reduce total training time by almost two orders of magnitude compared to supervised approaches.
+II. RELATED WORK
+For low-dimensional problems (< 3 DoF), graph-based planners are efﬁcient and can ﬁnd optimal solutions. These approaches construct a graph by discretizing the space and
+
+978-1-6654-1714-3/21/$31.00 ©2021 IEEE
+
+1413
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+connecting neighboring cells. The shortest path can then be found using variations of dynamic programming [8], [13], [14], [7]. However, these approaches quickly become intractable when moving to higher dimensions.
+For a problem with more degrees of freedom (> 3 DoF), sample-based planners such as rapidly-exploring random tree (RRT) and probabilistic roadmap (PRM) are the most popular approaches. These planners dynamically build a network of paths at run-time by attempting to connect nodes which are sampled in continuous space [2], [22], [20], [21]. Although these methods exhibit probabilistic convergence guarantees, their runtime performance is prohibitive for many real-world applications, and the paths produced are generally jerky, requiring post-processing.
+Continuous planners that do not rely on discretizing the space can ﬁnd smooth solutions more efﬁciently. Potential ﬁeld planners, for example, model obstacles as a repulsive force and model path length as an attractive force [31], [5], [12]. However, these methods easily get stuck in local minima and typically require a good initial path estimate from samplebased planners.
+Advances in optimization-based planners [40], [19], [30], [34] have demonstrated that paths can be optimized directly from naive initial guesses, with no sample-based planners involved. Apart from the difﬁculty with tuning a cost function for a speciﬁc scene, the requirement for multiple gradient steps at inference time can be prohibitive in dynamic contexts requiring fast robotic responses.
+Deep learning-based methods such as [32], [35], [3], [4], [38] train networks to iteratively predict trajectories that bring the agents closer to target state. These methods use groundtruth paths computed using a standard planner to serve as training examples. Apart from the signiﬁcant computational overhead associated with generating such ground-truth paths, these approaches may also be susceptible to biases created by employing traditional planners to generate the training samples [18].
+The need for ground-truth paths can be overcome by using reinforcement learning. [9], [28], [16], [25], [1]. However, reinforcement learning-based approaches are often very sample-inefﬁcient, particularly when learning from sparse rewards, requiring many trials to train. These approaches can also often struggle to generalize between different tasks and environments.
+III. APPROACH
+In this section, we describe our approach for learning to ﬁnd shortest collision-free paths. A high-level overview of our approach is illustrated in Figure 2. We use a neural network (described in Section III-C) to regress a path parameterized as a spline (further described in Section III-B). Finally, we calculate the path’s cost using our novel cost function (derived in Section III-A) and update the network weights using stochastic gradient descent. In the next sections, we give a detailed description of each of these three components.
+
+Scene description Or
+
+Sec 3.3
+
+Sec 3.2
+
+Cost
+Sec 3.1
+
+RGB-D Images
+Fig. 2: Overview of our method. The solid green arrows indicate data ﬂow at inference time. The solid red arrows indicate data ﬂow at training time. The dotted red arrows indicate gradient ﬂow, which is used to update the weights of the network. If a scene description is available at run-time, the weights can also be updated at test time to reﬁne the path.
+
+A. Cost function derivation
+
+In this section, we outline the full derivation of our
+
+cost function. As mentioned before, the critical challenge
+
+in formulating a smooth cost function for shortest path
+
+planning lies in the fact that collision avoidance is a hard
+
+constraint, which is often replaced by soft penalty terms.
+
+Finding a weighting between collision and path length terms
+
+is challenging, as they are not directly comparable. For
+
+this reason, standard optimization-based methods [34], [40]
+
+require per-task or per-scene calibration, limiting their ability
+
+to generalize across diverse sets of scenes. Hence, we derive
+
+a novel formulation that guarantees collision-free paths,
+
+invariant to scene scaling.
+
+Let O be a set of arbitrary obstacles, Π be a set of corresponding obstacle observations, s ∈ Rd be a start conﬁguration, t ∈ Rd be a target conﬁguration, and θp ∈ Θp
+a path parameterization. We aim to optimize the path planning
+
+function:
+
+fθ(Π, s, t) = θp
+
+(1)
+
+To successfully optimize fθ, we deﬁne a loss function:
+
+C(O, θp)
+
+(2)
+
+In our work, we aim to optimize fθ to converge to paths that are shortest and collision-free. This assumption naturally leads to C having components penalising collisions and path lengths. Hence, we write:
+
+C(O, θp) = l(θp) + c(O, θp)
+
+(3)
+
+where l and c are length and collision penalty measures, respectively. While the exact structure of c is unknown for now, we can already point out useful properties it should have. Suppose the optimization problem has an optimal path parameterized by θopt ∈ Θp. Then, we require:
+• Minimum property (MP):
+
+∀ θp ∈ Θp : c(O, θopt) ≤ c(O, θp)
+
+1414
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+• Non-colliding property (NP) :
+
+∀ θp ∈ Θp : θp does not collide ⇔ c(O, θp) = 0
+
+Further, since we require that C is a valid cost function, we have:
+• Global optima property (GP):
+
+∀ θp ∈ Θp : C(O, θopt) ≤ C(O, θp)
+
+⇔
+
+l(θopt) + c(O, θopt) ≤ l(θp) + c(O, θp)
+
+⇔ l(θopt) − l(θp) ≤ c(O, θp)
+
+In general, we have an underlying assumption that a noncolliding solution to the planning problem exists. We propose that any formulation of C with c satisfying the three properties above, will have its minima in paths which are non-colliding and shortest possible. To show that θopt is non-colliding, assume for contradiction that θopt is colliding and take an arbitrary θ ∈ Θp that is non-colliding. Then, by NP we have c(O, θopt) > 0, and so by MP necessarily also c(O, θ ) > 0. This by NP however means that θ is colliding and we have a contradiction. To show that θopt is shortest possible, we show that ∀θ ∈ Θp : l(θ ) < l(θopt) ⇒ θ collides. Hence, for arbitrary θ ∈ Θp assume that l(θ ) < l(θopt). Then by GP and our assumption, we have 0 < l(θopt) − l(θ ) ≤ c(O, θ ). By NP and c(O, θ ) > 0 we ﬁnally have that θ collides.
+Now, to deﬁne a loss function C which we can optimize, we have to deﬁne c that satisﬁes NP, MP, GP. One option for picking c is:
+
+c(O, θp) = 1o(θp) ∗ R(o)
+
+(4)
+
+o∈O
+
+1 if path given by θp collides with o
+
+1o(θp) =
+
+(5)
+
+0 otherwise
+
+where R(o) is deﬁned to be the bounding sphere circumference of object o ∈ O. It is possible to formally show that this formulation satisﬁes NP, MP, and GP. The intuition behind the proof is that object circumference collision penalties always yield non-colliding minimal paths, as the path can simply travel around the obstacle to minimize the cost. Therefore, the loss function that we propose takes the form:
+
+C(O, θp) = l(θp) + 1o(θp) ∗ R(o)
+
+(6)
+
+o∈O
+
+B. Path Parameterization
+
+In the previous section, we describe a cost function C which we can use to optimize a planning function fθ not requiring any additional hyperparameter tuning. In this section, we consider a possible parameterization of θp so that C is differentiable, and we may optimize fθ using stochastic gradient descent.
+As noted in the introduction, we are aiming to train path regression networks. In contrast to iterative approaches such as [32], [38], which require input from the previous agent state st ∈ Rd to infer the next state st+1 ∈ Rd, we instead use fθ to predict paths from the start conﬁguration to the goal
+
+conﬁguration in one inference step. This way, we can ensure a good fθ inference speed both at train and at test time. While letting θp ∈ Θp be a ﬁxed sized unrolling of states in the task space is possible, this would require a large cardinality of θp, for fθ to be able to express complex smooth paths. This approach in practice is hard to optimize and would incur
+signiﬁcant inference speed penalties. As with other works
+[17], [26], [39], [27], we consider a parameterization where θp = {(pk, wk) | pk ∈ Rd, wk ∈ [0, 1], k ∈ {1, 2, ..., n}} and n ∈ N>0 is a problem speciﬁc task complexity parameter. With such parameterization, we can use θp to deﬁne a path in the form of a non-uniform rational B-spline (NURBS) with control points pk, control point weights wk, a default open-uniform knot vector to anchor the spline in the start and goal conﬁgurations, and a degree parameter p ∈ N>0. In practice, p > 1 is sufﬁcient for most setups.
+Now, for an arbitrary θp ∈ Θp and object set O we show how to approximate C(O, θp) using our NURBS parameterization. We achieve this by evaluating the θp NURBS interpolation with a high enough sampling rate 1/s for each value in B := {s ∗ k | 0 ≤ s ∗ k ≤ n − p , k ∈ N}. Let N : Θp × B −→ Rd be the NURBS interpolation.
+In case of the length component l(θp), we have:
+
+n−p
+
+n−p
+
+l(θp) =
+0
+
+N (θp, x) dx = lim
+
+N (θp, x) δx
+
+δx→0
+
+x=0
+
+n−p−s
+
+≈
+
+N (θp, x + s) − N (θp, x)
+
+x∈{0,s,2s,...}
+(7)
+
+In case of the collision component c(O, θp), we ﬁrst deﬁne an object selector function:
+
+τ (O, Xp) = arg min SDF (o, Xp)
+
+(8)
+
+o∈O
+
+Where Xp ∈ Rd and SDF is a differentiable signed distance function. Now, we deﬁne a point cost function:
+
+cˆ(Xp, O, θp) =
+
+R(τ (O,Xp)) ∆(Xp ,O,θp )
+0
+
+SDF (τ (O, Xp), Xp) < 0 otherwise
+
+(9)
+
+with ∆ providing the number of conﬁgurations along θp
+
+which collide with the same object as a given conﬁguration,
+
+simply deﬁned as:
+
+n−p
+
+∆(Xp, O, θp) =
+
+δττ ((OO,,XNp(θ) p ,X ))
+
+X ∈{0,s,2s,...}
+
+(10)
+
+Note that ∆ is always greater than 0, due to the branching condition in cp, as every colliding point has at least itself as a corresponding colliding point with the same object. Hence, we can ﬁnally write c under the NURBS parameterization as:
+
+c(O, θp) = 1o(θp) ∗ R(o)
+
+o∈O n−p
+
+(11)
+
+=
+
+cˆ(N (θp, x), O, θp)
+
+x∈{0,s,2s,...}
+
+1415
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+Although we can now easily compute c using NURBS parameterized θp, we can not use gradient descent to optimize fθ using c just yet, as the gradients of c are undeﬁned. To provide gradients for c, we further upper bound it as:
+
+n−p
+cˆ(N (θp, x), O, θp) ∗ H(min SDF (o, N (θp, x)))
+o∈O x∈{0,s,2s,...}
+
+2
+
+H(x) = 1 + ex−δ
+
+(12)
+
+where H : R −→ R is a smooth approximation of a step function and δ is a safe distance parameter, which controls the extent to which the paths should avoid the obstacles. H could in practice be any function with H(δ) = 1, ∀x ≤ δ : H(x) ≥ 1, and limx→∞ H(x) = 0. The intuition behind the given approximation of c lies in the fact that cˆ provides the scaling of the gradient that ensures obstacle avoidance, while the gradient of H directs path points outside of objects. Note that δ is not a parameter intended to be tuned, but rather a way to control how far optimal solutions are expected to lie from objects. Further, note that although we derived an approximation to the optimal cost function from Section IIIA, the approximate collision cost is at least the true collision cost and the approximate length cost is at most the true length cost. This ensures that in the approximate setting, optimal paths are guaranteed to be non-colliding.
+
+C. Network
+The network architecture we use in our approach depends on the particular planning domain. In case of planning from images (V-C), we use a convolutional input layer to process the RGBD images, followed by a ResNet50[15] backbone. In case of 6 DoF (V-D) and 3D planning (V-B), we utilise vectorized scene descriptions (these descriptions are ∈ Rk×d, where k is the obstacle count and d is the dimension of the obstacle properties) which are processed by a fully connected input layer, followed by 10 highway layers [36]. The output layer in general consists of n fully connected networks for each spline anchor point. Our architecture is visualised in Figure 3.
+
+Fig. 3: General network architecture used in our experiments.
+IV. DATASETS AND BASELINES We compare our approach against representative samplingbased planners, an optimization-based planner, and a learningbased planner.
+
+RRT* [20], Informed-RRT* [10], and BIT* [11]: are perhaps the most widely used sampling-based planning algorithms in use today. These methods are optimized versions of RRT that guarantee to ﬁnd the shortest path when run for an indeﬁnite amount of time. CHOMP [40]: is a well-performing gradient-based motion planning algorithm. Similar to ours, CHOMP’s cost function has terms resembling our length term and collision term, scaled by a hyperparameter. MPNet [32]: is a state-of-the-art learning-based planner. Given a point cloud scene representation with the current agent state, MPNet outputs the next agent state that will bring it closer to the goal conﬁguration. The MPNet method further employs lazy state contraction and re-planning, which are algorithmic methods for reﬁning the paths. In our experiments however, we focus the learning-based components of MPNet, as our method can be easily extended with algorithmic path corrections such as re-planning, and these algorithmic corrections are generally not applicable in partially observable environments.
+We test our approach using both synthetic and real-world data. Speciﬁcally, we use the following six datasets. simple-2D: We randomly sample a rectangle and a sphere in a 2D scene, together with a start and target position, such that a straight line path would collide with either of the objects. This simple dataset is only used for comparing the characteristics of our cost function to others and to give an intuitive visualisation. Complex3D [32]: This dataset contains 110 scenes with 5000 near-optimal paths generated using RRT* (note, unlike [32] our approach does not need these paths for training). The training split contains 100 scenes with 4000 ground truth paths. The testing split consists of 100 scenes (contained in the training set) but with 200 unseen paths. There is also a test set of 10 unseen environments with 2000 paths. Table-top shapes: We generate a table-top RGBD dataset using CoppeliaSim[33] by randomly placing ﬂoating cuboids, cylinders, and spheres such that they intersect with the ground plane of a large bounding cuboid. They are also permitted to intersect with each other. We randomized camera positions and focal lengths for each image, with a bias to face towards the ground plane, where the objects are spawned. We plan to release this dataset for reproducibility and to allow others to train and benchmark their approaches. RGB-D Scenes Dataset v.2: [23]: This dataset contains RGBD images of real-world table-top scenes that we use for testing our approach. all-6DoF and difﬁcult-6DoF: We generate these datasets for comparing our method on 6 DoF robotic manipulator planning problems. The datasets assume a 6 DoF Kinova Mico[6] manipulator tasked to reach speciﬁed target conﬁgurations in the presence of a ﬁxed-sized box obstacle of dimensions 0.2m x 0.2m x 0.2m, 0.29m away from the robot base. For all-6DoF, we sample random start and target manipulator conﬁgurations such that these conﬁgurations do not collide with the box. For difﬁcult-6DoF, we likewise sample such conﬁgurations, but with the additional constrain that a linear
+
+1416
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+interpolation in the start & target join angles does not solve the planning problem.
+
+V. EVALUATION
+In this section, we evaluate our cost function together with the proposed parameterization in various domains. Our goal is to focus on answering the following:
+1) How does our cost function perform in comparison to related methods? (V-A)
+2) Does our method perform up to par with state-of-the-art approaches when planning from full scene descriptions and from images? (V-B, V-C)
+3) How does our method perform in higher-dimensions with robotic manipulators? (V-D)
+
+A. Cost function evaluation
+
+In this section, we assess how our cost, C, compares to
+the CHOMP collision cost [40]. For a single sample point x ∈ Rd, the CHOMP collision term is as follows, with ε ∈ R being a calibrated constant:
+
+
+
+1
+
+   
+
+−SDF (x)
+
++
+
+ε 2
+
+
+
+
+
+cCHOMP (x) = 1 (SDF (x) − ε)2
+
+ 
+
+2ε
+
+
+
+
+
+
+
+0
+
+if SDF (x) < 0
+if 0 < SDF (x) ε otherwise
+(13)
+
+We choose to compare the cost functions on simple-2D in
+
+order to make brute-force optimization tractable.
+
+Setup: As a ﬁrst step, we calibrate λ (collision weight
+
+hyperparameter) and ε in the CHOMP collision cost for
+
+a simple sphere problem in our dataset, as seen in Figure
+
+4a. We perform this calibration so that the optimal CHOMP
+
+cost path is collision-free, with the same length as our cost’s
+
+optimal path.
+
+Results: In this setup, out of 150 planning problems,
+
+C achieves a 100% success rate, while the calibrated
+
+CHOMP[40] cost achieves a 79.33% success rate, and an
+
+uncalibrated CHOMP[40] cost, with default λ = 1, ε = 1
+
+achieves a 40.66% success rate. These simple results underline
+
+our cost function’s innate ability for generalization across
+
+different scenes.
+
+Figure 4 presents examples of planning problems where our
+
+cost outperforms that of CHOMP calibrated on the example
+
+from Figure 4a.
+
+Discussion: In general, the need to calibrate the CHOMP
+
+cost is a direct consequence of the global optima property
+
+(III-A), which our cost satisﬁes by deﬁnition. Although
+
+the calibrated CHOMP cost performs reasonably well on
+
+these simple examples, the calibration process relies on our
+
+ability to cherry-pick difﬁcult examples from the dataset to
+
+calibrate on, as the global optima property (III-A) needs to be
+
+satisﬁed across all examples in a dataset. However, without
+
+the inclusion of an object-speciﬁc size parameter in the loss
+
+function, CHOMP path lengths are necessarily compromised
+
+on ”easier” examples when calibrating for the ”hardest”, to
+
+guarantee no collisions across the entire dataset. For these
+
+reasons, the CHOMP cost needs to be calibrated per scene [40], while as we further demonstrate in experiments (V-B, V-C), our formulation generalizes across diverse scenes and planning setups with no need for calibration.
+B. 3D planning from full-state
+In this experiment, we test the performance of our approach against learning-based planners using a complete description (“full-state”) of the scene as input. Speciﬁcally, we compare with MPNet on the Complex 3D dataset [32]. Setup: We train fθ on Π ∈ R10×6 vectorized scene descriptors, as each box has its own translation and dimensions. We randomly sample Π in a scene of size 20, with each dimension of each of the boxes being either 5 or 10, just as in the Complex 3D training set. Further, to train fθ we randomly sample start and target conﬁgurations s, t ∈ R3 so that there is a 50/50 breakdown between examples which would or would not collide by simply following a straight-line path. We use a simple fully connected network architecture of depth 15, with 10 highway layers[36] of width 256, 2 input layers of width 128, and 3 output layers of width 128. The parameters of C and Θp were set to s = 0.05, p = 2, δ = 5, and n = 10. Results: Table I presents the performance of each method on 2000 planning problems from the unseen Complex 3D [32] test set. In our experiment, we measure the rate of collisionfree paths, the length of the predicted paths with respect to RRT*, and the planner’s inference speed. In our primary experiment seen in Table I, our method outperforms the learning-based component of MPNet for an arbitrary number of MPNet’s replanning attempts in terms of all measured metrics.
+In terms of inference speed comparison with respect to classical planners on the Complex 3D dataset, InformedRRT* takes an average of 15.54 seconds to plan, and BIT* an average 8.86 seconds. While both BIT* and InformedRRT* are probabilistically complete planning methods, their inference speed is much slower than our method’s. Hence, we can conclude that our method is preferable for applications where rapid path planning is necessary.
+C. 3D planning from images
+In this experiment, we show how our approach can be used to plan from images. Using our cost function, we train our network to predict collision-free paths conditioned on RGBD images of scenes. Setup: In this case, we have Π ∈ R4≥408×448, representing a depth image from the robot’s viewpoint, with the control points of θp being in the camera frame of the scene. We use the Table-top shapes dataset for this experiment.
+The architecture we chose for fθ is a ResNet-50[15] backbone, followed by a 4 layer fully-connected network of width 256. To train our network, similarly as in V-B, we sample start and end conﬁgurations so that there is a 50/50 breakdown between examples where a straight-line path would or would not collide. The parameters of θp and C are set to n = 3, s = 0.05, p = 2, δ = 0. Further, we
+
+1417
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Sphere planning problem that was used to calibrate the CHOMP (b) Failure case which yields collisions for the calibrated CHOMP
+
+cost.
+
+cost.
+
+(c) C successfully avoids rectangle corners.
+
+(d) C successfully avoids thin rectangles.
+
+Fig. 4: Comparing our cost function to that of CHOMP[40]. In each image pair, we show the result of optimizing C (green) on the left, and the result of optimizing the CHOMP collision cost (purple) on the right. In all examples, we use a single control point NURBS parameterization. The background heat maps represent the cost function’s values at different control point positions, with red regions being the maxima and blue areas being the minima. The paths obtained by minimizing C are collision-free with the shortest possible lengths for the given number of control points.
+
+TABLE I: Quantitative comparisons with MPNet on the Complex 3D w/o lazy state contraction
+
+Method
+MPNet (0 replan) MPNet (1 replan) MPNet (2 replan)
+Ours (0 corrections)
+
+Success rate
+34.7% 42.8% 45.7%
+76.2%
+
+Path length / RRT*
+1.996 2.21 2.354
+1.947
+
+Inference speed
+6.3ms 14ms 31.8ms
+1.35ms
+
+TABLE II: RRT* motion length (len) and success rate (succ) on 6 DoF planning problems from all-6DoF and difﬁcult-6DoF test sets with 1ms, 10ms, 100ms, 1s, 10s of planning time. Note that we set N/A where RRT* fails to ﬁnd a solution to any planning problem.
+
+all-6DoF difﬁcult-6DoF
+
+<1ms len succ
+N/A 0% N/A 0%
+
+<10ms len succ
+7.52 0.15% N/A 0%
+
+<100ms len succ
+16.98 1.45% 23.31 0.07%
+
+<1s len succ
+28.71 28.2% 31.04 10.2%
+
+<10s len succ
+29.80 95.1% 32.4 91.8%
+
+apply thresholded perlin noise to our RGBD images, with the aim to assess the generalization of our method to real-world images.
+Results: On 2000 unseen examples from our synthetic test set, our method achieves an 89.05% success rate on problems where a straight-line path is expected to collide and 1.39 times longer than start-to-goal distance on problems where a straight-line path is optimal. Figure 5 presents examples of path planning problems solved on table-top scenes from the
+
+RGB-D Scenes Dataset v.2 [23], and Figure 6 showcases the predicted paths on our Table-top shapes test set.
+D. 6 DoF planning
+This experiment demonstrates how our approach can be used to plan motions for a 6-DoF Kinova Mico arm. Setup: We train our method by sampling random manipulator start and target conﬁgurations and regressing to spline joint angles. We set s = 0.05, p = 2, δ = 0, and n = 3. To
+
+1418
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 5: Predicting paths from real-world RGB-D images. This ﬁgure shows paths on real table-top scenes from the RGB-D Scenes Dataset v.2 [23]. The model is trained on purely synthetic scenes from Table-top shapes dataset.
+
+Fig. 8: A network trained using our method provides superior path initializations compared with linear interpolation in the joint angles.
+
+Fig. 6: Predicting paths from synthetic RGB-D images. This ﬁgure shows predicted paths on our Table-top shapes test set.
+Fig. 7: Controlling a robotic manipulator. Using Ivy [24], we demonstrate a 6 DoF Kinova Mico robotic manipulator utilizing our proposed method for planning around a box. The arm motion is shown in green.
+compute our cost, we integrate it over the full manipulator motion in Cartesian space by uniformly sampling both through time and between the link positions. We use the same network architecture as in V-B. We compare our method with OMPL’s[37] RRT*[20] on a test set of 2000 planning problems from all-6DoF and on a test set of 2000 planning
+
+problems from difﬁcult-6DoF. Further, we showcase the use of our method for ﬁnding good initial planning solutions for downstream optimization. We achieve this by comparing the path initialization obtained from our network against linear interpolation in the start and target joint angles on the difﬁcult6DoF dataset. We perform several gradient steps using the collision component of the cost, and compare the resulting success rates. Results: Our method achieves a 56% success rate on difﬁcult6DoF with a 26.72 motion length, and a 73% success rate on all-6DoF with a 25.2 motion length. We measure motion length by sampling anchor points on the arm and computing their distances across time. Our method’s planning time per problem is 0.95ms. We compare with RRT* by letting RRT* plan up to 1ms, 10ms, 100ms, 1s, and 10s on the same problems. The results of RRT* performance can be seen in Table II and an example trajectory of our method is in Figure 7. Based on the results from Table II, although RRT* can catch up with our method in terms of success rate within 10s of planning time, the resulting RRT* planner motions are longer than our method’s. For a planning setup up to 1s, our planner can provide superior results both in terms of length and success rates. Overall, our approach consistently provides superior length per planning time and success rate per planning time ratios.
+Further, Figure 8 demonstrates the use of our method for good path initializations. We observe that after 6 gradient steps on the paths provided by our network, the planning solutions were close to optimal in terms of success rate. While our method can be used to optimize paths initialised with linear interpolation, more gradient steps are needed to achieve similar success rates.
+VI. CONCLUSION
+In this paper, we presented an optimal cost function for learning to ﬁnd the shortest collision-free paths from images. The key to our approach is a novel cost formulation which guarantees collision-free shortest paths at the optimum. Our experimental results demonstrate that our method outperforms other optimization-based planners, performs on par with supervised learning based-planners, and is effective at planning in higher-dimensions such as on a 6 DoF robotic manipulator.
+
+1419
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] Elie Aljalbout, Ji Chen, Konstantin Ritt, Maximilian Ulmer, and Sami Haddadin. Learning vision-based reactive policies for obstacle avoidance. arXiv preprint arXiv:2010.16298, 2020.
+[2] Nancy M Amato and Yan Wu. A randomized roadmap method for path and manipulation planning. In Proceedings of IEEE international conference on robotics and automation, volume 1, pages 113–120. IEEE, 1996.
+[3] Mayur J Bency, Ahmed H Qureshi, and Michael C Yip. Neural path planning: Fixed time, near-optimal path generation via oracle imitation. arXiv preprint arXiv:1904.11102, 2019.
+[4] Mohak Bhardwaj, Byron Boots, and Mustafa Mukadam. Differentiable gaussian process motion planning. In 2020 IEEE International Conference on Robotics and Automation (ICRA), pages 10598–10604. IEEE, 2020.
+[5] Oliver Brock and Oussama Khatib. Elastic strips: A framework for motion generation in human environments. The International Journal of Robotics Research, 21(12):1031–1052, 2002.
+[6] Alexandre Campeau-Lecours, Hugo Lamontagne, Simon Latour, Philippe Fauteux, Ve´ronique Maheu, Franc¸ois Boucher, Charles Deguire, and Louis-Joseph Caron L’Ecuyer. Kinova modular robot arms for service robotics applications. In Rapid Automation: Concepts, Methodologies, Tools, and Applications, pages 693–719. IGI Global, 2019.
+[7] Rina Dechter and Judea Pearl. Generalized best-ﬁrst search strategies and the optimality of a. Journal of the ACM (JACM), 32(3):505–536, 1985.
+[8] Edsger W Dijkstra. A note on two problems in connexion with graphs. Numerische mathematik, 1(1):269–271, 1959.
+[9] Aleksandra Faust, Kenneth Oslund, Oscar Ramirez, Anthony Francis, Lydia Tapia, Marek Fiser, and James Davidson. Prm-rl: Long-range robotic navigation tasks by combining reinforcement learning and sampling-based planning. In 2018 IEEE International Conference on Robotics and Automation (ICRA), pages 5113–5120. IEEE, 2018.
+[10] Jonathan D Gammell, Siddhartha S Srinivasa, and Timothy D Barfoot. Informed rrt*: Optimal sampling-based path planning focused via direct sampling of an admissible ellipsoidal heuristic. In 2014 IEEE/RSJ International Conference on Intelligent Robots and Systems, pages 2997–3004. IEEE, 2014.
+[11] Jonathan D Gammell, Siddhartha S Srinivasa, and Timothy D Barfoot. Batch informed trees (bit*): Sampling-based optimal planning via the heuristically guided search of implicit random geometric graphs. In 2015 IEEE international conference on robotics and automation (ICRA), pages 3067–3074. IEEE, 2015.
+[12] Maxim Garber and Ming C Lin. Constraint-based motion planning using voronoi diagrams. In Algorithmic Foundations of Robotics V, pages 541–558. Springer, 2004.
+[13] Peter E Hart, Nils J Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE transactions on Systems Science and Cybernetics, 4(2):100–107, 1968.
+[14] Peter E Hart, Nils J Nilsson, and Bertram Raphael. Correction to” a formal basis for the heuristic determination of minimum cost paths”. ACM SIGART Bulletin, 1(37):28–29, 1972.
+[15] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 770–778, 2016.
+[16] Max Jaderberg, Volodymyr Mnih, Wojciech Marian Czarnecki, Tom Schaul, Joel Z Leibo, David Silver, and Koray Kavukcuoglu. Reinforcement learning with unsupervised auxiliary tasks. arXiv preprint arXiv:1611.05397, 2016.
+[17] Kevin Judd and Timothy McLain. Spline based path planning for unmanned air vehicles. In AIAA Guidance, Navigation, and Control Conference and Exhibit, page 4238, 2001.
+[18] Tom Jurgenson and Aviv Tamar. Harnessing reinforcement learning for neural motion planning. arXiv preprint arXiv:1906.00214, 2019.
+[19] Mrinal Kalakrishnan, Sachin Chitta, Evangelos Theodorou, Peter Pastor, and Stefan Schaal. Stomp: Stochastic trajectory optimization for motion planning. In 2011 IEEE international conference on robotics and automation, pages 4569–4574. IEEE, 2011.
+[20] Sertac Karaman and Emilio Frazzoli. Sampling-based algorithms for optimal motion planning. The international journal of robotics research, 30(7):846–894, 2011.
+[21] Sebastian Klemm, Jan Oberla¨nder, Andreas Hermann, Arne Roennau, Thomas Schamm, J Marius Zollner, and Ru¨diger Dillmann. Rrt*connect: Faster, asymptotically optimal motion planning. In 2015 IEEE
+
+International Conference on Robotics and Biomimetics (ROBIO), pages 1670–1677. IEEE, 2015. [22] James J Kuffner and Steven M LaValle. Rrt-connect: An efﬁcient approach to single-query path planning. In Proceedings 2000 ICRA. Millennium Conference. IEEE International Conference on Robotics and Automation. Symposia Proceedings (Cat. No. 00CH37065), volume 2, pages 995–1001. IEEE, 2000. [23] Kevin Lai, Liefeng Bo, Xiaofeng Ren, and Dieter Fox. A large-scale hierarchical multi-view rgb-d object dataset. In 2011 IEEE international conference on robotics and automation, pages 1817–1824. IEEE, 2011. [24] Daniel Lenton, Fabio Pardo, Fabian Falck, Stephen James, and Ronald Clark. Ivy: Templated deep learning for inter-framework portability. arXiv preprint arXiv:2102.02886, 2021. [25] Sergey Levine, Chelsea Finn, Trevor Darrell, and Pieter Abbeel. Endto-end training of deep visuomotor policies. The Journal of Machine Learning Research, 17(1):1334–1373, 2016. [26] Evgeni Magid, Daniel Keren, Ehud Rivlin, and Irad Yavneh. Splinebased robot navigation. In 2006 IEEE/RSJ International Conference on Intelligent Robots and Systems, pages 2296–2301. IEEE, 2006. [27] Tim Mercy, Ruben Van Parys, and Goele Pipeleers. Spline-based motion planning for autonomous guided vehicles in a dynamic environment. IEEE Transactions on Control Systems Technology, 26(6):2182–2189, 2017. [28] Volodymyr Mnih, Adria Puigdomenech Badia, Mehdi Mirza, Alex Graves, Timothy Lillicrap, Tim Harley, David Silver, and Koray Kavukcuoglu. Asynchronous methods for deep reinforcement learning. In International conference on machine learning, pages 1928–1937, 2016. [29] Mustafa Mukadam, Jing Dong, Xinyan Yan, Frank Dellaert, and Byron Boots. Continuous-time gaussian process motion planning via probabilistic inference. The International Journal of Robotics Research, 37(11):1319–1340, 2018. [30] Chonhyon Park, Jia Pan, and Dinesh Manocha. Itomp: Incremental trajectory optimization for real-time replanning in dynamic environments. In Twenty-Second International Conference on Automated Planning and Scheduling, 2012. [31] Sean Quinlan and Oussama Khatib. Elastic bands: Connecting path planning and control. In [1993] Proceedings IEEE International Conference on Robotics and Automation, pages 802–807. IEEE, 1993. [32] Ahmed H Qureshi, Anthony Simeonov, Mayur J Bency, and Michael C Yip. Motion planning networks. In 2019 International Conference on Robotics and Automation (ICRA), pages 2118–2124. IEEE, 2019. [33] E. Rohmer, S. P. N. Singh, and M. Freese. Coppeliasim (formerly v-rep): a versatile and scalable robot simulation framework. In Proc. of The International Conference on Intelligent Robots and Systems (IROS), 2013. www.coppeliarobotics.com. [34] John Schulman, Yan Duan, Jonathan Ho, Alex Lee, Ibrahim Awwal, Henry Bradlow, Jia Pan, Sachin Patil, Ken Goldberg, and Pieter Abbeel. Motion planning with sequential convex optimization and convex collision checking. The International Journal of Robotics Research, 33(9):1251–1270, 2014. [35] Aravind Srinivas, Allan Jabri, Pieter Abbeel, Sergey Levine, and Chelsea Finn. Universal planning networks. arXiv preprint arXiv:1804.00645, 2018. [36] Rupesh Kumar Srivastava, Klaus Greff, and Ju¨rgen Schmidhuber. Highway networks. arXiv preprint arXiv:1505.00387, 2015. [37] Ioan A. S¸ ucan, Mark Moll, and Lydia E. Kavraki. The Open Motion Planning Library. IEEE Robotics & Automation Magazine, 19(4):72–82, December 2012. https://ompl.kavrakilab.org. [38] Aviv Tamar, Yi Wu, Garrett Thomas, Sergey Levine, and Pieter Abbeel. Value iteration networks. In Advances in Neural Information Processing Systems, pages 2154–2162, 2016. [39] Kwangjin Yang, Sangwoo Moon, Seunghoon Yoo, Jaehyeon Kang, Nakju Lett Doh, Hong Bong Kim, and Sanghyun Joo. Spline-based rrt path planner for non-holonomic robots. Journal of Intelligent & Robotic Systems, 73(1-4):763–782, 2014. [40] Matt Zucker, Nathan Ratliff, Anca D Dragan, Mihail Pivtoraiko, Matthew Klingensmith, Christopher M Dellin, J Andrew Bagnell, and Siddhartha S Srinivasa. Chomp: Covariant hamiltonian optimization for motion planning. The International Journal of Robotics Research, 32(9-10):1164–1193, 2013.
+
+1420
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:28:24 UTC from IEEE Xplore. Restrictions apply.
+

@@ -1,0 +1,789 @@
+D* Lite
+Sven Koenig
+College of Computing Georgia Institute of Technology
+Atlanta, GA 30312-0280 skoenig@cc.gatech.edu
+
+Maxim Likhachev
+School of Computer Science Carnegie Mellon University
+Pittsburgh, PA 15213 maxim+@cs.cmu.edu
+
+Abstract
+Incremental heuristic search methods use heuristics to focus their search and reuse information from previous searches to ﬁnd solutions to series of similar search tasks much faster than is possible by solving each search task from scratch. In this paper, we apply Lifelong Planning A* to robot navigation in unknown terrain, including goal-directed navigation in unknown terrain and mapping of unknown terrain. The resulting D* Lite algorithm is easy to understand and analyze. It implements the same behavior as Stentz’ Focussed Dynamic A* but is algorithmically different. We prove properties about D* Lite and demonstrate experimentally the advantages of combining incremental and heuristic search for the applications studied. We believe that these results provide a strong foundation for further research on fast replanning methods in artiﬁcial intelligence and robotics.
+Introduction
+Incremental search methods, such as DynamicSWSF-FP (Ramalingam & Reps 1996), are currently not much used in artiﬁcial intelligence. They reuse information from previous searches to ﬁnd solutions to series of similar search tasks much faster than is possible by solving each search task from scratch. An overview is given in (Frigioni, MarchettiSpaccamela, & Nanni 2000). Heuristic search methods, such as A* (Nilsson 1971), on the other hand, use heuristic knowledge in form of approximations of the goal distances to focus the search and solve search problems much faster than uninformed search methods. An overview is given in (Pearl 1985). We recently introduced LPA* (Lifelong Planning A*), that generalizes both DynamicSWSF-FP and A* and thus uses two different techniques to reduce its planning time (Koenig & Likhachev 2001). In this paper, we apply LPA* to robot navigation in unknown terrain. The robot could use conventional graph-search methods when replanning its paths after discovering previously unknown obstacles. However, the resulting planning times can be on the order of minutes for the large terrains that are often used, which adds up to substantial idle times (Stentz 1994). Focussed Dynamic A* (D*) (Stentz 1995) is a clever heuristic search method that achieves a speedup of one to two orders of magnitudes(!) over repeated A* searches by mod-
+Copyright c 2002, American Association for Artiﬁcial Intelligence (www.aaai.org). All rights reserved.
+
+ifying previous search results locally. D* has been extensively used on real robots, including outdoor HMMWVs (Stentz & Hebert 1995). It is currently also being integrated into Mars Rover prototypes and tactical mobile robot prototypes for urban reconnaissance (Matthies et al. 2000; Thayer et al. 2000). However, it has not been extended by other researchers. Building on LPA*, we therefore present D* Lite, a novel replanning method that implements the same navigation strategy as D* but is algorithmically different. D* Lite is substantially shorter than D*, uses only one tie-breaking criterion when comparing priorities, which simpliﬁes the maintenance of the priorities, and does not need nested if-statements with complex conditions that occupy up to three lines each, which simpliﬁes the analysis of the program ﬂow. These properties also allow one to extend it easily, for example, to use inadmissible heuristics and different tie-breaking criteria to gain efﬁciency. To gain insight into its behavior, we present various theoretical properties of LPA* that also apply to D* Lite. Our theoretical properties show that LPA* is efﬁcient and similar to A*, a well known and well understood search algorithm. Our experimental properties show that D* Lite is at least as efﬁcient as D*. We also present an experimental evaluation of the beneﬁts of combining incremental and heuristic search across different navigation tasks in unknown terrain, including goal-directed navigation and mapping. We believe that our theoretical and empirical analysis of D* Lite will provide a strong foundation for further research on fast replanning methods in artiﬁcial intelligence and robotics.
+Motivation
+Consider a goal-directed robot-navigation task in unknown terrain, where the robot always observes which of its eight adjacent cells are traversable and then moves with cost one to one of them. The robot starts at the start cell and has to move to the goal cell. It always computes a shortest path from its current cell to the goal cell under the assumption that cells with unknown blockage status are traversable. It then follows this path until it reaches the goal cell, in which case it stops successfully, or it observes an untraversable cell, in which case it recomputes a shortest path from its current cell to the goal cell. Figure 1 shows the goal distances of all traversable cells and the shortest paths from its current cell to the goal cell both before and after the robot has moved
+
+Knowledge Before the First Move of the Robot
+
+14 13 12 11 10 9 8 7 6 6 6 6 6 6 6 6 6 6
+
+14 13 12 11 10 9 8 7 6 5 5 5 5 5 5 5 5 5
+
+14 13 12 11 10 9 8 7 6 5 4 4 4 4 4 4 4 4
+
+14 13 12 11 10 9 8 7 6 5 4 3 3 3 3 3 3 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 2 2 2 2 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 1 1 1 2 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 1 sgoal 1 2 3
+
+8
+
+549211543211123
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 2 2 2 2 3
+
+14 13 12 11 10 9 3 3 3 5 4 3 3 3 3 3 3 3
+
+14 13 12 11 10 10 4 7 6 5 4 4 4 4 4 4 4 4
+
+14 13 12 11 11 11 5 7 6 5 5 5 5 5 5 5 5 5
+
+14 13 12 12 12 12 6 7 6 6 6 6 6 6 6 6 6 6
+
+8 7 7 7 7 13 7 7 7 7 7 7 7 7 7 7 7 7
+
+18 sstart 16 15 14 14 8 8 8 8 8 8 8 8 8 8 8 8
+
+Knowledge After the First Move of the Robot
+
+14 13 12 11 10 9 8 7 6 6 6 6 6 6 6 6 6 6
+
+14 13 12 11 10 9 8 7 6 5 5 5 5 5 5 5 5 5
+
+14 13 12 11 10 9 8 7 6 5 4 4 4 4 4 4 4 4
+
+14 13 12 11 10 9 8 7 6 5 4 3 3 3 3 3 3 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 2 2 2 2 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 1 1 1 2 3
+
+14 13 12 11 10 9 8 7 6 5 4 3 2 1 sgoal 1 2 3
+
+8
+
+5 4 10 2 1 1 5 4 3 2 1 1 1 2 3
+
+15 14 13 12 11 11 2 7 6 5 4 3 2 2 2 2 2 3
+
+15 14 13 12 12 sstart 3 3 3 5 4 3 3 3 3 3 3 3 15 14 13 13 13 13 4 7 6 5 4 4 4 4 4 4 4 4
+
+15 14 14 14 14 14 5 7 6 5 5 5 5 5 5 5 5 5
+
+15 15 15 15 15 15 6 7 6 6 6 6 6 6 6 6 6 6
+
+8 7 7 7 7 16 7 7 7 7 7 7 7 7 7 7 7 7
+
+21 20 19 18 17 17 8 8 8 8 8 8 8 8 8 8 8 8
+
+Figure 1: Simple Example.
+
+along the path and discovered the ﬁrst blocked cell it did not know about. Cells whose goal distances have changed are shaded gray. The goal distances are important because one can easily determine a shortest path from its current cell of the robot to the goal cell by greedily decreasing the goal distances once the goal distances have been computed. Notice that the number of cells with changed goal distances is small and most of the changed goal distances are irrelevant for recalculating a shortest path from its current cell to the goal cell. Thus, one can efﬁciently recalculate a shortest path from its current cell to the goal cell by recalculating only those goal distances that have changed (or have not been calculated before) and are relevant for recalculating the shortest path. This is what D* Lite does. The challenge is to identify these cells efﬁciently.
+
+Lifelong Planning A*
+
+Lifelong Planning A* (LPA*) is shown in Figure 2. LPA*
+
+is an incremental version of A*. It applies to ﬁnite graph
+
+search problems on known graphs whose edge costs in-
+
+crease or decrease over time (which can also be used to
+
+model edges or vertices that are added or deleted). de-
+
+notes the ﬁnite set of vertices of the graph. ¢¡¤£¥£§¦©¨
+
+d e"n!o# te¦$¨%s&the'set
+
+of successors of denotes the set
+
+vertex ¨ .
+of predecessors
+
+Similarly, of vertex
+
+¨( . )10&£§¦©¨324¨%56 798 denotes the cost of moving from
+
+vertex ¨ to vertex ¨5@AB¡C£¥£D¦©¨ . LPA* always determines
+
+a shortest path from a given start vertex ¨§EGFIHQPRF(S to a
+
+given goal vertex ¨UT¥V4HXWY` , knowing both the topology of
+
+the graph and the current edge costs. We use aCbD¦©¨ to de-
+
+note the start distance of vertex ¨cd , that is, the length
+
+of a shortest path from ¨EeFIHQPfF to ¨ . Like A*, LPA* uses
+
+heuristics gh¦$¨D2X¨UT¥VRHQW© that approximate the goal distances of
+
+the vertices ¨ . The heuristics need to be nonnegative and
+
+consistent (Pearl 1985), that is, obey the triangle inequality
+gi¦©¨UT¥VRHXWf24¨UT¥VRHXWIqpA) and gh¦$¨324¨UT¥VRHQW©r7s£§¦©¨324¨%56ht`gh¦$¨U5$2X¨uT¥V4HXWI for all vertices ¨v1 and ¨%5wx¢¡¤£¥£§¦$¨% with ¨py ¨UT¥V4HXW .
+
+ The pseudocode uses the following functions to manage the priority queue: U.Top returns a
+
+  vertex with the smallest priority of all vertices in priority queue . U.TopKey returns the smallest
+
+    Y priority of all vertices in priority queue . (If is empty, then U.TopKey returns
+
+.)
+
+  U.Pop deletes the vertex with the smallest priority in priority queue and returns the vertex.
+
+R©X    R©X U.Insert
+
+inserts vertex into priority queue with priority . U.Update
+
+changes the
+
+    priority of vertex in priority queue to . (It does nothing if the current priority of vertex
+
+ e   already equals .) Finally, U.Remove removes vertex from priority queue .
+
+p r0o1c edreutruernCawlcud eQlatfueKeeIyIgfehQRe6Ui@hRjekelGmfnjIwd euf¥eIgRhQRe6o ;
+
+p r0000o2345cp§ edfUgRrouhQ.rIrnqReaslIleenrswtiw©;txitvzamzwIlyiuixzxemze§gfy hQxRqR C{ ea;lDcuqrlatf¥eKeeyDqew©x mfy;xe6 ;
+
+p r000o678c ediiifffurf¥|@|e Uq|Utr} pdpaq}wItex VUgfmze.yhQRrxtRee¥mx|Ugfo|%hQ6veR U|%|U.InD;seqrrtw|"d
+
+e wI~j¥ ye$f¥ f¥ |%6 CalculateKey ;
+
+~
+
+%irf
+
+~
+
+I|%6
+
+;
+
+p r01111111o90123456c edwuhier|BifellsefffufueCqoofurroU|U|UmaaU|U.ll§§Tll.pPowwqquoprtpKetvtvgfSegR yh¥hu"u";hQ;of|u|u3rRt©©|%e |%RRsCt;6Pa|U|Ulac¥tuhUl apt ed Ka|%teey VUe rpketedlGxamfteen V e;OrtRexgfehQ R;  kelGmRn qr} f¥ kelGmfn 6
+
+  procedure Main
+
+   17 Initialize ;
+
+ 18 forever
+
+   19 ComputeShortestPath ;
+
+ 20 Wait for changes in edge costs;
+
+  |"j4 21 for all directed edges
+
+with changed edge costs
+
+  f|"jX 22
+
+Update the edge cost
+
+;
+
+ X 23
+
+UpdateVertex ;
+
+Figure 2: Lifelong Planning A*.
+
+Lifelong Planning A*: The Variables
+LPA* maintains an estimate aw¦©¨ of the start distance aCb§¦$¨ of each vertex ¨ . These values directly correspond to the
+g-values of an A* search. LPA* carries them forward from search to search. LPA* also maintains a second kind of estimate of the start distances. The rhs-values are one-step lookahead values based on the g-values and thus potentially better informed than the g-values. They always satisfy the following relationship (Invariant 1):
+
+UI¥w ¡¢  ~ t"£¤gz¥$¦¥e 6§¤IQ¨o©«ªUIX¨I¬f¥e
+
+if qc GXgf
+otherwise.
+
+(1)
+
+A vertex is called locally consistent iff its g-value equals its rhs-value, otherwise it is called locally inconsistent. Iff all vertices are locally consistent, then the g-values of all vertices equal their respective start distances. In this case
+one can trace back a shortest path from ¨§EGFIHQPRF to any vertex ¡ by always transitioning from the current vertex ¨ , starting at ¡ , to any predecessor ¨5 that minimizes aw¦©¨5t£§¦$¨%5©2X¨ (ties can be broken arbitrarily) until ¨ EeFIHQPfF is reached. (This
+is different from Figure 1, where the goal distances instead of the start distances are used to determine a shortest path
+and one can follow a shortest path from ¨ EGFIHQPRF to ¨ T¥VRHXW by always moving from the current vertex ¨ , starting at ¨ EGFIHQPRF , to any successor ¨5 that minimizes £§¦$¨D2X¨%56­tda¤¦$¨%5 , until ¨uT¥V4HXW is reached.) However, LPA* does not make all ver-
+tices locally consistent after some edge costs have changed. Instead, it uses the heuristics to focus the search and updates only the g-values that are relevant for computing a shortest path. To this end, LPA* maintains a priority queue. The
+
+priority queue always contains exactly the locally inconsis-
+
+tent vertices (Invariant 2). These are the vertices whose
+
+g-values LPA* potentially needs to update to make them
+
+locally consistent. The priority of a vertex in the priority
+
+queue is always the same as its key (Invariant 3), which
+
+ £   ¢¡ ¤£ ¦¥§¨©¨  wishaier¦veawe¦©c¨tQo¦©2¨r vgCwp¨it¦©h¨ft wio¦aw01c¦©¨oQm2(npgCuom¨n¦©eb¨neftr%ss:t
+
+w¦©¨ p gh¦$¨324¨ T¥VRHXW 
+in brackets
+
+§¦©¨
+and
+refer
+
+¦©¨ , ¦$¨%qp
+to line
+
+!£ " $# numbers in Figure 2). The ﬁrst component of the keys
+"¦©¨ corresponds directly to the f-values ¢¦©¨ pdabD¦©¨Bt
+
+gi¦©¨324¨ T¥VRHQW  used by A* because both the g-values and rhs-
+
+values of LPA* correspond to the g-values of A* and the
+%¨ h-values of LPA* correspond to the h-values of A*. The sec-
+ond component of the keys 3¦©¨ corresponds to the g-values
+
+of A*. Keys are compared according to a lexicographic or-
+£ 0 £ ¨ '(& 1 ¨ !£ ) £ dering. For example, a key w¦©¨ is less than or equal to a
+key ¤5©¦$¨% , denoted by w¦©¨ 7 ¤5©¦$¨% , iff either §¦©¨ 0 5 ¦©¨ or ( ¦©¨p 5 ¦$¨ and ¦$¨% 7 ¤5 ¦©¨ ). LPA* always ex-
+ pands the vertex in the priority queue with the smallest key
+(by expanding a vertex, we mean executing 10-16 ). This
+
+is similar to A* that always expands the vertex in the priority
+
+queue with the smallest f-value if it breaks ties towards the
+
+smallest g-value. The resulting behavior of LPA* and A* is
+
+also similar. The keys of the vertices expanded by LPA* are
+
+nondecreasing over time just like the f-values of the vertices
+
+expanded by A* (since the heuristics are consistent).
+
+Lifelong Planning A*: The Algorithm
+
+ The main function Main() of LPA* ﬁrst calls Initialize() to
+initialize the search problem 17 . Initialize() sets the g-
+ values of all vertices to inﬁnity and sets their rhs-values ac-
+cording to Equation 1 03-04 . Thus, initially ¨§EeFIHQPfF is the
+ only locally inconsistent vertex and is inserted into the oth-
+erwise empty priority queue 05 . This initialization guar-
+
+antees that the ﬁrst call to ComputeShortestPath() performs
+
+exactly an A* search, that is, expands exactly the same ver-
+
+tices as A* in exactly the same order. Note that, in an actual
+
+implementation, Initialize() only needs to initialize a vertex
+
+when it encounters it during the search and thus does not
+
+need to initialize all vertices up front. This is important be-
+
+cause the number of vertices can be large and only a few of
+  them might be reached during the search. LPA* then waits
+for changes in edge costs 20 . To maintain Invariants 1-3 if some edge costs have changed, it calls UpdateVertex() 23
+
+to update the rhs-values and keys of the vertices potentially
+
+affected by the changed edge costs as well as their member-
+ ship in the priority queue if they become locally consistent
+or inconsistent, and ﬁnally recalculates a shortest path 19
+
+by calling ComputeShortestPath(), that repeatedly expands
+
+locally inconsistent vertices in the order of their priorities.
+
+32   sisAtenltoicfaflla¤y¦$¨%in con sgCis¨3te¦$¨nt.vWerhteexn
+
+¨
+
+is called locally overconComputeShortestPath() ex-
+
+pands a locally overconsistent vertex 12-13 , then it sets
+
+the g-value of the vertex to its rhs-value 12 , which makes
+
+the tex
+
+vertex locally consistent. A locally
+¨ is called locally underconsistent iff
+
+iawnc¦©¨o ns0iste ngCt¨v¦©e¨r -.
+
+  When ComputeShortestPath() expands a locally undercon-
+sistent vertex 15-16 , then it simply sets the g-value of the vertex to inﬁnity 15 . This makes the vertex either locally
+
+consistent or overconsistent. If the expanded vertex was lo-
+ cally overconsistent, then the change of its g-value can affect
+the local consistency of its successors 13 . Similarly, if the
+ expanded vertex was locally underconsistent, then it and its
+successors can be affected 16 . To maintain Invariants 13, ComputeShortestPath() therefore updates rhs-values of
+ these vertices, checks their local consistency, and adds them
+to or removes them from the priority queue accordingly 06-
+08 . ComputeShortestPath() expands vertices until ¨T¥V4HXW is
+locally consistent and the key of the vertex to expand next is
+no less than the key of ¨ TQV4HXW . This is similar to A* that expands vertices until it expands ¨TQV4HXW at which point in time the g-value of ¨UT¥V4HXW equals its start distance and the f-value
+of the vertex to expand next is no less than the f-value of
+¨ T¥V4HXW . If aw¦©¨ T¥V4HXW xp 8 after the search, then there is no ﬁnite-cost path from ¨oEGFIHQPRF to ¨UT¥V4HXW . Otherwise, one can trace back a shortest path from ¨"EGFIHQPRF to ¨UTQV4HXW by always transitioning from the current vertex ¨ , starting at ¨ TQV4HXW , to any predecessor ¨5 that minimizes aw¦©¨%56Bt£§¦©¨%5$24¨ (ties can be broken arbitrarily) until ¨"EGFIHQPRF is reached. This is similar
+to what A* can do if it does not use backpointers.
+Analytical Results
+We now present some properties of LPA* to show that it terminates, is correct, similar to A*, and efﬁcient. All proofs can be found in (Likhachev & Koenig 2001).
+Termination and Correctness
+Our ﬁrst theorem shows that LPA* terminates and is correct:
+Theorem 1 ComputeShortestPath() expands each vertex at most twice, namely at most once when it is locally underconsistent and at most once when it is locally overconsistent, and thus terminates. After ComputeShortestPath() termi-
+nates, one can trace back a shortest path from ¨DEGFIHQPRF to ¨UT¥V4HXW by always transitioning from the current vertex ¨ , starting at ¨ T¥V4HXW , to any predecessor ¨5 that minimizes aw¦©¨5Bts£§¦$¨%5©2X¨ until ¨EGFIHQPRF is reached (ties can be broken arbitrarily).
+Similarity to A*
+When we described LPA*, we already pointed out strong algorithmic similarities between LPA* and A*. We now show additional similarities between LPA* and A*. Theorem 1 already showed that ComputeShortestPath() expands each vertex at most twice. This is similar to A*, that expands each vertex at most once. Moreover, the next theorem states that the keys of the vertices expanded by ComputeShortestPath() are monotonically nondecreasing over time. This is similar to the nondecreasing order of f-values of the vertices expanded by A*.
+ Theorem 2 The keys of the vertices that ComputeShortest-
+Path() selects for expansion on line 10 are monotonically nondecreasing over time until ComputeShortestPath() terminates.
+The next three theorems show that ComputeShortestPath() expands locally overconsistent vertices in a way very similar to how A* expands vertices. The next theorem, for example, shows that the ﬁrst component of the key of a
+
+locally overconsistent vertex at the time ComputeShortestPath() expands it is the same as the f-value of the vertex. The second component of its key is its start distance.
+& ¡ " ¥   Theorem 3 Whenever ComputeShortestPath¦© selects a lo-
+cally overconsistent vertex ¨ for expansion on line 10 , then its key is w¦©¨ p ¢¦$¨% zabD¦©¨ .
+
+Theorems 2 and 3 imply that ComputeShortestPath() expands locally overconsistent vertices in the order of monotonically nondecreasing f-values and vertices with the same f-values in the order of monotonically nondecreasing start distances. A* has the same property provided that it breaks ties in favor of vertices with smaller start distances.
+Theorem 4 ComputeShortestPath¦© expands locally over-
+consistent vertices with ﬁnite f-values in the same order as A*, provided that A* always breaks ties among vertices with the same f-values in favor of vertices with the smallest start distances and breaks remaining ties suitably.
+
+The next theorem shows that ComputeShortestPath() ex-
+
+pands at most those locally overconsistent vertices whose
+
+f-values are less than the f-value of the goal vertex and those
+
+vertices whose f-values are equal to the f-value of the goal
+
+vertex and whose start distances are less than or equal to the
+
+start distances of the goal vertex. A* has the same property
+
+provided that it breaks ties in favor of vertices with smaller
+
+start distances.
+
+Theorem 5 ComputeShortestPath¦©
+
+expands
+
+at
+
+¡ " ¦¥  & ¡ " ¥  most those locally overconsistent vertices ¨ with
+¢¦©¨ fa¤bD¦©¨ 7 ¢¦©¨ T¥VRHXW  zab§¦$¨ TQV4HXW  .
+
+Efﬁciency
+
+We now show that LPA* expands many fewer vertices than suggested by Theorem 1. The next theorem shows that LPA* is efﬁcient because it performs incremental searches and thus calculates only those g-values that have been affected by cost changes or have not been calculated yet in previous searches.
+
+Theorem 6 ComputeShortestPath() does not expand any vertices whose g-values were equal to their respective start distances before ComputeShortestPath() was called.
+
+Our ﬁnal theorem shows that LPA* is efﬁcient because it performs heuristic searches and thus calculates only the g-values of those vertices that are important to determine a shortest path. Theorem 5 has already shown how heuristics limit the number of locally overconsistent vertices expanded by ComputeShortestPath(). The next theorem generalizes this result to all locally inconsistent vertices expanded by ComputeShortestPath().
+¡ " ¦¥   Theorem 7 The keys of the vertices that ComputeShort-
+estPath() selects for expansion on line 10 never exceed
+¢¦©¨UT¥VRHXW$ zabD¦©¨UT¥VRHXWI .
+
+To understand the implications of this theorem on the ef-
+
+& ¡  ¦¥     ﬁciency
+w¦$¨% p
+
+of LPA*
+h¦aw¦©¨¥2
+
+regm¨¦$e¨%mRDbterghth¦$a¨3t24¨thT¥eVRHXkW e y
+
+w¦$¨ of a h¦ja¤¦$¨%¥2
+
+v egCrt¨3e¦$x¨f¨ 
+
+is .
+
+Thus, the more informed the heuristics are and
+
+& ¡ " ¥  thus the larger they are, the fewer vertices satisfy
+w¦$¨% 7 ¢¦$¨UTQV4HXWI zab§¦$¨uT¥V4HXW© and thus are expanded.
+
+p r0o1c’e druerteurCna lwcud leuat efuKeGyIIegf h¥fe6UiYhzwIx mzy xRjGiY ¡ 6wd eu fuGIIgfh¥fe6o ;
+
+p r00000o23456c’’’’’e3D dfUgfurorhQ¡.rIenqRaIslnleqersi ttke;i{4alGtvelmfikezuhnlGeDmfgfn©qh¥ Cf{ a;elc§ulqratef¥KeyeDzq kel$mRn;6 ;
+
+p r000o789c’’’e diiiufffrefu|Y|qUpq|%tr} d¤apetq} kee VlGUgfemfr.hQnRtQeRexmgR|UhQo|%6vReU|%|U.§In;qsertw|§d e 
+
+w ~ £¢ ¥¤¦¤©¥ R|§j |U6 CalculateKey ;
+
+~
+
+%if¥
+
+~
+
+6
+
+;
+
+p r11111111112o01234567890c’’’’’’’’’’’e dwurhiee|4eiflllsslGCeUfff¥f¥eeqoonRo.irriIUmlGf|U|UnaaUn.sqllp33Tll.ef¥PuorqrqtotpU e|UpKCtt.|"STgRehaoyhQl££o;pCc;RrKuagzgztlleegfa¥$¥$|%csytuhQ¦¥¦¥teCPlKR;aIaa|U|Uteletcy|UhK%u6lUe|Uaytp6edK|%a|%eteyIV Ueerw©ptedx xamftyeGVx$ e;rOteRxgfGhQ ;RewIx mzy xGqr} f¥ewIx mzy xe6
+
+p r222222222333333o123456789012345c’’’’’’’’’’’’’’’eD dICwunrnohi/MSiemetmi*filcw©aw©MeaofCepailxoxnfvniuno¡mfazyreUUmtemegqieyaf¥netppw©w©rSlopxdalddqxxhugpe;daaemfoq¨tehttwIiqw©ew©ryeer StxcxfeVxxheto¡o§mzmfhcmfhsersto©tyyeqrey}w©tPcrtDsxfdxexiYetxahexcd§;tmzwaeGshhgndtyhkeqaP|%eggd xlGneaeec;gmRtdsw©o;­hennjs~edmt£|§d wIR;g¢txehX|"¥Iecneo¤¦jswwI¤©Xtthxsiet;wmz;hrw©yecxxGihmzsjaynnoxgekdnfoewdegnewIpxcamzotsyhtxfs*I/  ~ if¥ ~ 6 ;
+
+Figure 3: D* Lite.
+
+D* Lite
+So far, we have described LPA*, that repeatedly determines shortest paths between the start vertex and the goal vertex as the edge costs of a graph change. We now use LPA* to develop D* Lite, that repeatedly determines shortest paths between the current vertex of the robot and the goal vertex as the edge costs of a graph change while the robot moves towards the goal vertex. D* Lite is shown in Figure 3. It does not make any assumptions about how the edge costs change, whether they go up or down, whether they change close to the current vertex of the robot or far away from it, or whether they change in the world or only because the robot revised its initial estimates. D* Lite can be used to solve the goal-directed navigation problem in unknown terrain (as described in the section on “Motivation”). The terrain is modeled as an eight-connected graph. The costs of its edges are initially one. They change to inﬁnity when the robot discovers that they cannot be traversed. One can implement the robot-navigation strategy by applying D* Lite to this graph
+with ¨ EGFIHQPRF being the current vertex of the robot and ¨ T¥V4HXW
+being the goal vertex.
+Search Direction
+We ﬁrst need to switch the search direction of LPA*. The version of LPA* presented in Figure 2 searches from the start vertex to the goal vertex and thus its g-values are estimates of the start distances. D* Lite searches from the goal vertex to the start vertex and thus its g-values are estimates
+
+of the goal distances. It is derived from LPA* by exchanging the start and goal vertex and reversing all edges in the pseudo code. Thus, D* Lite operates on the original graph and there are no restrictions on the graph except that it needs to be able to determine the successors and predecessors of the vertices, just like LPA*. After ComputeShortestPath()
+returns, one can then follow a shortest path from ¨ EGFIHQPRF to ¨ T¥VRHXW by always moving from the current vertex ¨ , starting at ¨EGFIHQPRF , to any successor ¨ 5 that minimizes £§¦$¨D2X¨ 5 ht(a¤¦$¨ 5  until ¨UT¥V4HXW is reached (ties can be broken arbitrarily).
+Heap Reordering
+To solve robot navigation problems in unknown terrain, Main() now needs to move the robot along the path determined by CalculatePath(). Main() could recalculate the priorities of the vertices in the priority queue every time the robot notices a change in edge costs after it has moved. Unless the priorities are recalculated, they do not satisfy Invariant 3 since they are based on heuristics that were computed with respect to the old vertex of the robot. However, the repeated reordering of the priority queue can be expensive since the priority queue often contains a large number of vertices. D* Lite therefore uses a method derived from D* (Stentz 1995) to avoid having to reorder the priority queue, namely priorities that are lower bounds on the priorities that LPA* uses for the corresponding vertices. The
+heuristics gi¦©¨324¨ 5  now need to be nonnegative and satisfy gi¦©¨324¨%56v7&£UbD¦©¨324¨%5 and gi¦©¨324¨%5 56v79gi¦©¨324¨%56 tgh¦$¨U5$2X¨U5 56 for all vertices ¨324¨5I2X¨U5 5i , where £%b§¦$¨D2X¨%5 denotes the cost of a shortest path from vertex ¨  to vertex ¨ 5  . This
+requirement is not restrictive since both properties are guaranteed to hold if the heuristics are derived by relaxing the search problem, which will almost always be the case and holds for the heuristics used in this paper. After the robot
+has moved from vertex ¨ to some vertex ¨"5 where it detects
+changes in edge costs, the ﬁrst element of the priorities can
+have decreased by at most gi¦©¨32X¨5 . (The second compo-
+nent does not depend on the heuristics and thus remains unchanged.) Thus, in order to maintain lower bounds, D* Lite
+needs to subtract gi¦©¨324¨5 from the ﬁrst element of the pri-
+orities of all vertices in the priority queue. However, since
+gi¦©¨324¨%56 is the same for all vertices in the priority queue, the
+order of the vertices in the priority queue does not change if the subtraction is not performed. Then, when new priori-
+ties are computed, their ﬁrst components are by gi¦©¨324¨5 too
+small relative to the priorities in the priority queue. Thus,
+gi¦©¨324¨%56 has to be added to their ﬁrst components every time
+some edge costs change. If the robot moves again and then
+ detects cost changes again, then the constants need to get
+added up. We do this in the variable ¡ 30’ . Thus, when-
+ ever new priorities are computed, the variable ¢ has to be
+added to their ﬁrst components, as done in 01’ . Then, the order of the vertices in the priority queue does not change after the robot moves and the priority queue does not need to get reordered. The priorities, on the other hand, are always lower bounds on the corresponding priorities of LPA* after the ﬁrst component of the priorities of LPA* has been increased by the current value of ¢ . We exploit this prop-
+erty by changing ComputeShortestPath¦© as follows. Af-
+
+p r0o1c”e durerteurCnalwcudle¥atefuKeGyIIegf h¥fe6Ui­h%ewIx mzy xfIeUi@ ¡ wd euf¥ejIgRhQRe6o ;
+
+p r00000o23456c”””””e¤3 dufUgf­orhQ¡.reInqRaIslnlqeeirsttkei;{4alGtvelmfikezuhn6lGeDmfgf n©qh¥ef{ h%;eDwIqrx mzfuy xe3ekeqlGmf nIj;{G ;
+
+p r000o789c”””e duieefllrss(eeef¥Uiiffp|Udfufuaqt} |%|%eVDgferhQqq} tRexgfgf|UhQhQ|%RR A|U|UNDAA|qNNDDtY||ptrtr U.U pUUd..aIRtneesme|§rotv|"£e¥|U£ ¤
+
+G¥|¦¤ ¤GQ|¦6¤ ¥¨Q§ 6¥¥¨§i©U¥¨|U©U6|U;6
+;
+
+;
+
+p r1111111111222222222o0123456789012345678c”””””””””””””””””””e&& duwrheiee|B4iflllCsslGeUUfff¥fff¥eeqoonolG..hrrilGiUiUmURUf|U|UffnaaUneipppp.qlliDDTmll.dddff¥igfuqToaaaqrqqotohQpUttteiqv|Uee}epKCRStvtv.eVVfuTgfpqeha}|"eeoeyhQlG|Uo£¤£¤rr;crp|%ke©tt;r3RueeKtlGgzgzxxl;ekeqraegf;mf¥$¥$|UstylGhQteee¦¥¦¥nCPmfKf¥R;aan;;e|%|%;lgRtQycRI|UhhQuujgfl6|%R|UahQ t%eReKir;§|%eeyqDffqlG wnw©Qxwd mfeu yde gRx whQ~ OR£R¢egfI¥hQ¤ f¤©RRw jwI|Ux Rmz%yirRx pf¥ ~@U|%iYfu ;f¥w©x
+
+mfy ~ 6
+
+x
+
+6
+;
+
+p r23333333333444444444o90123456789012345678c””””””””””””””””””””e3 duICw nrnohie/MSiemtmi*filcw©Maw©eaofCepailxoxnfvniunoa¡mzzyreUieUemtemifegqeylangflGetpspw©w©rS(loiixpdeahQlnddffqxxhugpei;aademzilGRoqtehfttwIqie|@|@w©ryneerqrSxtcfeVxxheto¡§gfmzohcmfhqqsew©}}rsto©yhQt­Rreqye}xtwIPctrDsxfdRemfxi­etxahe ex|"cd;twmzRaeyekekeshhgn|Udtyxjh%kelGlGa|%Peggd|"4xD§nl$emfmfaeec;gmRtjdsnnw©o;qrqh;eXnn¥¥s~jedmt|§£dgRgR@R)wI;g¢hQhQlGjxe4n|"¥RRjc eto¤¦jh|%|%swwI¤$iYXetxs§§ni t;mzw;hf¥tqqwIyhcxexG4hrmzwwjae6yniddxgseue enw©dogf~fek£hQdnegR¢ oew©¥wx|Uc¤nmfoI¤©syptaxfsf¥tjh |§*~ /f%Xir|§%irf¥ ~ f¥U~ iYX6;f¥ ; ~ 6 ;
+
+Figure 4: D* Lite (optimized version).
+
+ter ComputeShortestPath¦© has removed a vertex ¡ with
+ & the smallest priority VzW p U.TopKey¦© from the priority
+queue 12’ , it now uses CalculateKey¦$ to compute the priority that it should have had. If pVfW 0 CalculateKey¦j¡w
+ then it reinserts the removed vertex with the priority cal-
+culated by CalculateKey¦$ into the priority queue 13’-
+
+14’ . Thus, it remains true that the priorities of all ver-
+
+tices in the priority queue are lower bounds on the cor-
+
+responding priorities of LPA* after the ﬁrst components
+
+& & of the priorities
+rent value of
+
+of .
+
+LPA*
+If VfW
+
+!haCvaelcbueleanteKinecyre¦j¡was e, dthbeyn
+
+the curit holds
+
+that VzW" p CalculateKey¦I¡¤ since pVzW was a lower bound
+
+of the value returned by CalculateKey(). In this case,
+ ComputeShortestPath¦© expands vertex ¡ (by expanding a
+vertex, we mean executing 15’-20’ ) in the same way as
+
+LPA*.
+
+Optimizations
+Figure 4 shows D* Lite with several optimizations. An example is the termination condition of ComputeShortestPath() that can be changed to make ComputeShortestPath() more efﬁcient. As stated, ComputeShortestPath() terminates
+ when the start vertex is locally consistent and its key is
+less than or equal to U.TopKey() 10’ . However, ComputeShortestPath() can already terminate when the start vertex is not locally underconsistent and its key is less than or equal to U.TopKey(). To understand why this is so, assume that the start vertex is locally overconsistent and its key is less than or equal to U.TopKey(). Then, its key must be equal to U.TopKey() since U.TopKey() is the smallest key of any locally inconsistent vertex. Thus, ComputeShortestPath() could expand the start vertex next, in which case it would set its g-value to its rhs-value. The start vertex then becomes locally consistent, its key is less than or equal to U.TopKey(), and ComputeShortestPath() thus terminates. At this point in time, the g-value of the start vertex equals its goal distance. Thus, ComputeShortestPath() can already
+ terminate when the start vertex is not locally underconsistent
+and its key is less than or equal to U.TopKey() 10 . In this case, the start vertex can remain locally inconsistent after ComputeShortestPath() terminates and its g-value thus may not be equal to its goal distance (but its rhs-value is). This is not a problem since the g-value is not used to determine how the robot should move.
+Analytical Results
+ComputeShortestPath¦© of D* Lite is similar to Com-
+puteShortestPath() of LPA* and thus shares many properties with it. For example, ComputeShortestPath() of D* Lite expands each vertex at most twice until it returns. The following theorem shows that ComputeShortestPath() of D* Lite terminates and is correct.
+Theorem 8 ComputeShortestPath¦© of D* Lite always terminates and one can then follow a shortest path from ¨DEGFIHQPRF to ¨ T¥V4HXW by always moving from the current vertex ¨ , starting at ¨ EGFIHQPRF , to any successor ¨5 that minimizes £§¦$¨D2X¨%56ht(a¤¦$¨U56 until ¨UT¥V4HXW is reached (ties can be broken arbitrarily).
+Experimental Results
+We now compare D* and various versions of the optimized version of D* Lite. We implemented all methods using standard binary heaps as priority queues (although using more complex data structures, such as Fibonacci heaps, as priority queues could possibly make U.Update() more efﬁcient). The robot always observed which of its eight adjacent cells were traversable and then moved to one of them. We used the maximum of the absolute differences of the x and y coordinates of any two cells as approximations of their distance. Since all methods move the robot in the same way and D* has already been demonstrated with great success on real robots, we only need to perform a simulation study. We need to compare the total planning time of the methods. Since the actual planning times are implementation and machine dependent, they make it difﬁcult for others to reproduce the results of our performance comparison. We there-
+
+Overhead of Focussed D* Relative to the Final Optimized Version of D* Lite (in percent)
+
+percent of extra vertex accesses 55
+
+50
+
+45
+
+40
+
+35
+
+30
+
+25
+
+20 10x10
+
+20x20 30x30 maze size
+
+40x40
+
+percent of extra vertex expansions 60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+0 10x10
+
+20x20 30x30 40x40 maze size
+
+percent of extra heap percolates 120
+
+110
+
+100
+
+90
+
+80
+
+70 10x10
+
+20x20 30x30 maze size
+
+40x40
+
+Figure 5: Comparison of D* Lite and D*.
+
+fore used three measures that all correspond to common operations performed by the methods and thus heavily inﬂuence their planning times, yet are implementation and machine independent: the total number of vertex expansions, the total number of heap percolates (exchanges of a parent and child in the heap), and the total number of vertex accesses (for example, to read or change their values). Figure 5 compares D* Lite and D* for goal-directed navigation in unknown terrain (as described in the section on “Motivation”) of seven different sizes, averaged over 50 randomly generated terrains of each size whose obstacle density varies from 10 to 40 percent. The terrain is discretized into cells with uniform resolution. The ﬁgure graphs the three performance measures of D* as percent difference relative to D* Lite. Thus, D* Lite always scores zero and methods that score above zero perform worse than D* Lite. D* Lite performs better than D* with respect to all three measures, justifying our claim that it is at least as efﬁcient as D*. The ﬁgure also shows the corresponding 95 percent conﬁdence intervals to demonstrate that our conclusions are statistically signiﬁcant. In the following, we study to which degree the combination of incremental and heuristic search that D* Lite implements outperforms incremental or heuristic searches individually. We do this for two different but related tasks, namely goaldirected navigation in unknown terrain and mapping of unknown terrain, using similar setups as in the previous experiment.
+Goal-Directed Navigation in Unknown Terrain
+Figure 6 compares D* Lite, D* Lite without heuristic search, and D* Lite without incremental search (that is, A*) for goal-directed navigation in unknown terrain, using the same setup as in the previous experiment. We decided not to include D* Lite without both heuristic and incremental search in the comparison because it performs so poorly that graphing its performance becomes a problem. D* Lite outper-
+
+Performance of D* Lite without Incremental Search (A*) and D* Lite without Heuristic Search Relative to D* Lite (in percent)
+A − D* Lite without incremental search (A*) B − D* Lite without heuristic search
+
+percent of extra vertex accesses 300
+
+250
+
+200
+
+B
+
+150
+
+100
+
+50
+
+A
+
+0 10x10
+
+20x20 30x30 40x40 maze size
+
+1000
+
+percent of extra vertex expansions
+
+800
+B 600
+
+400
+
+200 0 10x10
+
+A 20x20 30x30 40x40
+maze size
+
+percent of extra heap percolates 200
+
+150
+
+A
+
+100
+
+50
+
+0 B
+
+−50 10x10
+
+20x20 30x30 maze size
+
+40x40
+
+10x1015x1520x2025x2530x3035x3540x40
+Figure 6: Goal-Directed Navigation (Uniform).
+
+Performance of D* Lite without Incremental Search (A*) and D* Lite without Heuristic Search Relative to D* Lite (in percent)
+A − D* Lite without incremental search (A*) B − D* Lite without heuristic search
+
+400 300 200 100
+0 −100
+
+percent of extra vertex accesses A B 100x100 200x200 300x300 environment size
+
+percent of extra vertex expansions 500
+A 400
+
+300
+
+200
+B 100
+
+0
+
+100x100 200x200 300x300
+
+environment size
+
+500 400 300 200 100
+0 −100
+
+percent of extra heap percolates A
+B 100x100 200x200 300x300 environment size
+
+Figure 7: Goal-Directed Navigation (Adaptive).
+
+forms the other two search methods according to all three performance measures, even by more than a factor of seven for the vertex expansions. Moreover, its advantage seems to increase as the terrain gets larger. Only for the number of heap percolates for terrain of size 10 by 10 and 15 by 15 is the difference between D* Lite and D* Lite without heuristic search statistically not signiﬁcant. These results also conﬁrm earlier experimental results that D* can outperform A* for goal-directed navigation in unknown terrain by one order of magnitude or more (Stentz 1995).
+The terrain can also be discretized with nonuniform resolution. Uniform discretizations can prevent one from ﬁnding a path if they are too coarse-grained (for example, because the resolution prevents one from noticing small gaps between obstacles) and result in large graphs that cannot be searched efﬁciently if they are too ﬁne-grained. Researchers have therefore developed adaptive resolution
+
+Performance of D* Lite without Incremental Search (A*) and D* Lite without Heuristic Search Relative to D* Lite (in percent)
+A − D* Lite without incremental search (A*) B − D* Lite without heuristic search
+
+80 60 40 20
+0 −20 −40
+0
+
+percent of extra vertex accesses B
+A
+
+5
+
+10
+
+15
+
+20
+
+25
+
+sensor range
+
+percent of extra vertex expansions 180
+
+160
+
+140
+
+A
+
+120
+
+100 80 0
+80 60 40 20
+0 −20 −40
+0
+
+B
+
+5
+
+10
+
+15
+
+20
+
+25
+
+sensor range
+
+percent of extra heap percolates
+
+A
+
+B
+
+5
+
+10
+
+15
+
+20
+
+25
+
+sensor range
+
+Figure 8: Mapping (Uniform).
+
+schemes (Moore & Atkeson 1995; Yahja et al. 1998). We therefore used D* Lite to implement a deterministic version of the parti-game algorithm (Moore & Atkeson 1995) with adaptive discretization that discretizes terrain into cells with nonuniform resolution. In this context, Figure 7 compares D* Lite, D* Lite without heuristic search, and D* Lite without incremental search (that is, A*) for goal-directed navigation in unknown terrain terrains of six different sizes, averaged over 25 randomly generated terrains of each size with an obstacle density of 30 percent each. D* Lite outperforms D* Lite without incremental search (that is, A*) according to all three performance measures, even more than a factor of four for the vertex expansions. On the other hand, different from goal-directed navigation in unknown terrain with uniform discretization, D* Lite and D* Lite without heuristic search perform about equally well.
+Mapping of Unknown Terrain
+D* Lite can also be used to implement greedy mapping (Koenig, Tovey, & Halliburton 2001), a simple but powerful mapping strategy that has repeatedly been used on mobile robots by different research groups (Thrun et al. 1998; Koenig, Tovey, & Halliburton 2001; Romero, Morales, & Sucar 2001). Greedy mapping discretizes the terrain into cells with uniform resolution and then always moves the robot from its current cell to the closest cell with unknown traversability, until the terrain is mapped. In this case, the graph is an eight-connected grid. The costs of its edges are initially one. They change to inﬁnity when the robot discovers that they cannot be traversed. There is one additional vertex that is connected to all grid vertices. The costs of these edges are initially one. They change to inﬁnity once the corresponding grid vertex has been visited. One can implement greedy mapping by applying D* Lite to this graph
+with ¨ EGFIHQPRF being the current vertex of the robot and ¨ T¥V4HXW
+being the additional vertex. Figure 8 compares D* Lite, D* Lite without heuristic
+search, and D* Lite without incremental search (that is, A*)
+
+for greedy mapping with different sensor ranges, averaging over 50 randomly generated grids of size 64 by 25. The terrain is discretized into cells with uniform resolution. We varied the sensor range of the robot to simulate both short-range and long-range sensors. For example, if the sensor range is four, then the robot can sense all untraversable cells that are up to four cells in any direction away from the robot as long as they are not blocked from view by other untraversable cells. The number of vertex expansions of D* Lite is always far less than that of the other two methods. This also holds for the number of heap percolates and vertex accesses, with the exception of sensor range four for the heap percolates and the number of vertex accesses of D* Lite without incremental search.
+Conclusions
+In this paper, we have presented D* Lite, a novel fast replanning method for robot navigation in unknown terrain that implements the same navigation strategies as Focussed Dynamic A* (D*). Both algorithms search from the goal vertex towards the current vertex of the robot, use heuristics to focus the search, and use similar ways to minimize having to reorder the priority queue. D* Lite builds on our LPA*, that has a solid theoretical foundation, a strong similarity to A*, is efﬁcient (since it does not expand any vertices whose gvalues were already equal to their respective goal distances) and has been extended in a number of ways. Thus, D* Lite is algorithmically different from D*. It is easy to understand and extend, yet at least as efﬁcient as D*. We believe that our experimental and analytical results about D* Lite provide a strong algorithmic foundation for further research on fast replanning methods in artiﬁcial intelligence and robotics and complement the research on symbolic replanning methods in artiﬁcial intelligence (Hanks & Weld 1995) as well as the research on incremental search methods in both algorithm theory (Frigioni, Marchetti-Spaccamela, & Nanni 2000) and artiﬁcial intelligence (Edelkamp 1998).
+Acknowledgments
+We thank Anthony Stentz for his support of this work. The Intelligent Decision-Making Group is partly supported by NSF awards under contracts IIS-9984827, IIS-0098807, and ITR/AP-0113881 as well as an IBM faculty fellowship award. The views and conclusions contained in this document are those of the authors and should not be interpreted as representing the ofﬁcial policies, either expressed or implied, of the sponsoring organizations and agencies or the U.S. government.
+References
+Edelkamp, S. 1998. Updating shortest paths. In Proceedings of the European Conference on Artiﬁcial Intelligence, 655–659.
+Frigioni, D.; Marchetti-Spaccamela, A.; and Nanni, U. 2000. Fully dynamic algorithms for maintaining shortest paths trees. Journal of Algorithms 34(2):251–281.
+Hanks, S., and Weld, D. 1995. A domain-independent algorithm for plan adaptation. Journal of Artiﬁcial Intelligence Research 2:319–360.
+
+Koenig, S., and Likhachev, M. 2001. Incremental A*. In Proceedings of the Neural Information Processing Systems.
+Koenig, S.; Tovey, C.; and Halliburton, W. 2001. Greedy mapping of terrain. In Proceedings of the International Conference on Robotics and Automation, 3594–3599.
+Likhachev, M., and Koenig, S. 2001. Lifelong Planning A* and Dynamic A* Lite: The proofs. Technical report, College of Computing, Georgia Institute of Technology, Atlanta (Georgia).
+Matthies, L.; Xiong, Y.; Hogg, R.; Zhu, D.; Rankin, A.; Kennedy, B.; Hebert, M.; Maclachlan, R.; Won, C.; Frost, T.; Sukhatme, G.; McHenry, M.; and Goldberg, S. 2000. A portable, autonomous, urban reconnaissance robot. In Proceedings of the International Conference on Intelligent Autonomous Systems.
+Moore, A., and Atkeson, C. 1995. The parti-game algorithm for variable resolution reinforcement learning in multidimensional state-spaces. Machine Learning 21(3):199–233.
+Nilsson, N. 1971. Problem-Solving Methods in Artiﬁcial Intelligence. McGraw-Hill.
+Pearl, J. 1985. Heuristics: Intelligent Search Strategies for Computer Problem Solving. Addison-Wesley.
+Ramalingam, G., and Reps, T. 1996. An incremental algorithm for a generalization of the shortest-path problem. Journal of Algorithms 21:267–305.
+Romero, L.; Morales, E.; and Sucar, E. 2001. An exploration and navigation approach for indoor mobile robots considering sensor’s perceptual limitations. In Proceedings of the International Conference on Robotics and Automation, 3092–3097.
+Stentz, A., and Hebert, M. 1995. A complete navigation system for goal acquisition in unknown environments. Autonomous Robots 2(2):127–145.
+Stentz, A. 1994. Optimal and efﬁcient path planning for partiallyknown environments. In Proceedings of the International Conference on Robotics and Automation, 3310–3317.
+Stentz, A. 1995. The focussed D* algorithm for real-time replanning. In Proceedings of the International Joint Conference on Artiﬁcial Intelligence, 1652–1659.
+Thayer, S.; Digney, B.; Diaz, M.; Stentz, A.; Nabbe, B.; and Hebert, M. 2000. Distributed robotic mapping of extreme environments. In Proceedings of the SPIE: Mobile Robots XV and Telemanipulator and Telepresence Technologies VII, volume 4195.
+Thrun, S.; Bu¨cken, A.; Burgard, W.; Fox, D.; Fro¨hlinghaus, T.; Hennig, D.; Hofmann, T.; Krell, M.; and Schmidt, T. 1998. Map learning and high-speed navigation in RHINO. In Kortenkamp, D.; Bonasso, R.; and Murphy, R., eds., Artiﬁcial Intelligence Based Mobile Robotics: Case Studies of Successful Robot Systems. MIT Press. 21–52.
+Yahja, A.; Stentz, A.; Brumitt, B.; and Singh, S. 1998. Framedquadtree path planning for mobile robots operating in sparse environments. In International Conference on Robotics and Automation.
+

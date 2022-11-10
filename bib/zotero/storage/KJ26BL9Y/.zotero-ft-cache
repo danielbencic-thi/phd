@@ -1,0 +1,707 @@
+Sparsely Changing Latent States for Prediction and Planning in Partially Observable Domains
+
+Christian Gumbsch Autonomous Learning Group Max Planck Institute for Intelligent Systems & Neuro-Cognitive Modeling Group
+University of Tübingen Tübingen, Germany
+christian.gumbsch@tuebingen.mpg.de
+
+Martin V. Butz Neuro-Cognitive Modeling Group
+University of Tübingen Tübingen, Germany
+martin.butz@uni-tuebingen.de
+
+Georg Martius Autonomous Learning Group Max Planck Institute for Intelligent Systems
+Tübingen, Germany georg.martius@tuebingen.mpg.de
+
+Abstract
+A common approach to prediction and planning in partially observable domains is to use recurrent neural networks (RNNs), which ideally develop and maintain a latent memory about hidden, task-relevant factors. We hypothesize that many of these hidden factors in the physical world are constant over time, changing only sparsely. To study this hypothesis, we propose Gated L0 Regularized Dynamics (GateL0RD), a novel recurrent architecture that incorporates the inductive bias to maintain stable, sparsely changing latent states. The bias is implemented by means of a novel internal gating function and a penalty on the L0 norm of latent state changes. We demonstrate that GateL0RD can compete with or outperform state-of-the-art RNNs in a variety of partially observable prediction and control tasks. GateL0RD tends to encode the underlying generative factors of the environment, ignores spurious temporal dependencies, and generalizes better, improving sampling efﬁciency and overall performance in model-based planning and reinforcement learning tasks. Moreover, we show that the developing latent states can be easily interpreted, which is a step towards better explainability in RNNs.
+1 Introduction
+When does the meeting start? Where are my car keys? Is the stove turned off? Humans memorize lots of information over extended periods of time. In contrast, classical planning methods assume that the state of the environment is fully observable at every time step [1]. This assumption does not hold for realistic applications, where generative processes are only indirectly observable or entities are occluded. Planning in such Partially Observable Markov Decision Processes (POMDP) is a challenging problem, because suitably-structured memory is required for decision making.
+Recurrent neural networks (RNNs) are often used to deal with partial observability [2–4]. They encode past observations by maintaining latent states, which are iteratively updated. However, continuously updating the latent state causes past information to quickly “wash out”. Long-Short Term Memory networks (LSTM, [5]) and Gated Recurrent Units (GRU, [6]) deal with this problem by using internal gates. However, they cannot leave their latent states completely unchanged, because
+35th Conference on Neural Information Processing Systems (NeurIPS 2021).
+
+small amounts of information continuously leak through the sigmoidal gating functions. Additionally, inputs typically need to pass through the latent state to affect the output, making it hard to disentangle observable from unobservable information within their latent states.
+Our hypothesis is that many generative latent factors in the physical world are constant over extended periods of time. Thus, there might not be the need to update memory at every time step. For example, consider dropping an object: If the drop-off point as well as some latent generative factors, such as gravity and aerodynamic object properties, are known, iteratively predicting the fall can be reasonably accomplished by a non-recurrent process. Similarly, when an agent picks up a key, it is sufﬁcient to memorize that the key is inside their pocket. However, latent factors typically do change signiﬁcantly and systematically at particular points in time. For example, the aerodynamic properties of an object change drastically when the falling object shatters on the ﬂoor, and the location of the key changes systematically when the agent removes it from their pocket.
+These observations are related to assumptions used in causality research. A common assumption is that the generative process of a system is composed of autonomous mechanisms that describe causal relationships between the system’s variables [7–9]. When considering Markov Decision Processes, it has been proposed that these mechanisms tend to interact sparsely in time and locally in space [10, 11]. Causal models aim at creating dependencies between variables only when there exists a causal relationship between them, in order to improve generalization [8]. Updating the latent state of a model in every time step, on the other hand, induces the prior assumption that the generative latent state typically depends on all previous inputs. Thus, by suitably segmenting the dependencies of the latent variables over time, one can expect improved generalization across spurious temporal dependencies.
+Very similar propositions have been made for human cognition. Humans tend to perceive their stream of sensory information in terms of events [12–16]. Event Segmentation Theory (EST) [16] postulates a set of active event models, which encode event-respective aspects over extended periods of time and switch individually at event transitions. To learn about the transitions and consolidate associated latent event encodings, measurements of surprise and other signiﬁcant changes in predictive model activities, as well as latent state stability assumptions, have been proposed as suitable inductive event segmentation biases [16–22]. Explicit relations to causality have been put forward in [23].
+In accordance to EST and our sparsely changing latent factor assumption, we introduce Gated L0 Regularized Dynamics (GateL0RD). GateL0RD applies L0-regularized gates, inducing an inductive learning bias to encode piecewise constant latent state dynamics. GateL0RD thus becomes able to memorize task-relevant information over long periods of time. The main contributions of this work can be summarized as follows. (i) We introduce a stochastic, rectiﬁed gating function for controlling latent state updates, which we regularize towards sparse updates using the L0 norm. (ii) We demonstrate that our network performs as good or better than state-of-the-art RNNs for prediction or control in various partially-observable problems with piecewise constant dynamics. (iii) We also show that the inductive bias leads to better generalization under distributional shifts. (iv) Lastly, we show that the latent states can be easily interpreted by humans.
+2 Background
+Let fθ : X × H → Y × H be a recurrent neural network (RNN) with learnable parameters θ mapping inputs1 xt ∈ X and ht−1 ∈ H the latent (hidden) state to the output yˆt ∈ Y and updated latent states ht. The training dataset D consists of sequences of input-output pairs d = [(x1, y1), . . . , (xT , yT )] of length T . In this paper, we consider the prediction and control of systems that can be described by a partially observable Markov decision process (POMDP) with state space S, action space A, observations space O, and deterministic hidden transitions S × A → S.2
+1Notation: bold lowercase letters denote vectors (e.g., x). Vector dimensions are denoted by superscript (e.g. x = [x1, x2, . . . , xn] ∈ Rn). Time or other additional information is denoted by subscript (e.g., xt).
+2We treat the prediction of time series without any actions as a special case of the POMDP with A = ∅.
+2
+
+3 L0-regularization of latent state changes
+
+We want the RNN fθ to learn to solve a task, while maintaining piecewise constant latent states over time. The network creates a dynamics of latent states ht when applied to a sequence: (yˆt, ht) = fθ(xt, ht−1) starting from some h0. The most suitable measure to determine how much a time-series is piecewise constant is the L0 norm applied to temporal changes. With the change in latent state as ∆ht = ht−1 − ht, we deﬁne the L0-loss as
+
+LL0 (∆h) = ∆h 0 = I(∆hj = 0),
+
+(1)
+
+j=1
+
+which penalizes the number of non-zero entries of the vector of latent state changes ∆h.
+
+The regularization loss from Eq. 1 can be combine in the usual way with the task objective to yield the overall learning objective L of the network:
+
+L(D, θ) = Ed∼D
+
+Ltask(yˆt, yt) + λLL0 (∆ht)
+
+(2)
+
+t
+
+with (yˆt, ht) = fθ(xt, ht−1). The task-dependent loss Ltask(·, ·) can be, for instance, the meansquared error for regression or cross-entropy loss for classiﬁcation. The hyperparameter λ controls
+the trade-off between the task-based loss and the desired latent state regularization.
+
+Unfortunately, we cannot directly minimize this loss using gradient-based techniques, such as
+stochastic gradient descent (SGD), due to the non-differentiability of the L0-term. Louizos et al. [24] proposed a way to learn L0 regularization of the learnable parameters of a neural network with SGD.
+They achieve this by using a set of stochastic gates controlling the parameters’ usage. Each learnable parameter θj that is subject to the L0 loss is substituted by a gated version θ j = Θ(sj)θj where Θ(·) is the Heaviside step function (Θ(s) = 0 if s ≤ 0 and 1 otherwise) and s is determined by a distribution q(s|ν) with learned parameters ν. Thus, θ j is only non-zero if sj > 0. This allows to rewrite the L0 loss (Eq. 1) for θ as:
+
+LL0 (θ , ν) = θ 0 = Θ(sj)
+j
+
+with s ∼ q(s; ν),
+
+(3)
+
+where parameters ν inﬂuence sparsity and are affected by the loss.
+
+To tackle the problem of non-differentiable binary gates, we can use a smooth approximation as a surrogate [24–26]. Alternatively, we can substitute its gradients during the backward pass, for example using the straight-through estimator [27], which treats the step function as a linear function during the backward pass, or approximate its gradients as in the REINFORCE algorithm [28].
+
+To transfer this approach to regularize the latent state dynamics in an RNN, we require an internal gating function Λ(·) ∈ [0, 1], which controls whether the latent state is updated or not. For instance:
+
+ht = ht−1 + Λ(s)∆h˜t−1
+
+with ∆h˜t−1 = h˜t − ht−1
+
+(4)
+
+where h˜ is the proposed new latent state and s is a stochastic variable depending on the current input and previous latent state and the parameters, i.e. st ∼ q(st; xt, ht−1, ν). For brevity, we merge the parameters ν into the overall parameter set, i.e. ν ⊂ θ. For computing Eq. 2 we need to binarize the gate by applying the step function Θ(Λ(s)). Thus we can rewrite Eq. 2 as
+
+L(D, θ) = Ed∼D
+
+Ltask(yˆt, yt) + λ Θ(Λ(st)) .
+
+(5)
+
+t
+
+t
+
+LSTMs and GRUs use deterministic sigmoidal gates for Λ in Eq. 4 to determine how to update
+their latent state. However, it is not straight forward to apply this approach to them (detailed in
+Suppl. A). Thus, we instead introduce a novel RNN, that merges components from GRUs and LSTMs, to implement the proposed L0 regularization of latent state changes while still allowing the network to make powerful computations. We name our network Gated L0 Regularized Dynamics (GateL0RD).
+
+3
+
+yˆt
+
+Λ(sit) 1
+
+yˆt
+
+ht−1
+
+g + st Λ
+∼N
+
+po
+
+sit
+
+-1
+
+1
+
+ht (b) Gate-activation Λ(s)
+
+fpost
+
+h0
+
+ht
+
+fθ
+
+r
+
+h˜ t
+
+xt
+
+Θ(sit) 1
+-1
+
+sit
+1 Forward Backward
+
+finit
+
+fpre
+
+x0
+
+xt
+
+(a) Illustration of the core of GateL0RD.
+
+(c) Θ with its substitution (d) Overall GateL0RD
+
+Figure 1: Architecture overview. (a) GateL0RD with its three subnetworks. The gating function
+
+controls the latent state update (red), the recommendation function computes a new latent state (blue) and the output function computes the output (purple). (b) Gate-activation function Λ (ReTanh). (c) Heaviside step function Θ and its gradient estimator. (d) Overall architecture.
+
+4 GateL0RD
+
+The core of GateL0RD implements the general mapping (yˆt, ht) = fθ(xt, ht−1) using three functions, or subnetworks: (1) a recommendation network r, which proposes a new candidate latent state, (2) a gating network g, which determines how the latent state is updated, and (3) an output
+function, which computes the output based on the updated latent state and the input. The network is
+systematically illustrated in Fig. 1a.
+
+The overall processing is described by the following equations:
+
+st ∼ N (g(xt, ht−1), Σ) Λ(s) := max(0, tanh(s))
+ht = ht−1 + Λ(st) (r(xt, ht−1) − ht−1) yˆt = p(xt, ht) o(xt, ht),
+
+(sample gate input) (6) (new gating function) (7) (update or keep latent state) (8)
+(compute output) (9)
+
+where denotes element-wise multiplication (Hadamard product).
+
+We start with the control of the latent state in Eq. 8. Following Eq. 4, a new latent value is proposed by the recommendation function r(xt, ht−1) and the update is “gated” by Λ(s). Importantly, if Λ(s) = 0 no change to the latent state occurs. Note that the update in Eq. 8 is in principle equivalent to the latent state update in GRUs [6], for which it is typically written as ht = Λ(s) r(xt, ht−1) + (1 − Λ(s)) ht−1 with Λ(s) a deterministic sigmoidal gate.
+Because we aim for piecewise constant latent states, the gating function Λ deﬁned in Eq. 7 needs to be able to output exactly zero. A potential choice would be the Heaviside function, i.e. either copy the new latent state or keep the old one. This, however, does not allow any multiplicative computation. So a natural choice is to combine the standard sigmoid gate of RNNs with the stepfunction: Λ(s) = max(0, tanh(s)) which we call ReTanh (rectiﬁed tanh)3. Figure 1b shows the activation function Λ depending on its input. The gate is closed (Λ(si) = 0) for all inputs si ≤ 0. A closed gate results in a latent state that remains constant in dimension i, i.e., hit = hit−1. On the other hand, for si > 0 the latent state is interpolated between the proposed new value and the old one.
+The next puzzle piece is the input to the gate. Motivated from the L0 regularization in Eq. 1 we use a stochastic input. However, in our RNN setting, it should depend on the current situation. Thus, we use a Gaussian distribution for q with the mean determined by the gating network g(xt, ht−1) as deﬁned in Eq. 6. We chose a ﬁxed diagonal covariance matrix Σ, which we set to Σi,i = 0.1. To train our network using backpropagation, we implement the sampling using the reparametrization trick [29]. We introduce a noise variable and compute the gate activation as
+
+st = g(xt, ht−1) +
+
+with ∼ N (0, Σ).
+
+(10)
+
+During testing we set = 0 to achieve maximally accurate predictions.
+
+3Note that tanh(s) = 2 · sigmoid(2s) − 1.
+
+4
+
+Finally the output yˆ is computed from the inputs and the new latent state ht in Eq. 9. Inspired by LSTMs [5], the output is determined by a multiplication of a normal branch (p(xt, ht)) and a sigmoidal gating branch (o(xt, ht)). We thus enable both additive as well as multiplicative effects of xt and ht on the output, enhancing the expressive power of the piecewise constant latent states.
+In our implementation, all subnetworks are MLPs. r, p use a tanh output activation; o uses a sigmoid; g has a linear output. p, o are one-layer networks. By default, r, g are also one-layer networks. However, when comparing against deep (stacked) RNNs, we increase the number of layers of r and g to up to three (cf. Suppl. B).
+We use the loss deﬁned in Eq. 5. GateL0RD is fully differentiable except for the Heaviside step function Θ in Eq. 5. A simple approach to deal with discrete variables is to approximate the gradients by a differentiable estimator [25–27]. We employ the straight-through estimator [27], which substitutes the gradients of the step function Θ by the derivative of the linear function (see Fig. 1c).
+We use GateL0RD as a memory module of a more general architecture illustrated in Fig. 1d. The network input is preprocessed by a feed-forward network fpre(xt). Similarly, its output is postprocessed by an MLP fpost(yˆt) (i.e. a readout layer) before computing the loss. The latent state h0 of GateL0RD could be initialized by 0. However, improvements can be achieved if the latent state is instead initialized by a context network finit, a shallow MLP that sets h0 based on the ﬁrst input [30, 31].
+In the Supplementary Material we ablate various components of GateL0RD, such as the gate activation function Λ (Suppl. C.1), the gate stochasticity (Suppl. C.2), the context network finit (Suppl. C.3), the multiplicative output branch o (Suppl. C.4), and compare against L1/L2-variants (Suppl. C.5).
+5 Related Work
+Structural regularization of latent updates: Pioneering work on regularizing latent updates was done by Schmidhuber [32] who proposed the Neural History Compressor, a hierarchy of RNNs that autoregressively predict their next inputs. Thereby, the higher level RNN only becomes active and updates its latent states, if the lower level RNN fails to predict the next input. To structure latent state updates, the Clockwork RNN [33] partitions the hidden neurons of an RNN into separate modules, where each module operates at its own predeﬁned frequency. Along similar lines, Phased LSTMs [34] use gates that open periodically. The update frequency in Clockwork RNNs and Phased LSTMs does not depend on the world state, but only on a predeﬁned time scale.
+Loss-based regularization of latent updates: For latent state regularization, Krueger and Memisevic [35] have proposed using an auxiliary loss term that punishes the change in L2-norms of the latent state, which results in piecewise constant norms but not dynamics of the hidden states.
+Binarized update gates: Closely related to our ReTanh, Skip RNNs [36] use a binary gate to determine latent state update decisions. Similarly, Gumbel-Gate LSTMs [37] replace sigmoid input and forget gates with stochastic, binary gates, approximated by a Gumbel-Softmax estimator [26]. Selective-Activation RNNs (SA-RNNs) [38] modify a GRU by masking the latent state with deterministic, binary gate and also incentivize sparsity. However, for GRUs the network output corresponds to the networks’ latent state, thus, a piecewise constant latent state will result in piecewise constant outputs. All of these models were designed for classiﬁcation or language processing tasks – none were applied for prediction or control in a POMDP setup, which we consider here.
+Attention-based latent state updates: Sparse latent state updates can also be achieved using attention [39–41]. Neural Turing Machines [39] use an attention mechanism to update an external memory block. Thereby, the attention mechanism can focus and only modify a particular locations within the memory. Recurrent Independent Mechanisms (RIMs) [42] use a set of recurrent cells that only sparsely interact with the environment and one another through competition and a bottleneck of attention. Recent extensions explore the update of the cells and the attention parameters at different time scales [43]. For RIMs the sparsity of the latent state changes is predeﬁned via a hyperparameter that sets the number of active cells. In contrast, our L0 loss implements a soft constraint.
+Transformers: Transformers [41] omit memory altogether, processing a complete sequence for every output at once using key-based attention. While this avoids problems arising from maintaining a latent state, their self-attention mechanism comes with high computational costs. Transformers
+5
+
+(a) Robot Remote Control
+
+(b) Shepherd
+
+(c) Pick&Place (d) MiniGrid
+
+Figure 2: Simulations used to test GateL0RD. (a) and (b) are continuous 2D-control tasks: (a) requires
+
+triggering the control of a robot by getting a remote control; (b) needs memorization of the sheep’s
+
+position to capture it later. (c) is the Fetch Pick&Place environment [47] modiﬁed to become partially
+
+observable and (d) shows a problem (DoorKey-8x8) of the Mini-Gridworld suite [48].
+
+have shown breakthrough success in natural language processing. However, it remains challenging to train them for planning or reinforcement learning applications in partially-observable domains [44].
+6 Experiments
+Our experiments offer answers to the following questions: (a) Does GateL0RD generalize better to out-of-distribution inputs in partially observable domains than other commonly used RNNs? (b) Is GateL0RD suitable for control problems that require (long-term) memorization of information? (c) Are the developing latent states in GateL0RD easily interpretable by humans? Accordingly, we demonstrate both GateL0RD’s ability to generalize from a 1-step prediction regime to autoregressive N -step prediction (Sec. 6.1) and its prediction robustness when facing action rollouts from different policies (Sec. 6.2). We then reveal precise memorization abilities (Sec. 6.3) and show that GateL0RD is more sample efﬁcient in various decision-making problems requiring memory (Sec. 6.4). Finally, we examine exemplary latent state codes demonstrating their explainability (Sec. 6.5).
+In our experiments we compare GateL0RD to LSTMs [5], GRUs [6], and Elman RNNs [45]. We use the architecture shown in Fig. 1d for all networks, only replacing the core fθ. We examine the RNNs both as a model for model-predictive control (MPC) as well as a memory module in a reinforcement learning (RL) setup. When used for prediction, the networks received the input xt = (ot, at) with observations ot ∈ O and actions at ∈ A at time t and were trained to predict the change in observation, i.e. yt = ∆ot+1 (detailed in Suppl. B.1). During testing the next observational inputs were generated autoregressively as oˆt+1 = ot + yˆt. In the RL setting, the networks received as an input xt = ot the observation ot ∈ O and were trained as an actor-critic architecture to produce both policy and value estimations (detailed in Suppl. B.6). The networks were trained using Adam [46], with learning rates and layer numbers determined via grid search for each network type individually (cf. Suppl. B).
+We evaluate GateL0RD in a variety of partially observable scenarios. In the Billiard Ball scenario a single ball, simulated in a realistic physics simulator, is shot on a pool table with low friction from a random position in a random direction with randomly selected velocity. The time series contain only the positions of the ball. This is the only considered scenario without actions.
+Robot Remote Control is a continuous control problem where an agent moves according to the two-dimensional actions at (Fig. 2a). Once the agent reaches a ﬁxed position (terminal), a robot in another room is also controlled by the actions. The observable state ot is composed of the agent’s position and the robot’s position. Thus, whether the robot is controlled or not is not observable directly. When planning, the goal is to move the robot to a particular goal position (orange square).
+Shepherd is a challenging continuous control problem that requires long-term memorization (Fig. 2b). Here, the agent’s actions at are the two movement directions and a grasp action controlling whether to pick up or drop the cage. The sheep starts at the top of the scene moving downwards with a ﬁxed randomly generated velocity. The sheep is then occluded by the wall, which masks its position from the observation. If the agent reaches the lever, the gate inside the wall opens, and the sheep appears again at the same horizontal position at the open gate. The goal is to get the sheep to enter the previously placed cage. The challenge is to memorize the sheep’s horizontal position exactly over a potentially long time to place the cage properly and to then activate the lever during mental
+6
+
+(a)
+100
+10−1
+
+Testing prediction error
+Elman RNN GRU LSTM GateL0RD,λ = 0 GateL0RD,λ = 0.001
+
+(b)
+10−1
+
+Testing prediction error
+Elman RNN GRU LSTM GateL0RD
+
+(c)
+0.03
+
+Testing prediction error
+λ=0 λ = 0.001 λ = 0.01 λ = 0.1
+
+(d)
+100
+10−1
+
+Number of gate openings
+λ=0 λ = 0.001 λ = 0.01 λ = 0.1
+
+MSE MSE MSE Ei,t Θ Λ((sit)
+
+10−2
+
+10−2
+
+1k 2k 3k 4k 5k epochs
+
+10−2
+
+1k 2k 3k 4k 5k epochs
+
+1k 2k 3k 4k 5k epochs
+
+10−2
+
+1k 2k 3k 4k 5k epochs
+
+Figure 3: Billiard Ball results: prediction errors when trained using teacher forcing (a), or using
+
+scheduled sampling (b). GateL0RD’s prediction error (c) and mean number of gate openings (latent
+
+state updates) (d) for different values of λ. Shaded areas show ± one standard deviation.
+
+simulation. The seven-dimensional observation ot is composed of the height of the occluder and the positions of all entities.
+Fetch Pick&Place (OpenAI Gym v1, [47]) is a benchmark RL task where a robotic manipulator has to move a randomly placed box (Fig. 2c). In our modiﬁed setting4, the observable state ot is composed of the gripper- and object position and the relative positions of object and ﬁngers with respect to the gripper. The four-dimensional actions at control the gripper position and the opening of the ﬁngers.
+MiniGrid [48] is a gridworld suite with a variety of partially observable RL problems. At every time t, the agent (red triangle in Fig. 2d) receives an image-like, restricted, ego-centric view (grey area) as its observation ot (7 × 7 × 3-dimensional). It can either move forward, turn left, turn right, or interact with objects via its one-hot-encoded actions at. The problems vary largely in their difﬁculty, typically contain only sparse rewards, and often involve memorization, e.g., remembering that the agent picked up a key. Suppl. B.7 details all examined MiniGrid environments.
+6.1 Learning autoregressive predictions
+First, we consider the problem of autoregressive N -step prediction in the Billiard Ball scenario. Here, during testing the networks receive the ﬁrst two ball positions as input and predict a sequence of 50 ball positions. We ﬁrst train the RNNs using teacher forcing, whereby the real inputs are fed to the networks. Figure 3a shows the prediction error for autoregressive predictions. Only GateL0RD with latent state regularization (λ = 0.001) is able to achieve reasonable predictions in this setup. The other RNNs seem to learn to continuously update their estimates of the ball’s velocity based on the real inputs. Because GateL0RD punishes continuous latent state updates, learning leads to updates of the estimated velocity only when required, i.e. upon collisions, improving its prediction robustness.
+The problems of RNNs learning autoregressive prediction are well known [49, 50]. A simple countermeasure is scheduled sampling [49], where each input is stochastically determined to be either the last network’s output or the real input. The probability of using the network output increases over time. While the prediction accuracy of all RNNs improves when trained using scheduled sampling, GateL0RD (λ = 0.001) still achieves the lowest mean prediction error (see Fig. 3b).
+How does the regularization affect GateL0RD? Figure 3c shows the prediction error for GateL0RD for different settings of λ. While a small regularization (λ = 0.001) leads to the highest accuracy in this scenario, similar predictions are obtained for different strengths (λ ∈ [0, 0.01]). Overly strong regularization (λ = 0.1) degrades performance. Figure 3d shows the average gate openings per sequence. As indented, λ directly affects how often GateL0RD’s latent state is updated: a higher value results in fewer gate openings and, thus, fewer latent state changes. Note that even for λ = 0 GateL0RD learns to use fewer gates over time. We describe this effect in more detail in Suppl. D.1.
+6.2 Generalization across policies
+Particularly when priorities change or an agent switches behavior, different spurious temporal correlations can occur in the resulting sensorimotor timeseries data. Consequently, models are needed
+4We omit all velocities and the rotation of the object to make the scenario partially observable.
+7
+
+MSE MSE success rate
+
+(a) Testing prediction error
+
+10−2
+
+Elman RNN GRU LSTM GateL0RD
+
+(b)
+10−2
+
+10−3
+
+10−4
+
+2k 4k 6k 8k 10k epochs
+
+10−3
+
+Generalization error
+Elman RNN GRU LSTM GateL0RD
+
+(c)
+0.8
+0.6
+0.4
+
+0.2
+
+0
+2k 4k 6k 8k 10k epochs
+
+Planning success
+
+(d)
+
+1
+
+0
+
+1
+
+0
+
+Elman RNN
+
+GRU
+
+LSTM
+
+i
+
+GateL0RD
+
+2k 4k 6k 8k 10k
+
+0
+
+epochs
+
+20 t
+
+agent x y
+robot x y
+2
+
+0
+
+40
+
+hit − hi0
+
+Figure 4: Robot Remote Control results: prediction error on the test set (a) and on the generalization
+
+set (b). Success rate for MPC (c). Shaded areas show standard deviation (a & b) or standard error
+
+(c). Exemplary generalization sequence (d) showing the agent’s positions (top), the robot’s positions
+
+(middle) with GateL0RD’s predictions shown as dots, and GateL0RD’s latent states (bottom).
+
+that generalize across those correlations. We use the networks trained as predictive models for the Robot Remote Control scenario to investigate this aspect.
+In Robot Remote Control the training data is generated by performing rollouts with 50 time steps of a policy that produces random but linearly magnitude-increasing actions. The actions’ magnitude in the training data is positively correlated with time, which is a spurious correlation that does not alter the underlying transition function of the environment in any way. We train the networks to predict the sequence of observations given the initial observation and a sequence of actions. Thereby, we test the networks using data generated by the same policy (test set) and generated by a policy that samples uniformly random actions (generalization set). Additionally, we use the trained RNNs for model-predictive control (MPC) using iCEM [51], a random shooting method that iteratively optimizes its actions to move the robot to the given goal position.
+As shown in Fig. 4a, GateL0RD (λ = 0.001) outperforms all other RNNs on the test set. When tested on the generalization data, the prediction errors of the GRU and LSTM networks even increase over the course of training. Only GateL0RD is able to maintain a low prediction error. Figure 4c shows the MPC performance. GateL0RD yields the highest success rate.
+Note that the lack of generalization is not primarily caused by the choice of hyperparameters: even when the learning rate of the other RNNs was optimized for the generalization set, GateL0RD still outperformed them (additional experiment in Suppl. D.3). Instead, GateL0RD’s better performance is likely because it mostly encodes unobservable information within its latent state ht. This is shown exemplarily in Fig. 4d (bottom row) and analyzed further in Suppl. D.5. The latent state remains constant and only one dimension changes once the agent controls the robot’s position (middle row) through its actions. Because the other RNNs also encode observable information, e.g. actions, within their latent state, they are more negatively affected by distributional shifts and spurious dependencies.
+GateL0RD’s improved generalization across temporal dependencies also holds for more complicated environments. In an additional experiment in Suppl. D.7 we show similar effects for the Fetch Pick&Place environment when trained on reach-grasp-and-transport sequences and tested to generalize across timings of the grasp.
+
+MSE MSE of xsheep
+success rate
+
+(a)
+10−1
+10−2
+10−3
+
+Testing prediction error
+Elman RNN GRU LSTM GateL0RD
+
+(b)
+10−1
+
+2k 4k 6k 8k 10k epochs
+
+10−2
+
+Sheep reappearance error
+
+(c)
+
+0.6
+
+Elman RNN
+
+0.4
+
+GRU
+
+LSTM
+
+0.2
+
+GateL0RD 0
+
+2k 4k 6k 8k 10k
+
+epochs
+
+Planning success
+Elman RNN GRU LSTM GateL0RD
+2k 4k 6k 8k 10k epochs
+
+Figure 5: Shepherd results: prediction error for 100-step predictions (a) and 1-step prediction errors of the sheep’s x−position at the time step of reappearance (b). Success rate for capturing the sheep
+
+using MPC (c). Shaded areas show standard deviation (a-b) or standard error (c).
+
+8
+
+(a)
+
+success rate
+
+(b)
+
+SimpleCrossingS9N3
+
+1
+
+1
+
+sucess rate DoorKey-8x8
+
+(c) success rate
+RedBlueDoors-8x8
+1
+
+(d) success rate LavaCrossingS9N2 1
+
+(e) success rate
+
+(f) success rate
+
+MemoryS13Random
+
+KeyCorridorS3R3
+
+1
+
+1
+
+success rate
+
+0.8
+
+0.5
+
+0.5
+
+0.5
+
+0.5
+
+0.5
+
+0.6
+
+vanilla
+GateL0RD 0
+0 10 20 30 1e5 frames
+
+vanilla
+
+GateL0RD 0
+
+0
+
+25
+
+50
+
+1e5 frames
+
+vanilla
+
+GateL0RD 0
+
+0
+
+35
+
+70
+
+1e5 frames
+
+vanilla
+
+vanilla
+
+GateL0RD 0.4
+
+GateL0RD
+
+0
+
+5 10 15
+
+0
+
+25
+
+50
+
+1e6 frames
+
+1e6 frames
+
+vanilla
+
+GateL0RD 0
+
+0
+
+25
+
+50
+
+1e6 frames
+
+Figure 6: MiniGrid results: success rate in solving various tasks when GateL0RD replaces an LSTM
+
+(vanilla) in a PPO architecture. Shaded areas depict the standard deviation.
+
+6.3 Long-term memorization
+We hypothesized that GateL0RD’s latent state update strategy fosters the exact memorization of unobservable information, which we examine in the Shepherd task. We test the RNNs’ when predicting sequences of 100 observations given the ﬁrst two observations and a sequence of actions. Again, we use the trained models for MPC using iCEM [51], aiming at catching the sheep by ﬁrst placing a cage and then pulling a lever. This is particularly challenging to plan because the sheep’s horizontal position needs to be memorized before it is occluded for quite some time (> 30 steps) in order to accurately predict and thus place the cage at the sheep’s future position.
+Figure 5a shows the prediction errors during training. GateL0RD (λ = 0.0001) continuously achieves a lower prediction error than the other networks. Apparently, it is able to accurately memorize the sheep’s future position while occluded. To investigate the memorization we consider the situation occurring during planning: the sequence of (past) observations is fed into the network and the prediction error of the sheep’s horizontal position at the time of reappearance is evaluated (Fig. 5b). Only GateL0RD reliably learns to predict where the sheep will appear when the lever is activated. GRU and Elman RNNs do not noticeably improve in predicting the sheep’s position. LSTMs take much longer to improve their predictions and do not reliably reach GateL0RD’s level of accuracy. This is also reﬂected in the success rate when the networks are used for MPC (Fig. 5c). Only GateL0RD manages to solve this challenging task with a mean success rate over 50%.
+6.4 Sample efﬁciency in reinforcement learning
+Now that we have outlined some of GateL0RD’s strengths in isolation, we want to analyze whether GateL0RD can improve existing RL-frameworks when it is used as a memory module for POMDPs. To do so, we consider various problems that require memory in the MiniGrid suite [48]. Previous work [42, 43, 52] used Proximal Policy Optimization (PPO) [53] to solve the MiniGrid problems. We took an existing architecture based on [52] (denoted as vanilla, detailed in Suppl. B.6) and replaced the internal LSTM module with GateL0RD (λ = 0.01). Note, that we left the other hyperparameters unmodiﬁed.
+As shown in Fig. 6 the architecture containing GateL0RD achieves the same success rate or higher than the vanilla baseline in all considered tasks. Additionally, GateL0RD is more sample efﬁcient, i.e., it is able to reach a high success rate (Fig. 6) or high reward level faster (Suppl. D.9). The difference in sample efﬁciency tends to be more pronounced for problems that require more training time. It seems that the inductive bias of sparsely changing latent states enables GateL0RD to quicker learn to encode task-relevant information, such as the pick-up of a key, within its latent states. Additional experiments in Suppl. D.10 show that this can also translates to improved zero-shot policy transfer, when the system is tested on a larger environment than it was trained on.
+6.5 Explainability of the latent states
+Lastly, we analyze the latent representations of GateL0RD, starting with Billiard Ball. Figure 7a shows one exemplary ball trajectory in white and the prediction in red. Inputs for which at least one gate opened are outlined in black. Figure 7b shows the corresponding latent states ht relative to the initial latent state h0. GateL0RD updates two dimensions of its latent states around the points of collisions to account for the changes in x- and y-velocity of the ball. For λ = 0.01 we ﬁnd on
+9
+
+(a) Billiard Ball trajectory
+
+(b): Billiard Ball latent states
+2
+
+i
+
+0
+
+GateL0RD
+
+-2
+
+2
+
+i
+
+0
+
+GRU
+
+-2
+
+2
+
+i
+
+0
+
+LSTM
+
+-2
+
+0
+
+10 20 30 40
+
+t
+
+hit − hi0
+
+(c): Fetch Pick&Place sequence
+
+1.5
+
+gripper
+x
+
+1
+
+y
+
+0.5
+
+z
+
+1.5
+
+object
+x
+
+1
+
+y
+
+0.5
+
+z
+
+2
+
+i
+
+0
+
+-2
+
+0
+
+10 t
+
+20 hit − hi0
+
+Figure 7: Example sequences and latent states: (a) Billiard Ball trajectory for GateL0RD (λ = 0.01) with real positions (white), provided inputs (blue), and predicted positions (red, saturation increasing with time). The inputs for which at least one gate opened are outlined in black. (b) The latent states for the trajectory for GateL0RD, GRU, and LSTM (cell states). (c) Fetch Pick&Place sequence with real (solid) and predicted (dotted) positions of gripper (top) and object (middle) and GateL0RD’s latent states (bottom). Latent states are shown relative to initialization, i.e. ht − h0.
+
+average only two latent state dimensions change per sequence (see Suppl Suppl. D.1), which hints at a tendency to encode x- and y-velocity using separate latent dimensions. In contrast, the exemplary latent states of the GRU and LSTM networks shown in Fig. 7b are not as easily interpretable.
+For Robot Remote Control, GateL0RD (λ = 0.001) updates only its latent state once it controls the robot (exemplary shown in Fig. 4d). Thus, the latent state clearly encodes control over the robot. We use the Fetch Pick&Place scenario as a higher-dimensional problem to investigate latent state explainability when training on grasping sequences (detailed in Suppl. B.5). Here, GateL0RD updates the latent state typically when the object is grasped (exemplary shown in Fig. 7c). This hints at an encoding of ‘object transportation’ using one dimension. Other RNNs do not achieve such a clear representation, neither in Robot Remote Control nor in Fetch Pick&Place (see Suppl. D.5 and D.7).
+7 Discussion
+We have introduced a novel RNN architecture (GateL0RD), which implements an inductive bias to develop sparsely changing latent states. The bias is realized by a gating mechanism, which minimizes the L0 norm of latent updates. In several empirical evaluations, we quantiﬁed and analyzed the performance of GateL0RD on various prediction and control tasks, which naturally contain piecewise constant, unobservable states. The results support our hypothesis that networks with piecewise constant latent states can generalize better to distributional shifts of the inputs, ignore spurious time dependencies, and enable precise memorization. This translates into improved performance for both model-predictive control (MPC) and reinforcement learning (RL). Moreover, we demonstrated that the latent space becomes interpretable, which is important for explainability reasons.
+Our approach introduces an additional hyperparameter, which controls the trade-off between the task at hand and latent space constancy. When chosen in favor of explainability, it can reduce the in-distribution performance while improving its generalization abilities. When the underlying system has continuously changing latent states, our regularization is counterproductive. As demonstrated by an additional experiment in Suppl. D.8, the unregularized network performs well in such cases.
+Our sparsity-biased gating mechanism segments sequences into chunks of constant latent activation. These segments tend to encode unobservable, behavior-relevant states of the environment, such as if an object is currently ‘under control’. Hierarchical planning and control methods require suitable, temporally-extended encodings, such as options [54, 55]. Thus, a promising direction for future work is to exploit the discrete hidden dynamics of GateL0RD for hierarchical, event-predictive planning.
+Acknowledgments and Disclosure of Funding
+The authors thank the International Max Planck Research School for Intelligent Systems (IMPRS-IS) for supporting Christian Gumbsch. Georg Martius and Martin Butz are members of the Machine Learning Cluster of Excellence, EXC number 2064/1–project number 390727645. We acknowledge
+10
+
+the support from the German Federal Ministry of Education and Research through the Tübingen AI Center (FKZ: 01IS18039B). This research was funded by the German Research Foundation (DFG) within Priority-Program “The Active Self” SPP 2134–project BU 1335/11-1. The authors thank Maximilian Seitzer for the helpful feedback and Sebastian Blaes for the help in applying iCEM.
+References
+[1] Richard S. Sutton and Andrew G. Barto. Reinforcement learning: An introduction. MIT press, Cambridge, MA, second edition edition, 2018.
+[2] Matthew J. Hausknecht and Peter Stone. Deep recurrent Q-learning for partially observable MDPs. arXiv preprint arXiv:1507.06527, 2015. URL http://arxiv.org/abs/1507.06527.
+[3] Maximilian Igl, Luisa Zintgraf, Tuan Anh Le, Frank Wood, and Shimon Whiteson. Deep variational reinforcement learning for POMDPs. In International Conference on Machine Learning, pages 2117–2126. PMLR, 2018.
+[4] Pengfei Zhu, X. Li, and P. Poupart. On improving deep reinforcement learning for POMDPs. arXiv preprint arXiv:1804.06309, 2017. URL http://arxiv.org/abs/1804.06309.
+[5] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural computation, 9(8): 1735–1780, 1997.
+[6] Junyoung Chung, Caglar Gulcehre, KyungHyun Cho, and Yoshua Bengio. Empirical evaluation of gated recurrent neural networks on sequence modeling. arXiv preprint arXiv:1412.3555, 2014. URL https://arxiv.org/abs/1412.3555.
+[7] Jonas Peters, Dominik Janzing, and Bernhard Schölkopf. Elements of causal inference: Foundations and learning algorithms. MIT press, 2017.
+[8] Bernhard Schölkopf. Causality for machine learning. arXiv preprint arXiv:1911.10500, 2019.
+[9] Bernhard Schölkopf, Francesco Locatello, Stefan Bauer, Nan Rosemary Ke, Nal Kalchbrenner, Anirudh Goyal, and Yoshua Bengio. Towards causal representation learning. In Proceedings of the IEEE, 2021.
+[10] Elliot Pitis, Silviu Creager and Animesh Garg. Counterfactual data augmentation using locally factored dynamics. In Advances in Neural Information Processing Systems 34 (NeurIPS 2020), 2020.
+[11] Maximilian Seitzer, Bernhard Schölkopf, and Georg Martius. Causal inﬂuence detection for improving efﬁciency in reinforcement learning. In Advances in Neural Information Processing Systems 35 (NeurIPS 2021), 2021.
+[12] Dare A. Baldwin and Jessica E. Kosie. How does the mind render streaming experience as events? Topics in Cognitive Science, 13(1):79–105, 2021. doi: https://doi.org/10.1111/tops. 12502.
+[13] Martin V. Butz, Asya Achimova, David Bilkey, and Alistair Knott. Event-predictive cognition: A root for conceptual human thought. Topics in Cognitive Science, 13(1):10–24, 2021. doi: https://doi.org/10.1111/tops.12522.
+[14] Gina R. Kuperberg. Tea with milk? A hierarchical generative framework of sequential event comprehension. Topics in Cognitive Science, 13:256–298, 2021. doi: 10.1111/tops.12518.
+[15] Gabriel A. Radvansky and Jeffrey M. Zacks. Event cognition. Oxford University Press, 2014.
+[16] Jeffrey M. Zacks, Nicole K. Speer, Khena M. Swallow, Todd S. Braver, and Jeremy R. Reynolds. Event perception: a mind-brain perspective. Psychological bulletin, 133(2):273–293, 2007. doi: 10.1037/0033-2909.133.2.273.
+[17] Martin V. Butz. Towards a uniﬁed sub-symbolic computational theory of cognition. Frontiers in Psychology, 7(925), 2016. doi: 10.3389/fpsyg.2016.00925.
+11
+
+[18] Martin V. Butz, David Bilkey, Dania Humaidan, Alistair Knott, and Sebastian Otte. Learning, planning, and control in a monolithic neural event inference architecture. Neural Networks, 117: 135–144, 2019. doi: 10.1016/j.neunet.2019.05.001.
+[19] Christian Gumbsch, Martin V. Butz, and Georg Martius. Autonomous identiﬁcation and goaldirected invocation of event-predictive behavioral primitives. IEEE Transactions on Cognitive and Developmental Systems, 13(2):298–311, June 2019. doi: 10.1109/TCDS.2019.2925890. URL https://ieeexplore.ieee.org/document/8753716.
+[20] Dania Humaidan, Sebastian Otte, Christian Gumbsch, Charley M. Wu, and Martin V. Butz. Latent event-predictive encodings through counterfactual regularization. Proceedings of the Annual Meeting of the Cognitive Science Society, 43, 2021. URL https://escholarship. org/uc/item/5z38p85g.
+[21] Anna C. Schapiro, Timothy T. Rogers, Natalia I. Cordova, Nicholas B. Turk-Browne, and Matthew M. Botvinick. Neural representations of events arise from temporal community structure. Nat Neurosci, 16(4):486–492, April 2013. ISSN 1097-6256. URL http://dx.doi. org/10.1038/nn.3331.
+[22] Yeon Soon Shin and Sarah DuBrow. Structuring memory through inference-based event segmentation. Topics in Cognitive Science, 13:106–127, 2021. doi: 10.1111/tops.12505.
+[23] Martin V. Butz. Towards strong AI. Künstliche Intelligenz, 35:91–101, 2021. doi: 10.1007/ s13218-021-00705-x.
+[24] Christos Louizos, Max Welling, and Diederik P. Kingma. Learning sparse neural networks through L0 regularization. In International Conference on Learning Representations (ICLR), 2018. URL https://openreview.net/forum?id=H1Y8hhg0b.
+[25] Chris J Maddison, Andriy Mnih, and Yee Whye Teh. The concrete distribution: A continuous relaxation of discrete random variables. In International Conference on Learning Representations, ICLR’17, 2017.
+[26] Eric Jang, Shixiang Gu, and Ben Poole. Categorical reparameterization with gumbel-softmax. In International Conference on Learning Representations, ICLR’17, 2017.
+[27] Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432, 2013.
+[28] Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning, 8(3-4):229–256, 1992.
+[29] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. In International Conference on Learning Representations, ICLR’14, 2014.
+[30] Nima Mohajerin and Steven L Waslander. State initialization for recurrent neural network modeling of time-series data. In 2017 International Joint Conference on Neural Networks (IJCNN), pages 2330–2337. IEEE, 2017.
+[31] Jimmy Ba, Volodymyr Mnih, and Koray Kavukcuoglu. Multiple object recognition with visual attention. In International Conference on Learning Representations, ICLR’15, 2015.
+[32] Jürgen Schmidhuber. Learning complex, extended sequences using the principle of history compression. Neural Computation, 4(2):234–242, 1992.
+[33] Jan Koutnik, Klaus Greff, Faustino Gomez, and Juergen Schmidhuber. A Clockwork RNN. In Eric P. Xing and Tony Jebara, editors, Proceedings of the 31st International Conference on Machine Learning, volume 32 of Proceedings of Machine Learning Research, pages 1863– 1871, Bejing, China, 22–24 Jun 2014. PMLR. URL http://proceedings.mlr.press/v32/ koutnik14.html.
+[34] Daniel Neil, Michael Pfeiffer, and Shih-Chii Liu. Phased lstm: Accelerating recurrent network training for long or event-based sequences. In Advances In Neural Information Processing Systems, pages 3882–3890, 2016.
+12
+
+[35] David Krueger and Roland Memisevic. Regularizing RNNs by stabilizing activations. arXiv preprint arXiv:1511.08400, 2015. URL https://arxiv.org/abs/1511.08400.
+[36] Víctor Campos, Brendan Jou, Xavier Giró-i Nieto, Jordi Torres, and Shih-Fu Chang. Skip rnn: Learning to skip state updates in recurrent neural networks. In International Conference on Learning Representations, ICLR’18, 2018.
+[37] Zhuohan Li, Di He, Fei Tian, Wei Chen, Tao Qin, Liwei Wang, and Tieyan Liu. Towards binaryvalued gates for robust LSTM training. In Jennifer Dy and Andreas Krause, editors, Proceedings of the 35th International Conference on Machine Learning, volume 80 of Proceedings of Machine Learning Research, pages 2995–3004. PMLR, 10–15 Jul 2018.
+[38] Thomas Hartvigsen, Cansu Sen, Xiangnan Kong, and Elke Rundensteiner. Learning to selectively update state neurons in recurrent networks. In Proceedings of the 29th ACM International Conference on Information & Knowledge Management, pages 485–494, 2020.
+[39] Alex Graves, Greg Wayne, and Ivo Danihelka. Neural turing machines. arXiv preprint arXiv:1410.5401, 2014.
+[40] Dzmitry Bahdanau, Kyung Hyun Cho, and Yoshua Bengio. Neural machine translation by jointly learning to align and translate. In 3rd International Conference on Learning Representations, ICLR 2015, 2015.
+[41] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin. Attention is all you need. In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper/2017/file/ 3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf.
+[42] Anirudh Goyal, Alex Lamb, Jordan Hoffmann, Shagun Sodhani, Sergey Levine, Yoshua Bengio, and Bernhard Schölkopf. Recurrent independent mechanisms. In 9th International Conference on Learning Representations (ICLR 2021), May 2021. URL https://openreview.net/ pdf?id=mLcmdlEUxy-.
+[43] Kanika Madan, Nan Rosemary Ke, Anirudh Goyal, Bernhard Schölkopf, and Yoshua Bengio. Fast and slow learning of recurrent independent mechanisms. In International Conference on Learning Representations, ICLR’21, 2021.
+[44] Emilio Parisotto, Francis Song, Jack Rae, Razvan Pascanu, Caglar Gulcehre, Siddhant Jayakumar, Max Jaderberg, Raphael Lopez Kaufman, Aidan Clark, Seb Noury, et al. Stabilizing transformers for reinforcement learning. In International Conference on Machine Learning, pages 7487–7498. PMLR, 2020.
+[45] Jeffrey L. Elman. Finding structure in time. Cognitive Science, 14(2):179–211, 1990. ISSN 0364-0213. doi: https://doi.org/10.1016/0364-0213(90)90002-E. URL https://www. sciencedirect.com/science/article/pii/036402139090002E.
+[46] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations, ICLR’14, 2014.
+[47] Greg Brockman, Vicki Cheung, Ludwig Pettersson, Jonas Schneider, John Schulman, Jie Tang, and Wojciech Zaremba. OpenAI gym. arXiv preprint arXiv:1606.01540, 2016.
+[48] Maxime Chevalier-Boisvert, Lucas Willems, and Suman Pal. Minimalistic gridworld environment for openai gym. https://github.com/maximecb/gym-minigrid, 2018.
+[49] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. Scheduled sampling for sequence prediction with recurrent neural networks. In C. Cortes, N. Lawrence, D. Lee, M. Sugiyama, and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 28. Curran Associates, Inc., 2015. URL https://proceedings.neurips.cc/paper/ 2015/file/e995f98d56967d946471af29d7bf99f1-Paper.pdf.
+13
+
+[50] Anirudh Goyal Lamb, Alex M, Ying Zhang, Saizheng Zhang, Aaron C Courville, and Yoshua Bengio. Professor forcing: A new algorithm for training recurrent networks. In D. Lee, M. Sugiyama, U. Luxburg, I. Guyon, and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 29. Curran Associates, Inc., 2016. URL https://proceedings. neurips.cc/paper/2016/file/16026d60ff9b54410b3435b403afd226-Paper.pdf.
+[51] Cristina Pinneri, Shambhuraj Sawant, Sebastian Blaes, Jan Achterhold, Joerg Stueckler, Michal Rolınek, and Georg Martius. Sample-efﬁcient cross-entropy method for real-time planning. In Conference on Robot Learning 2020, 2020. URL https://corlconf.github.io/paper_ 217.
+[52] Maxime Chevalier-Boisvert, Dzmitry Bahdanau, Salem Lahlou, Lucas Willems, Chitwan Saharia, Thien Huu Nguyen, and Yoshua Bengio. BabyAI: A platform to study the sample efﬁciency of grounded language learning. In International Conference on Learning Representations, ICLR’18, 2018.
+[53] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[54] Richard S. Sutton, Doina Precup, and Satinder Singh. Between MDPs and semi-MDPs: A framework for temporal abstraction in reinforcement learning. Artiﬁcial Intelligence, 112(1): 181–211, 1999. ISSN 0004-3702. doi: https://doi.org/10.1016/S0004-3702(99)00052-1. URL https://www.sciencedirect.com/science/article/pii/S0004370299000521.
+[55] Andrew G Barto and Sridhar Mahadevan. Recent advances in hierarchical reinforcement learning. Discrete event dynamic systems, 13(1):41–77, 2003.
+[56] Razvan Pascanu, Tomas Mikolov, and Yoshua Bengio. On the difﬁculty of training recurrent neural networks. In Proceedings of the 30th International Conference on International Conference on Machine Learning - Volume 28, ICML’13, page III–1310–III–1318. JMLR.org, 2013.
+[57] Cristina Pinneri, Shambhuraj Sawant, Sebastian Blaes, and Georg Martius. Extracting strong policies for robotics tasks from zero-order trajectory optimizers. In International Conference on Learning Representations, ICLR’21, 2021.
+[58] Lu Lu. Dying ReLU and initialization: Theory and numerical examples. Communications in Computational Physics, 28(5):1671–1706, Jun 2020. ISSN 1991-7120. doi: 10.4208/cicp. oa-2020-0165. URL http://dx.doi.org/10.4208/cicp.OA-2020-0165.
+14
+

@@ -1,0 +1,287 @@
+Quotient-Space Motion Planning
+Andreas Orthey and Adrien Escande and Eiichi Yoshida
+
+arXiv:1807.09468v2 [cs.RO] 3 Aug 2018
+
+Abstract— A motion planning algorithm computes the motion of a robot by computing a path through its conﬁguration space. To improve the runtime of motion planning algorithms, we propose to nest robots in each other, creating a nested quotientspace decomposition of the conﬁguration space. Based on this decomposition we deﬁne a new roadmap-based motion planning algorithm called the Quotient-space roadMap Planner (QMP). The algorithm starts growing a graph on the lowest dimensional quotient space, switches to the next quotient space once a valid path has been found, and keeps updating the graphs on each quotient space simultaneously until a valid path in the conﬁguration space has been found. We show that this algorithm is probabilistically complete and outperforms a set of state-of-the-art algorithms implemented in the open motion planning library (OMPL).
+
+I. INTRODUCTION
+Motion planning algorithms are fundamental for robotic applications like product assembly, manufacturing, disaster response, elderly care or space exploration.
+A motion planning algorithm takes as input a robot, its conﬁguration space, an environment, a start and a goal conﬁguration, and computes as output a path between start and goal if one exists [1]. This computation is NP-hard [2] scaling exponentially with the number of dimensions of the conﬁguration space. Thus, the more degrees-of-freedom (dof) a robot has, the higher the runtime of the motion planning algorithm will be. This can become the limiting factor of any robotics application. It is therefore important to ﬁnd suitable decompositions of the conﬁguration space, such that a planning algorithm can quickly discover the relevant parts of the conﬁguration space.
+We developed a new decomposition of a given conﬁguration space M, which decomposes M into a sequence of nested subspaces. We observe that any conﬁguration space M can be written as a product of subspaces
+
+M = M1 × · · · × MK
+
+(1)
+
+This suggests we can decompose the conﬁguration space in the following way: Start with the product of subspaces and successively remove one subspace after another. This leads to a sequence of nested subspaces as
+
+M1 ⊂ M1 × M2 ⊂ · · · ⊂ M1 × · · · × MK (2)
+Each subspace in this sequence is called a quotient-space, and the sequence itself is called a quotient-space decomposition [3].
+
+The authors are with the CNRS-AIST Joint Robotics Laboratory, UMI3218/RL, Tsukuba-shi 305-8560, Japan (e-mail: {andreas.orthey, adrien.escande, e.yoshida}@aist.go.jp
+This research was supported by Grant-in-Aid for JSPS Research Fellow 16F116701
+
+It turns out that each quotient-space can be represented by nesting a simpler robot inside the original robot. The prototypical example is a rigid body free-ﬂoating in space. The conﬁguration space is SE(3) = R3 × SO(3), and we can decompose it as R3 ⊂ R3 × SO(3). The subspace R3 is called the quotient-space and represents a sphere nested inside the rigid body, abstracting the orientations of the rigid body.
+Such a decomposition is advantageous: Imagine the sphere being infeasible at point p ∈ R3. Then the rigid body is infeasible at all conﬁgurations inside the subspace p×SO(3). We call this the necessary condition of nested robots.
+We have developed a new algorithm, called the Quotientspace roadMap Planner (QMP), which is able to exploit such a quotient-space decomposition. We ﬁrst show how to build a quotient-space decomposition for any robot in Sec. III. We then discuss the inner workings of QMP in Sec. IV, prove that QMP is probabilistically complete (Sec. V), and we develop three heuristics to improve its runtime (Sec. VI). Finally, we demonstrate that QMP (Sec. VII) can be applied to freeﬂoating rigid bodies, free-ﬂoating articulated bodies, ﬁxedbase serial chains and ﬁxed-base tree chain robots.
+II. RELATED WORK
+We review two categories of papers. First, we review quotient-space decompositions and their application to motion planning. Second, we review alternative decomposition methods.
+Quotient-space decompositions are ubiquitous in mathematics, appearing as quotient-groups in algebra, ﬁltrations in linear algebra, or nests in functional analysis. The construction of simplicial complexes in algebraic topology is a prominent example of a quotient-space decomposition.
+The application of quotient spaces to continuous spaces and decision making has been originally developed by [4] and [5]. In robotics, quotient-spaces have been used, albeit under different names. Bretl proposed a two-level decomposition: ﬁrst a path on a stance graph is planned and then conﬁgurations along the path are sampled [6]. The stance graph can be seen as a quotient space of the conﬁguration space by the stance subspaces. Grey et al. [7] use a twolevel quotient space decompositions, embedding the torso inside a humanoid robot. A similar idea can be found in Tonneau et al.[8], approximating a robot by a simpler model. Both methods are similar to ours, but use only a two-level decomposition, and do not deﬁne the nesting procedure for general robots.
+The closest approach to ours is the multi-level decomposition scheme by [9] whereby a sequence of nested robots is
+
+created. Their planning algorithm starts with the lowest dof robot, computes a path, and uses this path as a constraint for the next bigger robot. This approach can neither deal with non-simple paths (see Fig. 4), nor with spurious paths (see Fig. 5, Sec. VI). It is thus not complete.
+Closely related is the exploration/exploitation tree (EET) algorithm [10]. The authors compute a sequence of spheres in the workspace, called a tunnel, to approximate the space of collision-free paths. However, this method is not complete, and cannot handle spurious shortest tunnels/paths (see Sec. VI).
+The motion planning problem can also be decomposed without using quotient-spaces.
+Kunz et al. [11] use a hierarchical rejection sampling approach to improve the Informed-RRT* algorithm [12]. While the focus is different from ours, their method is methodically similar to our algorithm, where samples are discarded if they are not necessary feasible.
+Our work is closely related to low-dimensional sampling techniques which guide conﬁguration space sampling. The algorithm by van den Berg and Overmars [13] precomputes narrow passages of the workspace and uses thoses passages to sample the space more densely in those areas. A similar idea can be found in [14], where the authors discretize the workspace, compute a shortest path in the workspace between start and goal conﬁguration, and then sample from a cell in workspace in proportion to the cell’s distance to the shortest path. Closely related is also the dimensionality reduction method by [15], which considers ignoring paths not having a minimal swept volume.
+The KPIECE algorithm [16] is another example of a hierarchical decomposition. The environment is divided into smaller and smaller boxes until a certain threshold is reached. A small box corresponds to workspace points near to a boundary. Those areas are sampled more frequently to effectively guide samples towards the conﬁguration space boundary. This algorithm is orthogonal to ours: they decompose the environment, we decompose the robot.
+III. QUOTIENT-SPACE DECOMPOSITION
+First, we describe the idea of a quotient space and show two applications to the vector space R2 and the manifold SO(2)2. Second, we show how robots can be nested in each other and thereby create a sequence of quotient spaces. Third, we show that being feasible in a quotient space is a necessary condition for being feasible in the conﬁguration space.
+A. Quotient Space
+Let M be a vector space and C be a subspace of M . Then the quotient space of M by C, denoted by M /C is the space obtained by collapsing all equivalence classes of C in M to zero [3]. Collapsing a space is done by creating an equivalence relation ∼ on M : for all x, y ∈ M we have that x ∼ y if x − y ∈ C. This relation creates a partition of equivalence classes on the vector space. The set of equivalence classes is called the quotient space.
+
+y
+
+q2
+
+y
+
+q2
+
+x
+
+x
+
+q2
+q1 x
+
+R2
+
+R2
+
+R = R2 /R
+
+Fig. 1. Visualization of Quotient Space as collapsing of equivalence classes.
+
+M1 = SO(2) × SO(2)
+
+M0 = M1 SO(2)
+
+Fig. 2. Quotient Space Decomposition for a 2-dof manipulator. Left Top: Environment with four obstacles. We have visualized three distinct conﬁgurations of the robot. Left Bottom: The conﬁguration space with gray areas being infeasible conﬁgurations. Right Top: Environment with 1-dof nested manipulator at same conﬁgurations. Right Bottom: Conﬁguration space is collapsed onto the quotient space. Being feasible in the quotient space is a necessary condition for feasibility in the conﬁguration space. It can be seen that q3 is infeasible, thus not fulﬁlling the necessary condition.
+
+As an example, consider the vector space R2 and its subspace R. We can partition R2 into equivalence classes of its subspace R such that two points x, y ∈ R2 are equivalent if x − y ∈ 0 × R. We visualize this in Fig. 1, where R2 is
+ﬁrst partitioned into the equivalence classes of R (the vertical
+lines), and then all lines are collapsed to yield R. The point q2 ∈ R2 and all points on the dashed line are equivalent and therefore collapsed into the single point q1 ∈ R. We identify R = R2 /R to denote the quotient space.
+Quotient spaces generalize to manifolds [17]. Consider
+M = SO(2) × SO(2), the conﬁguration space of a 2-dof
+ﬁxed-base manipulator in the plane. Two points x, y ∈ SO(2)
+are equivalent if x − y ∈ 0 × SO(2). The manifold M
+can be partitioned into equivalence classes of SO(2), and
+then each equivalent class is collapsed to yield SO(2) =
+M SO(2) . This has been visualized in Fig. 2. On the left
+
+three different conﬁgurations are shown and their position in the conﬁguration space. On the right the quotient space is shown, corresponding to a 1-dof manipulator nested inside the 2-dof manipulator. Two interesting observations can be made in the quotient space: First, the conﬁguration q3 is infeasible, regardless of how the second joint is moved. Second, there does not exists a path between q1 and q2. This can be inferred solely from the 1-dof manipulators conﬁguration space.
+This example shows the deﬁning feature of quotient spaces: If a robot is nested inside another robot, then the feasibility of the nested robot is a necessary condition for the feasibility of the other robot1. We will proceed to deﬁne how robots can be nested in each other, and we will show that this deﬁnition indeed leads to the necessary condition for feasibility.
+
+B. Nesting of Robots
+
+A robot Ri is nested inside another robot Ri+1 if two conditions are fulﬁlled: First, the conﬁguration space of Ri is a subspace of Ri+1, and second, the volume of the body of Ri at each conﬁguration must be a subset of the volume of the body of Ri+1.
+Let Mi be the conﬁguration space of robot Ri, and let Vi(p) ⊂ R3 be the volume of the body of robot Ri at conﬁguration p ∈ Mi.
+
+Deﬁnition 1 (Nested Robot). Let Ri, Ri+1 be given. We say that Ri is nested in Ri+1, denoted as Ri ⊆ Ri+1, if
+(1) Mi+1 = Mi × Ci+1 such that Mi = Mi+1 Ci+1 (2) Vi(p) ⊆ Vi+1(p ◦ q) for any p ∈ Mi and q ∈ Ci+1
+
+whereby the operation ◦ is the cartesian product deﬁned
+
+as p ◦ q = (p, q) ∈ Mi+1.
+
+Given a robot R and a sequence of nested robots R1 ⊆
+
+· · · ⊆ RK = R, the conﬁguration spaces deﬁne a decomposition of M as
+
+M1 ⊆ · · · ⊆ MK
+
+(3)
+
+This decomposition will be called a quotient-space decomposition.
+
+C. Necessary Conditions
+From Deﬁnition 1 we can infer the key property of the quotient-space decomposition: if a nested robot is infeasible, then so is the original robot.
+Let E denote the environment, the subset of R3 containing obstacles. We say that robot Ri is feasible at conﬁguration q ∈ Mi if Vi(q) ∩ E = ∅.
+Theorem 1 (Necessary condition of nested robot). If Ri ⊆ Ri+1, p ∈ Mi, and Vi(p) ∩ E = ∅ (robot Ri is infeasible at p), then Vi+1(p ◦ q) ∩ E = ∅ for any q ∈ Ci+1 (robot Ri+1 is infeasible everywhere).
+Proof. Since Vi(p) ∩ E = ∅ and Vi(p) ⊆ Vi+1(p ◦ q) for any q ∈ Ci+1, it must follow that Vi+1(p ◦ q) ∩ E = ∅.
+
+1Zhang and Zhang [4] call this the falseness-preserving property of quotient space decompositions
+
+Fig. 3. Schematic of QMP for a two-level decomposition. See text for clariﬁcation.
+Theorem 1 implies that if a conﬁguration p ∈ Mi is infeasible, then so is the subspace p × Ci+1. We can exploit this fact to ignore subspaces of the conﬁguration space, thereby developing a motion planning algorithm with lower runtime.
+IV. QUOTIENT-SPACE ROADMAP PLANNER
+The Quotient-Space roadMap Planner (QMP) works as depicted in Fig. 3. On the top right the conﬁguration space of the 2-dof ﬁxed-base manipulator is shown with a start conﬁguration (green) and a goal conﬁguration (red). The corresponding start and goal conﬁgurations on the quotientspace are shown in the top left ﬁgure. In the ﬁrst step, a graph is grown on the quotient space (middle left). Once a valid path has been found between start and goal conﬁguration, a second graph is grown on the conﬁguration space (middle right), whereby the samples are constrained to lie above the quotient-space graph. Both graphs are simultaneously grown (bottom left), until a valid path has been found on the conﬁguration space (bottom right), or until a time limit has been reached. For more than two quotient-spaces, this idea is iteratively continued.
+A. Quotient-Space Roadmap
+To simplify the algorithmic development, we group each quotient-space with its associated objects into a tuple called
+
+the quotient-space roadmap.
+Let M be the N -dimensional conﬁguration space of robot
+R. We consider a nested sequence of K robots R1 ⊂ · · · ⊂ RK = R, such that M is decomposed into a sequence of quotient spaces as M1 ⊂ · · · ⊂ MK = M.
+To each quotient space Mk we associate a start conﬁguration qkI , a goal conﬁguration qkG, a graph Gk, a shortest path pk on Gk between qkI and qkG, and a density Vk deﬁned on Gk−1 × Ck as
+
+Vk
+
+=
+
+|Gk | µ(Ck )Lk−1
+
+(4)
+
+whereby |Gk| are the number of vertices of Gk, Lk−1 is the sum of all edge lengths of Gk−1, and µ(Ck) is the nkdimensional measure of Ck. The density is used to decide which graph should be grown next.
+We group all elements together into the quotient-space
+roadmap
+
+Qk = {qkI , qkG, Ck, Mk, Gk, pk, Vk, Qk−1}
+
+(5)
+
+with Ck = Mk Mk−1 , M0 = ∅, Q0 = ∅.
+
+B. Algorithmic Development
+QMP is an adapted version of the probabilistic roadmap planner (PRM) for quotient space decompositions. We ﬁrst summarize the workings of PRM, then show how QMP can be built from it.
+A simpliﬁed version of PRM is depicted in Algorithm 1. While a planner terminate condition (PTC) 2 has not been reached (Line 2), the algorithm grows a graph G on the conﬁguration space M of robot R (Line 3). If there exists a path on the graph between start and goal conﬁguration (Line 4), then this path is returned (Line 5). If the PTC is reached then PRM fails and returns an empty path.
+The growing of the graph is depicted in Algorithm 2. A conﬁguration qrand is sampled from the conﬁguration space M (Line 1). If this conﬁguration is valid (Line 2), then it is added to the graph (Line 3) and the nearest R conﬁgurations QR are searched (Line 4). The graph is extended in a straight line from each qnear ∈ QR (Line 5) towards qrand until it hits an obstacle (Line 6). The last conﬁguration before the obstacle becomes qnew, and the edge between qnear and qnew is added to the graph (Line 7).
+QMP is depicted in Algorithm 3. An empty priority queue is constructed (Line 1), and the k-th quotient roadmap is initialized (Line 3) and added to the queue (line 4). While no path between start and goal has been found (Line 5), we pop the quotient roadmap with the smallest density from the queue (line 6), grow its graph (line 7) and push it back onto the queue (line 8). Then we check if there exists a path on the current quotient space (line 9); if yes, we construct its solution (line 10), and we continue to the next quotient roadmap. For k = 1 the algorithm is equivalent to PRM. For k > 1, multiple quotient spaces are inside the queue,
+
+2A planner terminate condition (PTC) has to be chosen by a user and can be a time limit, an iterations limit, or a desired cost of the resulting path.
+
+and depending on the density function we pop one quotient space and grow its graph. The algorithm terminates if either the path pK has been found, or if the PTC is reached, in which case pK = ∅ is returned.
+The growing of the quotient space graph is depicted in Algorithm 5. Instead of sampling Mk as in the PRM, we sample instead Ck uniformly, and we pick one conﬁguration from the graph Gk−1 on Mk−1 (Line 1). The SampleGraph samples a uniform vertex from the graph Gk−1. Then a random incoming edge is chosen, and a conﬁguration uniformly on the edge is sampled. This is called Random-Vertex-Edge (RVE) sampling [18]. The cartesian product ◦ merges the two conﬁguration to yield a conﬁguration on Mk. The rest of the algorithm (line 2-7) operates as the PRM algorithm, with two exceptions. First, the R-Nearest-Neighbors method measures distance not by euclidean distance on Mk, but by the graph distance on Gk−1 plus euclidean distance on Ck (Line 4). Second, the Connect method does not interpolate along a straight line, but interpolates along the edges of the graph Gk−1, while interpolating on Ck using a straight line. For each vertex crossed on Gk−1 we add another conﬁguration. The Connect method then returns a piece-wise linear (PL) path on Mk. For each edge along this PL-path we add one edge to the graph Gk (Line 7).
+Interpolating along the graph instead of using a straight line should be seen as a change in the metric on Mk. While a standard euclidean metric is agnostic about the graph on Mk−1, our graph interpolation metric utilizes the knowledge about Gk−1 to improve the metric computation.
+
+Algorithm 1 PRM(qI , qG, M)[19]
+
+1: INIT(G, qI )
+
+2: while ¬PTC do
+
+3: GROWPRM(G, M)
+
+4: if ISCONNECTED(qI , qG, G) then
+
+5:
+
+return PATH(qI , qG, G)
+
+6: return ∅
+
+Algorithm 2 GrowPRM(G, M) 1: qrand ← SAMPLE(M) 2: if ¬ISVALID(qrand) then return 3: ADD VERTEX(qrand, G) 4: QR ← R-NEARESTNEIGHBORS(qrand, G) 5: for qnear ∈ QR do 6: qnew ← CONNECT(qnear, qrand) 7: ADD EDGE(qnear, qnew, G)
+C. Implementation Details
+Our software uses the Klamp’t [20] physical simulator, and the open motion planning library OMPL [21].
+The nesting of robots has to be prespeciﬁed as a set of Uniﬁed Robot Description Format (URDF) ﬁles along with its subspaces. Each subspace is represented by an OMPL space, and our algorithm iterates through
+
+Algorithm 3 QMP(q1I,··· ,K , q1G,··· ,K , M1,··· ,K )
+
+1: Q ← PRIORITY QUEUE
+
+2: for k = 1 to K do
+
+3:
+
+Qk = INIT(qkI , qkG, Mk, Qk−1)
+
+4: Q.PUSH(Qk)
+
+5: while pk == ∅ and ¬PTC do
+
+6:
+
+Qleast = Q.POP
+
+7:
+
+GROWQMP(Qleast)
+
+8:
+
+Q.PUSH(Qleast)
+
+9:
+
+if ISCONNECTED(Qk) then
+
+10:
+
+pk = PATH(qkI , qkG, Qk)
+
+11: return pK
+
+Algorithm 4 Init(qkI , qkG, Mk, Qk−1) 1: return {qkI , qkG, Mk Mk−1 , Mk, ∅, ∅, 0, Qk−1}
+
+them computing the quotient spaces. We currently support the following quotient space computations: R3 = SE(3) SO(3) , R2 = SE(2) SO(2) , Rn−m = Rn /Rm , SE(3) = SE(3) × Rn /Rn , and SE(3) × Rn−m = SE(3) × Rn SE(3) × Rm , with n, m ∈ N and n > m > 0.
+Our algorithm terminates after a path has been found on the conﬁguration space, or a timelimit T has been reached.
+V. PROBABILISTIC COMPLETENESS
+A motion planning algorithm is probabilistically complete if the probability that the algorithm will ﬁnd a path if one exists approaches one as the number of sampled points increases. We will show that QMP is probabilistically complete by alluring to the probabilistic completeness of PRM [22].
+The main difference of QMP and the PRM on the conﬁguration space is the choice of a sampling sequence. For PRM the sampling sequence is dense in the conﬁguration space, while it is not true for the sampling sequence generated by QMP. However, we will show that the sampling sequence by QMP is dense in the space of feasible conﬁgurations, thus making QMP probabilistically complete.
+Let M be the conﬁguration space and U ⊆ M be a subset. We say that U is dense in M if cl(U ) = M whereby cl is the closure of U . Let α : N → M be a random sequence. We say that the sequence α is dense in M if the set {αn, n ∈ N} is dense in M [1].
+Algorithm 5 GrowQMP(Qk) 1: qrand ← SAMPLEGRAPH(Gk−1) ◦ SAMPLE(Ck) 2: if ¬ISVALID(qrand) then return 3: ADD VERTEX(qrand, G) 4: QR ← R-NEARESTNEIGHBORS(qrand, Gk, Gk−1) 5: for qnear ∈ QR do 6: {qn1 , · · · , qnJ } ← CONNECT(qnear, qrand, Gk−1) 7: ADD EDGES(qn1 , · · · , qnJ , Gk)
+
+Fig. 4. Non-simple path on Quotient-Space: See text for clariﬁcation.
+Each quotient space M1, · · · , MK uses a sampling sequence as α(k) : N → Mk. We will show that this sequence is dense in M˜ k = {q ∈ Mk|V(q) ∩ E = ∅}, the feasible space of Mk.
+Theorem 2. αK is dense in M˜ K
+Proof. By induction for K = 1 α(1) is dense in M1, and since M˜ 1 ⊆ M1, α(1) is dense in M˜ 1. For K > 1, we assume α(K−1) is dense in M˜ K−1. Consider the sampling domain of α(K), deﬁned as S = {αn(K−1) × CK |αn(K−1) ∈ M˜ K−1, n ∈ N}. Due to the necessary condition of nested robots (Theorem 1), we have that if r ◦ p ∈ M˜ K then r ∈ M˜ K−1. Thus M˜ K ⊆ S. Since α(K) is dense in S by deﬁnition, α(K) is dense in M˜ K .
+Finally, we need to make sure that every α(k) is an inﬁnite sequence. This is only guaranteed if each quotient space from the priority queue in Algorithm 3 is chosen inﬁnitely many times. A sufﬁcient condition is to choose a density function strictly monotonically increasing, as we did in Eq. 4.
+VI. QUOTIENT-SPACE HEURISTICS
+We ﬁrst discuss intricacies of quotient-spaces, and then use this knowledge to design heuristics for QMP.
+A. Quotient-Space Intricacies
+Solution paths on quotient-spaces do not behave as nicely as one would expect. We show two examples where the solution path is non-simple or spurious.
+1) Non-simple Paths on Quotient-Space: A non-simple path is a path with self-intersections. We say that a path p : [0, 1] → M is simple, if it is injective, i.e. for any t, s ∈ [0, 1]: if p(t) = p(s) then t = s [23]. A path not being simple is called non-simple.
+While non-simple paths do not occur in conﬁguration spaces, they can occur in quotient spaces. Fig. 4 shows an example, where a rectangular shaped planar robot needs to move from a start conﬁguration (green) to a goal conﬁguration (red). The conﬁguration space is SE(2) and the quotient space is R2 = SE(2) SO(2) , obtained by nesting a disk inside the rectangle. The solution path is simple on SE(2), but non-simple on R2.
+2) Spurious Shortest Path on Quotient-Space: Spurious paths are solution paths on the quotient-space which are infeasible on the conﬁguration space. Let M1 be a quotient space of the conﬁguration space M2 and let p1 : [0, 1] → M1 be the shortest feasible path on the quotient space between qI1 and qG1 . We say that p1 is feasible on the conﬁguration space, if there exists a feasible path p2 :
+
+Fig. 5. Spurious shortest path in Quotient-Space: An environment for an L-shaped robot with conﬁguration space SE(2) and quotient space R2. See
+text for clariﬁcation.
+
+Fig. 6. Nesting of robots for the Double L-shape, Snake and KUKA LWR with windshield. The darker shade is the nested robot.
+
+[0, 1] → p1 × C2. If p1 is infeasible on the conﬁguration space, we call it spurious.
+Consider the example in Fig. 5, where an L-shaped robot needs to move through an environment with two passages above and below a rectangular obstacle (Left). The quotientspace is represented by a disk nested in the L-shaped robot. The shortest path on the quotient space is spurious (Middle), since the only feasible path goes above the obstacle (Right).
+
+Fig. 7. Nesting of robots for Baxter Robot by Rethinking Robotics.
+
+B. Heuristics
+Keeping the intricacies in mind, we design three heuristics which we found to be beneﬁcial to reduce the runtime of QMP.
+1) Diminishing-Time Shortest Path Sampling: If the shortest path is spurious this often can be established quickly. We add a diminishing time heuristic to sample ﬁrst the shortest path on the quotient-space with probability p = 0.8 and decrease this probability over time with the amount of samples taken from the shortest path.
+2) Graph Thickening: Often a solution path on the quotient-space is spurious, but a solution path nearby is not spurious and contains a solution on the conﬁguration space. To alleviate this problem, we introduce an -graph thickening. Given a random sample q from the graph, we add an offset uniformly distributed from a ball around q with radius . This helps in ﬁnding nearby solutions. We have set
+= 0.01 for free-ﬂoating robots and = 0.1 for ﬁxed-base robots.
+3) Increasing Clearance: In some cases it is advantageous to inﬂate the shape of the nested robot such that the clearance of the solution path on the quotient space is increased. One has to be careful with this heuristic, since it tradesoff completeness with efﬁciency. We apply this only for the free-ﬂoating robots in our experiments by increasing the size of the inscribed sphere by δ = 1.2.
+VII. EXPERIMENTS
+We perform experiments on four different environments as shown in Fig. 8: A free-ﬂoating rigid body, a freeﬂoating articulated body, a ﬁxed-base serial chain and a ﬁxed-base tree chain robot. The problem is to ﬁnd a path for each robot from the initial conﬁguration (green) to the goal conﬁguration (red). All experiments have been perfomed on a quad core 2.6 Ghz laptop with 31 GB working memory. We perform collision detection using the proximity query package (PQP) [24].
+
+A. Free-ﬂoating rigid body
+The double L-shape is a rigid body consisting of two L-shapes glued together. The environment is a wall with a small square hole in it, as depicted in Fig. 8. This problem was introduced by [13] as an example of a narrow passage planning problem. We decompose the double Lshape as R3 ⊂ SE(3), as depicted in Fig. 6. We compared our algorithm QMP with three state of the art algorithms implemented in the OMPL software framework: PRM [25], bidirectional rapidly-exploring random tree (RRTConnect) [26] and the expansive space trees planner (EST) [27]. Fig. 9 shows that only QMP and PRM solved all runs, and that QMP has a median runtime of 2.5s, compared to 27s for PRM.
+B. Free-ﬂoating articulated body
+The mechanical snake is a 10-dof articulated body which has three links, connected each by two revolute joints with limits (See Fig. 6). The snake can freely translate and rotate in space. We found the most effective decomposition to be R3 ⊂ SE(3) × R4. QMP has a median runtime of 30s (67s for EST). However, we can see that QMP has two outliers.
+C. Fixed-base serial chain: KUKA LWR
+The KUKA Ligthweight Robot (LWR) is a 7-dof manipulator. We consider transporting a windshield through a factory simulating a car manufacturing task. Our decomposition is R5 ⊂ R7. In the experiments, only QMP was able to solve all runs, with a median time of 18s (164s for EST).
+D. Fixed-base tree chain: Baxter
+Baxter is a two-arm ﬁxed-base robot with a tree kinematic chain having two serial chains of 7 dof for each arm, and having a total of 14 dof. We consider a maintenance task, where Baxter needs to move its arms into small openings of a defect water tank. We decompose Baxter as R5 ⊂ R7 ⊂ R12 ⊂ R14 as depicted in Fig. 7. Only QMP was able to solve all runs, with a median runtime of 4.5s compared to 94s for RRTConnect.
+
+Fig. 9. Free-ﬂoating rigid body: Double L-Shape 6-dof benchmark.
+
+Fig. 8. The four experiments considered in this paper: For each experiment we show the start conﬁguration of the robot (green) and the goal conﬁguration (red). The left column shows the faces of the environment mesh, while the right column shows the edges of the environment mesh.
+VIII. CONCLUSION
+We have introduced the quotient-space decomposition, a conﬁguration space decomposition based on nested robots. To exploit this decomposition we developed the Quotientspace roadMap Planner (QMP). We showed that QMP is probabilistically complete and that QMP has lower runtime on four environments compared to state-of-the-art motion planning algorithms implemented in the OMPL software.
+We like to extend QMP in three directions. First, the quotient-space decomposition of a conﬁguration space is not unique, and has to be speciﬁed by a human operator. We like to investigate which decomposition is optimal, and automate
+
+Fig. 10. Free-ﬂoating articulated body: Mechanical Snake 10-dof benchmark.
+its speciﬁcation. Second, we like to generalize our approach to closed kinematic chains, constraint manifolds, and dynamic constraints. Finally, we like to apply the quotientspace decomposition to environments changing over time, where a roadmap on the quotient space could improve fast decision making.
+REFERENCES
+[1] S. M. LaValle. Planning Algorithms. Cambridge University Press, 2006.
+[2] John H Reif. Complexity of the mover’s problem and generalizations. In Conference on Foundations of Computer Science, pages 421–427, 1979.
+[3] James Munkres. Topology. Pearson, 2000. [4] Ling Zhang and Bo Zhang. The quotient space theory of
+
+Fig. 11. Fixed-base serial chain: KUKA LWR 7-dof benchmark.
+Fig. 12. Fixed-base tree chain: Baxter 14-dof benchmark.
+problem solving. Fundamenta Informaticae, 59(2-3):287–298, 2004. [5] Jing Tao Yao, Athanasios V Vasilakos, and Witold Pedrycz. Granular computing: perspectives and challenges. Transactions on Cybernetics, 43(6):1977–1989, 2013. [6] Timothy Bretl. Motion planning of multi-limbed robots subject to equilibrium constraints: The free-climbing robot problem. International Journal of Robotics Research, 25(4): 317–342, 2006. [7] Michael X Grey, Aaron D Ames, and C Karen Liu. Footstep and motion planning in semi-unstructured environments using randomized possibility graphs. In IEEE International Conference on Robotics and Automation, 2017. [8] S. Tonneau, A. D. Prete, J. Pettr, C. Park, D. Manocha, and N. Mansard. An Efﬁcient Acyclic Contact Planner for Multiped Robots. Transactions on Robotics, 34(3):586–601, June 2018. [9] Liangjun Zhang, Jia Pan, and Dinesh Manocha. Motion
+
+planning of human-like robots using constrained coordination. In IEEE International Conference on Humanoid Robots, 2009. [10] Markus Rickert, Arne Sieverling, and Oliver Brock. Balancing exploration and exploitation in sampling-based motion planning. Transactions on Robotics, 30(6):1305–1317, 2014. [11] Tobias Kunz, Andrea Thomaz, and Henrik Christensen. Hierarchical rejection sampling for informed kinodynamic planning in high-dimensional spaces. In IEEE International Conference on Robotics and Automation, pages 89–96. IEEE, 2016. [12] Jonathan D Gammell, Siddhartha S Srinivasa, and Timothy D Barfoot. Informed RRT*: Optimal sampling-based path planning focused via direct sampling of an admissible ellipsoidal heuristic. In IEEE International Conference on Intelligent Robots and Systems, pages 2997–3004. IEEE, 2014. [13] Jur P Van den Berg and Mark H Overmars. Using workspace information as a guide to non-uniform sampling in probabilistic roadmap planners. International Journal of Robotics Research, 24(12):1055–1071, 2005. [14] Matt Zucker, James Kuffner, and J Andrew Bagnell. Adaptive workspace biasing for sampling-based planners. In IEEE International Conference on Robotics and Automation, pages 3757–3762. IEEE, 2008. [15] Andreas Orthey, Florent Lamiraux, and Olivier Stasse. Motion Planning and Irreducible Trajectories . In IEEE International Conference on Robotics and Automation, 2015. [16] Ioan A S¸ ucan and Lydia E Kavraki. Kinodynamic motion planning by interior-exterior cell exploration. In Algorithmic Foundation of Robotics VIII. Springer, 2009. [17] John M. Lee. Introduction to Smooth Manifolds. Springer New York, New York, NY, 2003. [18] Jure Leskovec and Christos Faloutsos. Sampling from large graphs. In Proceedings of the 12th ACM SIGKDD international conference on Knowledge discovery and data mining, pages 631–636. ACM, 2006. [19] Steven M Lavalle and James J Kuffner Jr. Rapidly-Exploring Random Trees: Progress and Prospects. In Algorithmic and Computational Robotics: New Directions, 2000. [20] Kris Hauser. Robust contact generation for robot simulation with unstructured meshes. In International Journal of Robotics Research, pages 357–373. Springer, 2016. [21] Ioan A S¸ ucan, Mark Moll, and Lydia Kavraki. The open motion planning library. Robotics and Automation Magazine, 2012. [22] Petr Svestka. On probabilistic completeness and expected complexity for probabilistic path planning, volume 1996. Utrecht University: Information and Computing Sciences, 1996. [23] Manfredo Perdigao Do Carmo. Differential geometry of curves and surfaces, volume 2. Prentice-hall Englewood Cliffs, 1976. [24] Eric Larsen, Stefan Gottschalk, Ming C Lin, and Dinesh Manocha. Fast proximity queries with swept sphere volumes. Technical report, Technical Report TR99-018, Department of Computer Science, University of North Carolina, 1999. [25] Lydia E Kavraki, Petr Svestka, J-C Latombe, and Mark H Overmars. Probabilistic roadmaps for path planning in highdimensional conﬁguration spaces. Transactions on Robotics, 12(4):566–580, 1996. [26] James J Kuffner and Steven M LaValle. RRT-connect: An efﬁcient approach to single-query path planning. In IEEE International Conference on Robotics and Automation, volume 2, pages 995–1001. IEEE, 2000. [27] David Hsu, J-C Latombe, and Rajeev Motwani. Path planning in expansive conﬁguration spaces. In IEEE International Conference on Robotics and Automation, volume 3, pages 2719–2726. IEEE, 1997.
+

@@ -1,0 +1,708 @@
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) September 27 - October 1, 2021. Prague, Czech Republic
+B-spline path planner for safe navigation of mobile robots
+Ngoc Thinh Nguyen1, Lars Schilling1, Michael Sebastian Angern2, Heiko Hamann3, Floris Ernst1, Georg Schildbach2
+
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-1714-3/21/$31.00 ©2021 IEEE | DOI: 10.1109/IROS51168.2021.9636612
+
+Abstract— We propose a 2D path planning algorithm in a non-convex workspace deﬁned as a sequence of connected convex polytopes. The reference path is parameterized as a Bspline curve, which is guaranteed to entirely remain within the workspace by exploiting the local convexity property and by formulating linear constraints on the control points of the Bspline. The novelties of the paper lie in the use of the equivalent Be´zier representation of the B-spline curve, which signiﬁcantly reduces the conservatism in the local convexity bound and in the integration of these constraints into a convex quadratic optimization problem, which minimizes the curve length. The algorithm is successfully validated in both simulations and experiments, by providing obstacle-free reference paths on real occupancy grid maps obtained from the laser scan data of a mobile robot platform.
+Index Terms— Path planner, B-spline, Be´zier, Convexity.
+
+as autonomous passenger vehicles [5], for unmanned heavyduty vehicles in mines [6], and for autonomous drones [7], [8]. This is thanks to their well-known property of being locally bounded by a convex polygon deﬁned through their control points, called a control polygon [7]–[10]. Therefore, by choosing all control polygons to lie entirely within obstacle-free areas of the map and enforcing the control points to be contained in the control polygons, the resulting B-spline path is guaranteed to be collision-free; see Fig. 1 for an illustration.
+
+I. INTRODUCTION
+Over the last decade, research and industrial communities have shown increasing interest in autonomous mobile robots. For safe navigation, the robot is equipped with different types of sensors, such as cameras or LIDAR (Light Detection and Ranging) sensors, in order to incrementally build and/or improve a map of its environment, and to localize itself in that map, via SLAM (simultaneous localization and mapping). Then a motion planning strategy is applied in order to navigate the robot from an initial position to a goal position, while moving strictly inside obstacle-free regions [1]–[3]. To this end, numerous path-planning approaches have been proposed in the robotics literature, and successfully applied in various problem settings. The most popular ones are different incarnations based on the A* and RRT (Rapidly exploring Random Tree) algorithms [4]. Recently, approaches using numerical optimization have gained increasing popularity [1]–[3]. A common drawback of all of these methods is that they rely on discrete spatial data (e.g. grid map, discrete dynamics) for path planning and collision checking, which necessarily leads to a trade-off between computational tractability (coarse mesh) and accuracy (ﬁne mesh). Hence, a different line of research has considered continuous interpolating curves with geometric constraints for obstaclefree path planning. A common type of curve used for this is B-splines, which have been successfully employed for path planning problems of a wide range of systems such
+1 University of Luebeck (UzL), Institute for Robotics and Cognitive Systems, Luebeck, Germany. {nguyen,schilling,ernst}@rob.uni-luebeck.de. 2 UzL, Institute for Electrical Engineering in Medicine, Luebeck, Germany. {m.angern,georg.schildbach}@uni-luebeck.de. 3 UzL, Institute of Computer Engineering, Luebeck, Germany. hamann@iti.uni-luebeck.de.
+
+B-spline curve B-spline control points of the blue interval B-spline control polygon of the blue interval
+
+one interval of B-spline curve B´ezier control points of the blue interval B´ezier control polygon of the blue interval
+
+Fig. 1: Comparison between the local B-spline control boundary (black-plotted polytope with triangle vertices) versus the Be´zier boundary (red-ﬁlled polytope with circle vertices) of the blue section of a fourth-order B-spline curve.
+
+However, the approach is still conservative as the Bsplines do not actually ﬁll the entire control polygons. It is known from the Computer-Aided-Design (CAD) community since the 1980s that there exist much tighter bounds of Bspline curves (w.r.t. the standard control polygon), namely the control polygon of an equivalent Be´zier curve [11], as illustrated in Fig. 1. This fact is used in this paper in order to signiﬁcantly reduce the conservatism compared to previous B-spline based path planners [6]–[9] and helps to bring the following novelties to the state of the art:
+• We propose the constraints for a B-spline curve to stay inside a sequence of connected polytopes using the equivalent Be´zier representation (in comparison with the direct use of B-spline control points [6]–[10]). This provides a better approximation of the curve’s shape (cf. Fig. 1), more choices of the control points (i.e. serving as the decision variables) and further allows to formulate the constraints with clear interpretation (i.e. enforcing each interval inside each polytope).
+• By ﬁrst deﬁning a sequence of polytopes to move and then constraining a B-spline curve to fully stay within this sequence, we can formulate the ﬁnal path planning problem as a convex optimization problem (with quadratic cost and linear constraints). This can
+
+978-1-6654-1714-3/21/$31.00 ©2021 IEEE
+
+339
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+be solved efﬁciently by standard convex solvers which are also readily available on embedded platforms with limited computing capability. • The algorithm is validated using a real mobile robot platform. The implementation includes: simplifying the surrounding environment (e.g. obtained from LIDAR data or the occupancy grid map) into polygon region, adding safety offset, decomposing the region into convex polytopes, ﬁnding a suitable sequence of polytopes and ﬁnally planning the B-spline path.
+
+II. PRELIMINARIES A. Problem statement
+
+The considered problem is to navigate between two points
+in a safe region, which is assumed to be a non-convex, connected region consisting of an ordered list of q ≥ 2 connected polytopes {S1, . . . , Sq} where S1 contains the starting point Ps and Sq contains the goal point Pf :
+
+Ps ∈ S1, Pf ∈ Sq.
+
+(1)
+
+Our main concern is to generate a smooth geometric path p(t) deﬁned in terms of a parameter t (note that t can represent path length, pseudo-time increment, etc. depending on speciﬁc circumstances) as follows:
+
+p(t) : [ts, tf ] → R2,
+
+(2)
+
+which connects two points Ps and Pf , both in R2, i.e.:
+
+p(ts) = Ps, p(tf ) = Pf .
+
+(3)
+
+The path p(t) is required to continuously stay in the region S which is deﬁned as the union of the q connected polytopes Si, i ∈ {1, . . . , q}:
+
+p(t) ∈ S S1 ∪ S2 ∪ · · · ∪ Sq, ∀t ∈ [ts, tf ], (4)
+
+in which, two consecutive polytopes Si, Si+1 share exactly one edge Ei connecting two common vertices (cf. Fig. 2):
+
+Ei = Si ∩ Si+1, ∀i ∈ {1, . . . , q − 1}.
+
+(5)
+
+B. Transition zones of two connected polytopes
+
+In order to conveniently constrain the path in between the aforementioned connected polytopes (i.e. each pair has only one sharing edge), we deﬁne the so-called transition zone which, deﬁned for two connected polytopes, represents a subset in one polytope whose union with the other connected polytope is convex (cf. Figure 2).
+
+S1 T1 S2 T2 S3
+
+E1 E2
+
+Fig. 2: Three connected polytopes and their transition zones according to Deﬁnition 1.
+
+Deﬁnition 1 (Transition zone): Given two connected
+polytopes Si and Si+1 as used in (5), we deﬁne the transition zone Ti ⊆ Si+1 as follows:
+
+Ti = Si+1 ∩ (Si|Ei),
+
+(6)
+
+in which Ei is the common edge as deﬁned in (5), and the operation (Si|Ei) gives the (possibly open) polytope formed by the half-space representation of Si without the constraint corresponding to the edge Ei.
+Deﬁnition 2 (Extended polytope): We deﬁne Si,i+1 as the extension of the polytope Si towards the polytope Si+1:
+
+Si,i+1 = Si ∪ Ti,
+
+(7)
+
+with Ti the transition zone deﬁned as in (6). Since we are considering only q polytopes {S1, . . . , Sq} as in (4), we directly deﬁne Sq,q+1 Sq. Note that any extended polytope Si,i+1 as deﬁned in (7) is convex. Regarding our path generation problem deﬁned in (4), one
+of the most promising solutions which allows us to validate both continuous and geometrical constraints (4) is to employ
+B-spline curves for constructing the reference path [8], [10],
+[12]. Therefore, the next section will give a brief deﬁnition
+of general B-spline curves and their local convex boundary
+formed by the equivalent Be´zier curves of the same degree.
+
+III. B-SPLINE AND EQUIVALENT BE´ ZIER CURVES
+
+A. Deﬁnition and properties of B-spline curves
+
+In this section, we recapitulate the deﬁnition and the
+standard convexity properties of B-spline curves [9], [10],
+[12], [13] using notations adapted from [10], [12]. A B-spline curve z(t) : [ts, tf ] → R2 of degree d is constructed by using n control points Pi ∈ R2 (i ∈ {1, . . . , n}) with n ≥ d + 1 as follows:
+
+n
+z(t) = PiBi,d,ξ(t) = P Bd,ξ(t), t ∈ [ts, tf ], (8)
+i=1
+
+in which, P
+
+[P1 · · · Pn] ∈ R2×n and Bd,ξ(t)
+
+[B1,d,ξ(t) . . . Bn,d,ξ(t)] : R → Rn. The so-called knot
+
+vector ξ is a non-decreasing sequence of (n + d + 1) time
+
+instants:
+
+ξ = {τ1 ≤ τ2 ≤ · · · ≤ τn+d+1},
+
+(9)
+
+and Bi,d,ξ(t) is the ith B-spline basis function of degree d constructed using the knot vector ξ from (9) and is
+recursively deﬁned as follows:
+
+Bi,0,ξ(t) =
+
+1, 0,
+
+t ∈ [τi, τi+1), otherwise,
+
+(10)
+
+Bi,d,ξ (t)
+
+=
+
+t − τi τi+d − τi
+
+Bi,d−1,ξ
+
+(t)
+
++
+
+τi+d+1 − t τi+d+1 − τi+1
+
+Bi+1,d−1,ξ (t).
+
+(11)
+
+The aforementioned time instants τj (j ∈ {1, . . . , n + d + 1}) of ξ can be chosen following either periodic uniform,
+
+open-uniform or non-uniform methods [10]. In this work, we employ the open-uniform knot vector ξ in which the time
+
+340
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+instants τj (j ∈ {1, . . . , n + d + 1}) from (9) are clamped and uniformly distributed by:
+
+ ts,  τj = ts + (j − d − 1)∆,
+tf ,
+
+1 ≤ j ≤ d, d + 1 ≤ j ≤ n + 1, (12) n + 2 ≤ j ≤ n + d + 1,
+
+with ∆ = (tf − ts)/(n − d). An important remark is that by distributing ξ as in (12), the B-spline curve z(t) from (8) actually varies in (n − d) equal intervals among which the jth interval (with j ∈ {1, . . . , n − d}) is given by:
+
+[τj+d, τj+d+1) [ts + (j − 1)∆, ts + j∆), (13)
+with τd+1 = ts and τn+1 = tf . Also, the partial curve of z(t) within the jth interval (13) is denoted by:
+
+z(j, t) z(t), t ∈ [ts + (j − 1)∆, ts + j∆). (14)
+The B-spline curve z(t) as deﬁned in (8)–(12) exhibits the following properties [9], [10], [13]: P1) Endpoint interpolation:
+
+z(ts) = P1, z(tf ) = Pn,
+
+(15)
+
+where [ts, tf ] is the considered time range of the Bspline curve z(t) as in (8) and (P1, Pn) are the ﬁrst
+and last control points, respectively. P2) Local support and local convexity within the jth inter-
+val deﬁned in (13) (j ∈ {1, . . . , n − d}):
+
+j+d
+
+z(j, t) = PiBi,d,ξ(t),
+
+(16)
+
+i=j
+
+z(j, t) ∈ Conv{P j},
+
+(17)
+
+in which Conv{P j} represents the convex hull of (d+ 1) control points P j [Pj · · · Pj+d]. P3) Derivatives of B-spline basis functions can be ex-
+
+pressed as a linear combination of B-spline basis
+
+functions:
+
+∂ B d,ξ (t) ∂t
+
+=
+
+Md,d−1 Ld,d−1 B d,ξ (t),
+
+(18)
+
+with Bd,ξ as in (8). The two matrices Md,d−1 ∈ Rn×(n−1) and Ld,d−1 ∈ R(n−1)×n are given in Theorems 4.1–4.3 of [9].
+
+B. Local equivalent Be´zier curves
+
+It is well-known in the ﬁeld of CAD (Computer-AidedDesign) that the B-spline curve in its jth interval, z(j, t) as in (14), is actually a Be´zier curve of the same degree [11],
+[14] which is deﬁned as follows:
+
+d+1
+z(j, t) = P (j−1)d+iBi,d,ξj (t),
+i=1
+
+(19)
+
+in which P k are the Be´zier control points (k ∈ {(j − 1)d + 1, . . . , jd + 1}) and Bi,d,ξj is the basis function as deﬁned in (10)–(11) with the new knot vector ξj:
+
+ξj = {τj+d, . . . , τj+d, τj+d+1, . . . , τj+d+1},
+
+(20)
+
+d+1 knots
+
+d+1 knots
+
+with [τj+d, τj+d+1) denoting the considered jth interval as in (13). For the jth interval (13), the Be´zier control points P k (k ∈ {(j − 1)d + 1, . . . , jd + 1}) as used in (19) can be obtained from (d + 1) original B-spline control points {Pj, . . . , Pj+d} by using the following matrix transformation:
+
+P j = P jA(d, n, j),
+
+(21)
+
+with P j [P (j−1)d+1 · · · P jd+1] and P j [Pj · · · Pj+d] consisting of (d + 1) Be´zier and B-spline control points, respectively. The matrix A(d, n, j) ∈ R(d+1)×(d+1) is cal-
+culated with the algorithm deﬁned in [14] (at page 7 and another recursive formulation of A(d, n, j) is also given in
+Remark 2 of [14]). Note that the total number of Be´zier control points P k as in (19) needed for expressing the whole B-spline curve of degree d is:
+
+n = (n − d)d + 1,
+
+(22)
+
+with n the number of the B-spline control points from (8). By applying the two properties P1 and P2 given in (15)–(17) to the local Be´zier curve from (19), we have that:
+
+P (j−1)d+1 = z(τj+d) = z(ts + (j − 1)∆), (23)
+
+z(j, t) ∈ Conv{P j},
+
+(24)
+
+for all j ∈ {1, . . . , n−d}, with z(j, t) as in (14) and P j from (21). The convexity property (24) is signiﬁcantly tighter than the standard one as given in (17) as proven in [11]. This will be illustrated through the following example.
+Illustrative example: Fig. 3 represents the safe region S = S1 ∪ S2 ∪ S3 as deﬁned in (4) and the second-order Bspline as in (8) constructed with six control points (plotted by triangle red marks). In one interval j, the partial curve z(j, t)
+
+P2 ≡ P 2
+
+S1
+
+P3
+
+S2 P5
+
+P4 ≡ P 6 P7
+P5 ≡ P 8
+
+P1 ≡ P 1
+
+P3 ≡ P 4
+
+P6 ≡ P 9 S3
+
+B-spline control points
+B´ezier boundary Conv{P 1} B-spline boundary Conv{P 1} B´ezier boundary Conv{P 2} B´ezier boundary Conv{P 3} B´ezier boundary Conv{P 4}
+
+B´ezier control points B-spline curve in 1st interval
+B-spline curve in 2nd interval B-spline curve in 3rd interval B-spline curve in 4th interval
+
+Fig. 3: Second-order B-spline curve with its Be´zier boundaries ﬁtting inside connected polytopes.
+
+from (14) is plotted in solid red, green, blue and magenta lines, corresponding to each value of j ∈ {1, . . . , 4}. Each partial curve z(j, t) is also a Be´zier curve of degree two
+which is constructed by using three Be´zier control points {P 2(j−1)+1, . . . , P 2j+1} as deﬁned in (21) with the matrix
+
+341
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+A(d, n, j) given as:
+
+1 0 0 
+
+
+
+
+
+0
+
+1
+
+0.5 , 
+
+
+
+  
+
+0
+
+0
+
+0.5
+
+
+
+0.5 0 0
+
+
+
+j = 1,
+
+A(2, n ≥ 4, j) = 0.5 1 0 , j = n − 2, (25)
+
+
+
+
+
+  
+
+0
+
+01
+
+
+
+0.5 0 0 
+
+
+
+ 0.5
+
+1
+
+0.5 , 
+
+ 
+
+0
+
+0 0.5
+
+otherwise.
+
+The property z(j, t) ∈ Conv{P j} as in (24) is also illustrated with each Be´zier boundary Conv{P j} given by
+four triangles ﬁlled with red, green, blue and magenta corresponding to j ∈ {1, . . . , 4}.
+Furthermore, for the ﬁrst interval, the B-spline boundary Conv{P 1} from (17) fails to stay inside the safe region S (i.e., the presenting B-spline curve will not be validated if
+one uses the original control polygons to check the constraint z(t) ∈ S) while the Be´zier boundary Conv{P 1} (with P 1 = [P 1, P 2, P 3] as in (21)) ﬁts well and therefore, admits that z(t) ∈ S, ∀t ∈ [ts, tf ].
+Remark 1: Regarding the matrix A(2, n, j) as given in (25), for the case of n = 3, there is only one value of j = 1.
+The B-spline curve becomes the Be´zier curve and hence, the matrix A(2, 3, 1) is the identity matrix in R3×3. A similar argument can be applied for any degree d which leads to:
+
+A(d, d + 1, 1) = Id+1,
+
+(26)
+
+with Id+1 the identity matrix of dimension (d + 1).
+
+IV. B-SPLINE PATH PLANNING WITH MINIMAL LENGTH
+
+This section presents the approach for optimally placing the control points {P1, . . . , Pn} such that the B-spline curve z(t) from (8) satisﬁes all the requirements of our path generation problem proposed in Section II-A and has its
+minimal length. We will start by discussing the constraints
+on the control points in the following.
+
+A. Safe B-spline path through a sequence of polytopes
+In this section, we present our approach to constrain the control points of the B-spline curve z(t) from (8) such that the curve stays inside the safe region S and also satisﬁes the endpoint constraints:
+
+z(t) ∈ S, z(ts) = Ps, z(tf ) = Pf ,
+
+(27)
+
+with S = S1 ∪ S2 ∪ · · · ∪ Sq (q ≥ 2) from (4) and {Ps, Pf } start and end poses from (15).
+Proposition 1: The requirements (27) are satisﬁed if the following conditions are guaranteed:
+C1) Number of control points:
+
+n = q + d.
+
+(28)
+
+C2) Start and end points:
+
+P1 = Ps, Pq+d = Pf .
+
+(29)
+
+C3) All the Be´zier control points in one interval belong to one extended polytope (7):
+
+P k ∈ Sj,j+1, ∀ P k ∈ P j and ∀ j ∈ {1, . . . , q}, (30)
+with P j consisting of (d+1) Be´zier control points given in terms of (d+1) B-spline control points P j as in (21) and Sj,j+1 the extended polytope as in (7). Proof: At ﬁrst, the starting and ending constraints from (27) are satisﬁed by condition C2 (29) due to the endpoint interpolation property (15) of B-spline curves. Next, by using n = d + q control points as in (28), the curve z(t) from (8) has q intervals. Within each interval j, j ∈ {1, . . . , q}, we have that:
+
+z(j, t) ∈ Conv{P j} ⊆ Sj,j+1,
+
+(31)
+
+in which the convexity property is given in (24) and the latter is due to the fact that all (d + 1) points in P j stay inside Sj,j+1 as constrained by (30). Finally, we arrive at:
+
+q
+
+z(t) ∈ Sj,j+1 ≡ S, t ∈ [ts, tf ].
+
+(32)
+
+j=1
+
+This completes the proof. Remark 2: Using the Be´zier representation (19) allows us
+to formulate the constraint (30) such that we can enforce “each interval z(j, t) to be inside each extended polytope” as proven in (31). This cannot be done if the original B-
+spline convexity property (17) is employed instead. The
+reason is that two consecutive B-spline boundaries share d common points (e.g. P j = [Pj · · · Pj+d] and P j+1 = [Pj+1 · · · Pj+d+1] from (17)). This leads to the fact that if the B-spline control points are employed in condition C3 (30), i.e. Pk ∈ Sj,j+1, ∀Pk ∈ P j, ∀j ∈ {1, . . . , q}, then, the following necessary condition is required:
+
+j+d
+
+Si,i+1 = ∅, ∀j ∈ {1, . . . , q},
+
+(33)
+
+i=j
+
+which is clearly not guaranteed for the extended polytopes
+deﬁned in (7).
+On the other hand, there is only one common point for the Be´zier representation (24) (e.g. P j and P j+1 share one common point P jd+1). Therefore, the necessary condition for the solution of (30) to exist is:
+
+Sj,j+1 ∩ Sj+1,j+2 = ∅, ∀j ∈ {1, . . . , q − 1}, (34)
+with Sj,j+1 ∩ Sj+1,j+2 = Tj as deﬁned in (6)–(7). Remark 3: In condition C3 (30), one can replace the
+extended polytope Sj,j+1 with the polytope Sj itself but the result will be more conservative as the two connected polytopes share only one edge as deﬁned in (5).
+
+B. Path generation problem with minimal length
+In this section, we present the complete optimization problem used to solve the B-spline reference path satisfying the constraints (27) and minimizing the curve’s length. We exploit the property P3 in (18) of the B-spline curve z(t) from (8) in order to formulate the length cost into a quadratic
+
+342
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+function of the control points Pi ∈ R2, i ∈ {1, . . . , n} (with n chosen as in (28). By denoting P [P1 · · · Pn] from (8), the optimization problem is given by:
+
+tf
+
+P ∗ = arg min
+
+z˙(t) 2dt,
+
+(35)
+
+P ts
+
+subject to constraints (28)–(30).
+
+By using property (18) of the B-spline curve, we have that:
+
+n
+z˙(t) = P Md,d−1Ld,d−1Bd,ξ(t) = QiBi,d,ξ(t), (36)
+i=1
+
+with Qi ∈ R2 being the ith column of Q = P Md,d−1Ld,d−1 ∈ R2×2q. Therefore, the optimization prob-
+lem (35) is re-formulated into:
+
+nn
+
+tf
+
+P ∗ = arg min
+P
+
+Qi Qj
+
+i=1 j=1
+
+ts
+
+Bi,d,ξ (t)Bj,d,ξ (t)dt,
+
+subject to constraints (28)–(30),
+
+(37)
+
+which clearly has a quadratic cost function since the inte-
+gral terms are independent of the decision variables P = [P1 · · · Pn]. Finally, the reference path p(t) as required in (2) is taken as:
+
+p(t) = P ∗Bd,ξ(t),
+
+(38)
+
+in which the optimal control points P ∗ are obtained from solving the optimization problem (37) and the B-spline basis functions Bd,ξ as used in (8) is deﬁned with [ts, tf ] = [0, 1].
+
+C. Discussion
+We can only concentrate on the geometric problem of the path planning problem within this paper due to the space limit but our proposed algorithm can be easily extended for trajectory generation cases by replacing ts and tf in (8) with the actual start and end time instants. Then, the B-spline framework allows us to consider more constraints on the velocity and on higher derivatives of the trajectory by adding more linear constraints as discussed in [8], [9]. Also note that our proposed approach for placing the control points as given in Proposition 1 is not a unique solution for the problem (27). In general, there exist mixed-integer constraints formulations for generating similar obstacle-free B-spline curves [7], [12] but we avoid using mixed-integer programming in our work due to its high computational burden. Instead, our constraints proposed in Proposition 1 only consist of equalities (28)–(29) and linear matrix inequalities (30) which, in combination with a quadratic cost (37) for minimizing the curve length, ﬁnally form the convex and quadratic programming problem which is relatively easy to solve even with hardware with limited computing capability.
+
+V. SIMULATION AND EXPERIMENT RESULTS
+Next, we present the validation of our proposed path planning method. We ﬁrst show a simulation result that demonstrates the advantages of using the equivalent Be´zier representation to constrain the B-spline curve as in (30) as
+
+well as the effectiveness of the minimal-length optimization problem (37). Next, we give details on the implementation of the proposed method on a real mobile robot platform and the evaluation on two real-world datasets (i.e. one single laser scan and one occupancy grid map) using an onboard computer of a real robot platform.
+A. Simulation results
+For the simulation, we consider a safety region S from (4) consisting of seven connected polytopes as plotted with black edges (no ﬁll) in Fig. 4. The start and end poses are Ps = (1, 2.5) and Pf = (1, 0) , respectively. Information about the used B-spline curve is shown in Table I.
+
+TABLE I: Parameters of B-spline curve used in simulation
+
+Parameter Degree
+Number of B-spline control points Number of Be´zier control points
+
+Notation
+d as in (8) n as in (8) n as in (22)
+
+Value 4 11 29
+
+In Fig. 4, we provide two simulation results, among which the green curve is one feasible solution (manually chosen for clear demonstration) of the proposed constraints (28)–(30) while the red solid curve shows the optimal path (38). It can be seen that the non-optimal green path is much longer than the optimal red path which always approaches all corners closely due to the effect of the minimal-length optimization problem (35). Both paths stay inside the safety region S (i.e. the union of seven polytopes) which proves the effectiveness of the proposed approach on constraining a B-spline curves by using its equivalent Be´zier representation (28)–(30).
+
+3
+Ps
+2
+
+1
+
+0
+
+Pf
+
+0
+
+1
+
+2
+
+Non-optimal B-spline path z(t) B-spline control polygon B´ezier control polygon
+B-spline boundary Conv{P 4} Minimal-length B-spline path
+
+3
+
+4
+
+4th interval z(4, t) B-spline control points P 4 B´ezier control points P 4 B´ezier boundary Conv{P 4}
+
+Fig. 4: Path planning results using fourth-order B-spline curves: comparisons between B-spline versus Be´zier boundaries and non-optimal versus minimal-length paths.
+
+Furthermore, we would like to demonstrate the comparison between the Be´zier and the original B-spline boundaries. Let
+
+343
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+us consider the non-optimal green curve z(t) and its 4th partial curve z(4, t) from (14) (plotted with blue solid line) as shown in Fig. 4. This blue curve z(4, t) stays within both the B-spline boundary Conv{P 4} as in (17) (big blue polytope) and the Be´zier boundary Conv{P 4} as in (24) (small red polytope) with the Be´zier control points P 4 = P 4A(4, 11, 4) from (21) with the matrix A(4, 11, 4) as in (21) given by (i.e.
+using algorithm given in [14], page 7):
+
+A(4, 11, 4) =
+
+1/24 11/24 11/24 1/24 0 
+
+ 0 1/3 7/12 1/12 0 
+
+ 
+
+0
+
+1/6 2/3 1/6
+
+0
+
+ 
+
+.
+
+(39)
+
+ 
+
+0
+
+1/12 7/12 1/3
+
+0
+
+ 
+
+0 1/24 11/24 11/24 1/24
+
+As seen in Fig. 4, the Be´zier boundary is signiﬁcantly tighter. It provides a better approximation of the curve’s shape and a more efﬁcient way to constrain the curve ﬁtting inside the safety region as introduced in (30). For implementing the optimization problem (37), we use the solver IPOPT [15] with Pyomo [16] in Python. With our laboratory computer (Intel Core i7-9750H processor), the average computation time is 45 ms for 100 samples. In the next section, we will present the implementation and experimental results of the proposed path planner on a mobile robot platform.
+
+B. Experimental validation on mobile robot platform
+The proposed path planner is implemented on the differential wheeled Jackal robot from Clearpath Robotics [3] equipped with the Ouster OS1-16 LIDAR sensor (cf. Fig. 5) and an on-board computer (Intel Core i5-4750TE processor). In order to evaluate the method, we consider two scenarios:
+1) Local planner: a single LIDAR scan was collected and then an obstacle-free path was planned within the scanned area.
+2) Global planner: an occupancy grid map1 (which is obtained beforehand by using the gmapping method [17]) is given to the Jackal and the robot needs to plan an obstacle-free path within the map.
+For both scenarios, the path leads from the robot’s current position Ps to the desired goal Pf . In order to obtain the sequence of connected polytopes {S1, . . . , Sq} as required in (4), we adapt the procedure given in [2] using several existing Python toolboxes. Note that the robot’s size is taken into account by using a safety offset when calculating those polytopes so that the robot does not hit any obstacles even when reaching the edges of the polytopes. The complete workﬂow is given as follows:
+1) Approximate the obstacle-free space (i.e. obtained from the laser scan data and from the occupancy grid map corresponding to two scenarios) by a polygon region (possibly being non-convex and containing holes): using Ramer–Douglas–Peucker algorithm2 [18].
+
+1This occupancy grid map (cf. Fig. 7) does not include the scanned area used in local planner scenario.
+2https://github.com/biran0079/crdp
+
+Fig. 5: Jackal robot equipped with a LIDAR sensor.
+2) Shrink the obstacle-free polygon region by a safety offset (can be taken as the maximum length of the Jackal as it is differential wheeled robot) in order to account for the vehicle’s size and possible detection noises: using Gdspy toolbox 3.
+3) Partition the shrunk polygon into connected polytopes: using Mark Beyazit’s algorithm4 [19].
+4) Perform a graph search in order to obtain the sequence of polytopes {S1, . . . , Sq} leading from the initial pose Ps to the desired goal Pf [2]. We relax the conditions, i.e. if there is no polytope containing Pf , then Pf is re-chosen as the closest point to the original Pf but within the safety region.
+5) Solve the path-planning problem (37) and return the optimal path (using solver IPOPT [15] in Pyomo [16]).
+
+0
+
+Ps
+
+Pf
+−2
+
+−4
+
+−2
+
+−1
+
+0
+
+Laser scan data
+
+Oﬀset region
+
+B-spline path
+
+1
+
+2
+
+3
+
+Simpliﬁed polygon
+
+Polytopes S1, . . . , S5 B-spline control points
+
+Fig. 6: Experimental result in the local planner scenario: from laser scan data to optimal B-spline path.
+
+The results under the local and global planner scenarios are given in Figures 6 and 7, respectively. In both ﬁgures, the safety regions after performing the safety offset (i.e. step 2 from the aforementioned procedure) are plotted with green solid lines. Then, at step 3, those regions are partitioned into
+
+3https://github.com/heitzmann/gdspy 4https://github.com/wsilva32/poly_decomp.py
+
+344
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+
+100
+
+80
+
+Ps
+
+60
+
+40
+
+Pf
+
+20
+
+0
+
+0
+
+20
+
+40
+
+Oﬀset region
+
+B-spline path
+
+60
+
+80 100
+
+Polytopes S1, . . . , S7 B-spline control points
+
+Fig. 7: Experimental result in the global planner scenario: from occupancy grid map to optimal B-spline path.
+
+numerous connected polytopes among which the sequences of connected polytopes leading from the start point Ps to the end goal Pf are emphasized with black solid edges (i.e. resulted at step 4) while the other polytopes in the workspace are plotted with gray edges. Finally, the two optimal B-spline paths of degree four (obtained from solving the optimization problem (35) at step 5) are plotted in solid red with their Bspline control points marked with blue circle markers. The total processing times are 67 ms in the local planner scenario and 100 ms in the global planner case using the on-board computer of the Jackal robot. Note that, even though the resulted straight path shown in Figure 6, which is obtained in local planner scenario, seems trivial it strongly demonstrates the effectiveness of the minimizing-length goal proposed in the optimization problem (35). The two reference paths (red curves in Figures 6 and 7) obtained with our proposed planning method under two different scenarios are both obstacle-free, smooth and differentiable up to degree 4 (with one under local planner case even being straight as shown in Figure 6). Therefore, with recent advances on path following control techniques [4], it is capable for our differential wheeled Jackal robot to track those references. We do not show tracking results here as it is also out of this paper’s scope but this is the logical next step of our future research.
+
+VI. SUMMARY
+We addressed a path planning method for navigation in a non-convex, connected region. We parameterize the path as a B-spline curve but control the shape by using its equivalent Be´zier representation which provides a signiﬁcantly tighter bound on the curve. By using this property, our method constrains the curve to continuously stay inside the safety region using only linear constraints. The ﬁnal path planning problem is reformulated as a convex optimization problem with the objective of minimizing the path length. The algo-
+
+rithm is validated under both simulation and experiment on
+real datasets with an on-board computer of a mobile robot
+platform. In the future we will take more constraints into
+account, such as initial and ﬁnal heading angles, way-points,
+curvature boundedness, and extend the method for trajectory
+generation problems.
+REFERENCES
+[1] P. Raja and S. Pugazhenthi, “Optimal path planning of mobile robots: A review,” International Journal of Physical Sciences, vol. 7, no. 9, pp. 1314–1320, 2012.
+[2] J. Liu, P. Jayakumar, J. L. Stein, and T. Ersal, “A nonlinear model predictive control formulation for obstacle avoidance in high-speed autonomous ground vehicles in unstructured environments,” Vehicle System Dynamics, vol. 56, no. 6, pp. 853–882, 2018.
+[3] Y. F. Chen, M. Everett, M. Liu, and J. P. How, “Socially aware motion planning with deep reinforcement learning,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2017, pp. 1343–1350.
+[4] B. Paden, M. Cˇ a´p, S. Z. Yong, D. Yershov, and E. Frazzoli, “A survey of motion planning and control techniques for self-driving urban vehicles,” IEEE Transactions on Intelligent Vehicles, vol. 1, pp. 33–55, 2016.
+[5] M. Elbanhawi and M. Simic, “Examining the use of b-splines in parking assist systems,” Applied Mechanics and Materials, vol. 490, pp. 1025–1029, 2014.
+[6] T. Maekawa, T. Noda, S. Tamura, T. Ozaki, and K.-i. Machida, “Curvature continuous path generation for autonomous vehicle using b-spline curves,” Computer-Aided Design, vol. 42, no. 4, pp. 350–359, 2010.
+[7] F. Stoican, I. Prodan, E. I. Grøtli, and N. T. Nguyen, “Inspection trajectory planning for 3d structures under a mixed-integer framework,” in Proceedings of the 2019 IEEE International Conference on Control & Automation (ICCA’19). IEEE, 2019, pp. 1349–1354.
+[8] N. T. Nguyen, I. Prodan, and L. Lefe`vre, “Flat trajectory design and tracking with saturation guarantees: a nano-drone application,” International Journal of Control, vol. 93, no. 6, pp. 1266–1279, 2020.
+[9] F. Suryawan, J. De Dona´, and M. Seron, “Splines and polynomial tools for ﬂatness-based constrained motion planning,” International Journal of Systems Science, vol. 43, no. 8, pp. 1396–1411, 2012.
+[10] T. Lyche, C. Manni, and H. Speleers, “Foundations of spline theory: Bsplines, spline approximation, and hierarchical reﬁnement,” in Splines and PDEs: From Approximation Theory to Numerical Linear Algebra. Springer, 2018, pp. 1–76.
+[11] W. Bo¨hm, “Generating the be´zier points of b-spline curves and surfaces,” Computer-aided Design, vol. 13, no. 6, pp. 365–366, 1981.
+[12] I. Prodan, F. Stoican, and C. Louembet, “Necessary and sufﬁcient lmi conditions for constraints satisfaction within a b-spline framework,” in 2019 IEEE 58th Conference on Decision and Control (CDC). IEEE, 2019, pp. 8061–8066.
+[13] L. Piegl and W. Tiller, “B-spline curves and surfaces,” in The NURBS Book. Springer, 1995, pp. 81–116.
+[14] L. Romani and M. A. Sabin, “The conversion matrix between uniform b-spline and be´zier representations,” Computer Aided Geometric Design, vol. 21, no. 6, pp. 549–560, 2004.
+[15] A. Wa¨chter and L. T. Biegler, “On the implementation of an interiorpoint ﬁlter line-search algorithm for large-scale nonlinear programming,” Mathematical Programming, vol. 106, no. 1, pp. 25–57, 2006.
+[16] W. E. Hart, J.-P. Watson, and D. L. Woodruff, “Pyomo: modeling and solving mathematical programs in python,” Mathematical Programming Computation, vol. 3, no. 3, pp. 219–260, 2011.
+[17] G. Grisetti, C. Stachniss, and W. Burgard, “Improved techniques for grid mapping with rao-blackwellized particle ﬁlters,” IEEE Transactions on Robotics, vol. 23, no. 1, pp. 34–46, 2007.
+[18] D. H. Douglas and T. K. Peucker, “Algorithms for the reduction of the number of points required to represent a digitized line or its caricature,” Cartographica: the international Journal for Geographic Information and Geovisualization, vol. 10, no. 2, pp. 112–122, 1973.
+[19] Y. Kulkarni, A. Sahasrabudhe, and M. Kale, “Midcurves generation algorithm for thin polygons,” in National Conference on Emerging Trends in Engineering and Science (ETES), 2014, pp. 76–82.
+
+345
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:20:44 UTC from IEEE Xplore. Restrictions apply.
+

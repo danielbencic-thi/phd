@@ -1,0 +1,1560 @@
+Multilevel Motion Planning: A Fiber Bundle Formulation
+Andreas Orthey1 and Sohaib Akbar2 and Marc Toussaint1,3
+
+International Journal of Robotics Research XX(X):1–25 c The Author(s) 2020 Reprints and permission: sagepub.co.uk/journalsPermissions.nav DOI: 10.1177/ToBeAssigned www.sagepub.com/
+SAGE
+
+arXiv:2007.09435v1 [cs.RO] 18 Jul 2020
+
+Abstract Motion planning problems involving high-dimensional state spaces can often be solved signiﬁcantly faster by using multilevel abstractions. While there are various ways to formally capture multilevel abstractions, we formulate them in terms of ﬁber bundles, which allows us to concisely describe and derive novel algorithms in terms of bundle restrictions and bundle sections. Fiber bundles essentially describe lower-dimensional projections of the state space using local product spaces. Given such a structure and a corresponding admissible constraint function, we can develop highly efﬁcient and optimal search-based motion planning methods for high-dimensional state spaces. Our contributions are the following: We ﬁrst introduce the terminology of ﬁber bundles, in particular the notion of restrictions and sections. Second, we use the notion of restrictions and sections to develop novel multilevel motion planning algorithms, which we call QRRT* and QMP*. We show these algorithms to be probabilistically complete and almost-surely asymptotically optimal. Third, we develop a novel recursive path section method based on an L1 interpolation over path restrictions, which we use to quickly ﬁnd feasible path sections. And fourth, we evaluate all novel algorithms against all available OMPL algorithms on benchmarks of eight challenging environments ranging from 21 to 100 degrees of freedom, including multiple robots and nonholonomic constraints. Our ﬁndings support the efﬁciency of our novel algorithms and the beneﬁt of exploiting multilevel abstractions using the terminology of ﬁber bundles.
+Keywords Optimal motion planning, Multi-robot motion planning, Nonholonomic planning, Fiber bundles
+
+1 Introduction
+
+As human beings, we often solve complex problems by solving them sequentially and/or using multiple levels of abstraction (Simon 1969). When folding a box, we might ﬁrst fold one side, then the other, then fold the top. When coordinating motions of multiple vehicles, we might move each vehicle individually, later resolving possible collisions. When animating the motion of a multi-arm robot, we might sequentially coordinate the motion of each arm—while backtracking if the necessity arises. It seems reasonable to utilize similar strategies to let robots autonomously solve these problems. However, the state spaces involved in these problems are often continuous, high-dimensional and might contain intricate constraints (Konidaris 2019). It is often unclear how we can model multilevel abstractions over those state spaces and how we can develop algorithms to efﬁciently exploit abstractions while having formal guarantees.
+Here, we concentrate on the problem of motion planning, the problem of moving M robots from start states to goal regions under holonomic or non-holonomic constraints. In a motion planning problem, we can often abstract or reduce state spaces by removing constraints, by removing robots, by nesting simpler robots, by removing dimensions of the state space, by shrinking links or by shrinking obstacles. Each such abstraction is problem speciﬁc, and we might construct them manually (Orthey and Toussaint 2019) or learn them from data (Ichter and Pavone 2019), either by imitation
+
+Figure 1. Efﬁcient search over ﬁber bundles using sections and restrictions. Left: L1 path section on Mobius strip over base space S1 (see Sec. 4.2). Right: Path restriction on Torus over base space S1 (see Sec. 4.1).
+1Max Planck Institute for Intelligent Systems, Stuttgart, Germany 2University of Stuttgart, Germany 3Technical University of Berlin, Germany
+Corresponding author: Andreas Orthey Email: {aorthey}@is.mpg.de
+
+Prepared using sagej.cls [Version: 2017/01/17 v1.20]
+
+2
+
+International Journal of Robotics Research XX(X)
+
+(Hristov et al. 2018) or through evolutionary algorithms (Brandao and Havoutis 2020).
+While there are many ways to formulate multilevel abstraction in motion planning, like quotient spaces (Zhang and Zhang 2004; Orthey et al. 2018; Brandao and Havoutis 2020), constraint relaxation (Ferbach and Barraquand 1997; Kim et al. 2015), and admissible heuristics (Pearl 1984; Aine et al. 2016), we will use the terminology of ﬁber bundles (Steenrod 1951). Fiber bundles provide the notions of bundle sections and restrictions, which will allow us to develop novel methods exploiting them for efﬁcient sampling. Fig. 1 illustrates these two notions, which we will introduce in more detail later. On the left we show a path section (an L1 ﬁber ﬁrst section) on the Mobius strip (Mo¨bius 1858) with base space S1 (the circle). On the right, we show a path restriction on the torus with base space S1. Our methods will construct such sections and restrictions to efﬁciently solve high-dimensional motion planning problems.
+1.1 Our Contribution
+Our work builds on prior publications at the International Conference on Intelligent Robots and Systems (IROS) (Orthey et al. 2018) and the International Symposium on Robotics Research (ISRR) (Orthey and Toussaint 2019). Our contributions over this prior work are:
+1. We propose to formulate the problem structure of multilevel motion planning problems using the terminology of ﬁber bundles, and introduce the particularly useful notions of bundle sections and bundle restrictions.
+2. Based on this formulation we develop novel algorithms we call QRRT* and QMP*, which we show to be probabilistically complete and asymptotically optimal by inheritance from RRT* and PRM*.
+3. We develop a recursive path section search method, based on L1 sections and applicable to any bundlebased algorithm.
+4. We evaluate our novel algorithms and compare against algorithms from the open motion planning library (OMPL) on 8 challenging environments ranging from 21 degrees of freedom (dof) to 100-dof involving multiple robots and nonholonomic constraints.
+As secondary contributions, we provide a meta-analysis of bundle algorithms and we provide an open source implementation, which is freely available in the OMPL library (under review, see Sec. 5.7).
+2 Related Work
+
+2.1 Motion Planning
+To solve motion planning problems, we need to develop algorithms to ﬁnd paths through the state space of a robot (Lozano-Pe´rez 1983). Searching such a state space is NPhard (Canny 1988), but we can often efﬁciently ﬁnd solutions using sampling-based algorithms (LaValle 2006; Salzman 2019), where we randomly sample states and connect them to a graph (Kavraki et al. 1996) or to a tree (Lavalle 1998). Many variations are possible, for example using bidirectional trees growing from start and goal state (Kuffner and LaValle 2000; LaValle and Kuffner Jr 2001), lazy evaluation of edges (Bohlin and Kavraki 2000; Mandalika et al. 2019), sparse graphs (Sime´on et al. 2000; Jaillet and Sime´on 2008), safety certiﬁcates (Bialkowski et al. 2016) or deterministic sampling sequences (Janson et al. 2018; Palmieri et al. 2019).
+Often, we are given a cost function we like to use to ﬁnd an optimal path (Karaman and Frazzoli 2011). To ﬁnd optimal paths, we could transfer ideas from classical planning like lazy edge evaluation (Hauser 2015) or sparse graphs (Dobson and Bekris 2014). However, cost function landscapes (Jaillet et al. 2010) often provide additional information we can exploit. Examples include informed sets to prune irrelevant states (Gammell et al. 2018, 2020) or fast marching trees to grow trees outward in cost-to-come space (Janson et al. 2015). Recently, sampling-based motion planning algorithms have also been extended to address zero-measure constraints (Kingston et al. 2019), implicit constraints (Jaillet and Porta 2013), dynamic constraints (Li et al. 2016) or dynamic environments (Otte and Frazzoli 2016).
+All those algorithms robustly solve many planning problems, provide formal guarantees like probabilistic completeness or asymptotic optimality and have been veriﬁed in a wide variety of applications (LaValle 2006; S¸ ucan et al. 2012). However, as we show in Sec. 8, we often cannot use them to solve high-dimensional planning problems in a reasonable amount of time (like less than 10 seconds). We believe additional information is required to solve those problems efﬁciently. A possible candidate for this additional information are multiple levels of abstraction.
+2.2 Multilevel Motion Planning
+In multilevel motion planning, we impose a multilevel abstraction on the state space and we develop algorithms which exploit this abstraction. While several models for multilevel motion planning have been put forward, we propose here to use ﬁber bundles. To justify this decision, we show their relation to alternative modelling approaches and provide clues to the additional value they bring to the table.
+
+We provide a brief overview on motion planning with focus on optimal planning. We then discuss multilevel motion planning by discussing how our approach of ﬁber bundles is connected to existing research. In particular, we stress the point that ﬁber bundles often contribute additional vocabulary, which we can exploit to develop novel methods, simplify notations and better structure our code. We ﬁnish by reviewing complementary approaches to ﬁber bundles and we discuss what our approach adds to existing approaches in (optimal) multilevel motion planning.
+
+2.2.1 Quotient Spaces Fiber bundles are related to quotient spaces (Orthey et al. 2018; Orthey and Toussaint 2019; Brandao and Havoutis 2020), latent spaces (Ichter and Pavone 2019) or sub-spaces (Reid et al. 2020) in that we can represent those spaces as the base space of a ﬁber bundle. We can often create such a base space by taking the quotient of an equivalence class (Pappas et al. 2000). Using the ideas of base spaces, there are two interesting special cases. First, we can use base spaces to simplify a nonholonomic state space to a holonomic state
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+3
+
+space (Sekhavat et al. 1998; Vidal et al. 2019). Often, having a path on the base space is enough to ﬁnd a global solution, in particular if some sort of smoothness constraint is imposed (Vidal et al. 2019; Ho¨nig et al. 2018). Second, we can use sequences of base spaces to simplify multi-robot planning problems (Erdmann and Lozano-Perez 1987; Sime´on et al. 2002; Solovey and Halperin 2014). We can often solve such problems efﬁciently by graph coordination. In graph coordination, we ﬁrst plan a graph on each individual robot subspace, then we combine them using specialized algorithms like sub-dimensional expansion (Wagner and Choset 2015) or directional oracles (Solovey et al. 2016; Shome et al. 2020). This is different from our approach, in that graphs are constructed independently, while we construct them sequentially, which is more akin to a prioritization of robots (Erdmann and Lozano-Perez 1987; Van Den Berg and Overmars 2005; Ma et al. 2019).
+While numerous works exist to exploit sequences of base spaces (Zhang et al. 2009; Vidal et al. 2019), we like to highlight two algorithms. First, the Manhattan-like rapidlyexploring random tree (ML-RRT) (Corte´s et al. 2008; Nguyen et al. 2018), where we would compute path sections similar to the L1 interpolation we advocate. However, the ML-RRT approach differs from ours, in that we use a different collision checking function for the base space and we give formal guarantees using restriction sampling. Second, the hierarchical bidirectional fast marching tree (HBFMT) algorithm (Reid et al. 2019, 2020), where we do restriction sampling on sequences of subspaces. Similar to our approach, Reid et al. (2020) prove HBFMT to be almostsurely asymptotically optimal by inheritance from BFMT*. Our approach is similar in that we develop asymptotically optimal algorithms based on RRT* and PRM*. However, contrary to both Reid et al. (2020) and Jaillet and Sime´on (2008), we use quotient spaces instead of subspaces, we support manifold state spaces instead of euclidean state spaces, we support multiple robots with nonholonomic constraints and we provide a variable path bias for restriction sampling (while Reid et al. (2020) use a ﬁxed path bias). We also differ by providing a recursive path section method which we show to quickly ﬁnd sections even in highdimensional state spaces.
+2.2.2 Constraint Relaxations Fiber bundles are related to constraint relaxations (Boyd and Vandenberghe 2004; Roub´ıcˇek 2011), in that we can often model constraint relaxations as a particular type of ﬁber bundle, i.e. a bundle with an admissible projection not reducing dimensionality. We can often create constraint relaxations by increasing the free space (Hsu et al. 2006), by retracting the obstacle geometry (Saha et al. 2005) or by shrinking robot links sequentially to zero (Baginski 1996). While constraint relaxations often do not decrease the dimensionality, there are, however, extensions which do decrease the dimensionality, like progressive relaxations (Ferbach and Barraquand 1997) or iterative constraint relaxations (Bayazit et al. 2005). In both methods, we either remove links or robots from the problem and we can use them to model the same multilevel abstractions as we can do with ﬁber bundles. However, by using ﬁber bundles, we can add additional insights like path sections and restriction sampling.
+
+Closely related to relaxations are projections (S¸ ucan and Kavraki 2009, 2011; Ro¨weka¨mper et al. 2013; Luna et al. 2020). Projections are a component of ﬁber bundles, which we use to project the state space onto a lower-dimensional base space. Contrary to quotient spaces, projections are often not required to be admissible but can even be random (S¸ ucan and Kavraki 2009). A noteworthy approach is projection using adaptive dimensionality (Vahrenkamp et al. 2008; Gochev et al. 2012, 2013), where we use projections to remove degrees-of-freedom (dof). We can remove dofs of a robot by having a ﬁxed projection (Gochev et al. 2012; Yu et al. 2020) or by adjusting the projection depending on which links are closest to obstacles (Yoshida 2005; Kim et al. 2015). The general idea is similar to ﬁber bundles. However, both Yoshida (2005) and Kim et al. (2015) emphasize the role of distances in workspace to choose a multilevel abstraction, which is an interesting complementary approach to ours. We differ, however, by supporting multiple robots, nonholonomic constraints and by providing asymptotic optimality guarantees.
+2.2.3 Admissible Heuristics Fiber bundles are related to admissible heuristics (Pearl 1984; Persson and Sharf 2014; Aine et al. 2016), in that we can use metrics on the lowerdimensional base space as admissible heuristics (Passino and Antsaklis 1994) to guide search on the state space. This is closely related to the idea of computing lower bounds for planning problems (Salzman and Halperin 2016). When using sequences of ﬁber bundles, we basically use tighter and tighter lower bounds on the real solution. Our approach differs, however, in that we do not consider inadmissible heuristics, which we could combine with admissible heuristics to often speed up planning (Aine et al. 2016; Tonneau et al. 2018).
+While there are many ways to deﬁne admissible heuristics (Aine et al. 2016), we believe there are two main approaches for the case of continuous state spaces, namely lowdimensional sampling and guide paths. In low-dimensional sampling (S¸ ucan and Kavraki 2009), we ﬁrst sample on a lower dimensional base space, then use those samples to restrict sampling on the state space. There are two main approaches. First, we can select sequences of subspaces of the state space (Xanthidis et al. 2018), then sample them by selecting the subspaces based on the density of samples. Second, we can use workspace sampling (Van den Berg and Overmars 2005; Zucker et al. 2008; Rickert et al. 2014; Luna et al. 2020), where state space samples are taken from the restriction of collision-free sets in workspace. We can do workspace sampling by focusing on narrow passages (Van den Berg and Overmars 2005) or by selecting promising points on the robot and guiding them through the workspace (Luna et al. 2020). Our approach is similar in that we use lower-dimensional sampling on the base space and we select base spaces based on a density criterion (Xanthidis et al. 2018). However, we differ by smoothly changing between path and graph restriction sampling and by using a recursive path section method to efﬁciently ﬁnd solution paths.
+Closely related to low-dimensional sampling is the concept of guide paths (Tonneau et al. 2018; Ha et al. 2019). A guide path is a solution on the base space, which we use to restrict sampling on the state space (Palmieri
+
+Prepared using sagej.cls
+
+4
+
+International Journal of Robotics Research XX(X)
+
+et al. 2016). Guide paths are often used in contact planning (Bretl 2006; Tonneau et al. 2018), where we can often give sufﬁciency conditions on when a feasible section exists (Grey et al. 2017). When no feasible section exists, some methods fail while other gradually shift towards graph restriction sampling (Grey et al. 2017). It is also possible to compute multiple guide paths which increase our chance to ﬁnd a feasible section (Vona´sek and Peˇnigˆka 2019; Ha et al. 2019; Orthey et al. 2020). While we also sample along guide paths (path restriction sampling), we differ in two ways. First, we use adaptive restriction sampling to gradually change sampling from path to graph restriction, whereby we guarantee asymptotic optimality. Second, we use a recursive path section method to quickly ﬁnd feasible path sections in high-dimensional state spaces.
+2.3 Exploiting Additional Information
+Fiber bundles are a way to exploit additional information. Other approaches, complementary to ﬁber bundles, exists. The ﬁrst approach are region-based decompositions. In a region-based decomposition, we divide the problem into regions in which planning becomes computationally efﬁcient (Toussaint and Lopes 2017; Orthey et al. 2020). Such an approach can be done in two ways. First, we can divide the workspace (Plaku et al. 2010; Vega-Brown and Roy 2018), for example using subdivision grids (Plaku 2015), Delaunay decompositions (Plaku et al. 2010) or convex regions (Deits and Tedrake 2014; Vega-Brown and Roy 2018). Second, we can divide the space of solution paths (Farber 2008), for example by using the notion of homotopy classes (Munkres 2000), where two paths are considered to be equivalent if we can deform them into each other. Homotopy classes are closely related to the notion of topological complexity (Farber 2017), the minimal number of regions in state space which are collapsible into a point (nullhomotopic). Several practical solutions exists to compute path homotopy classes, like the H-value (Bhattacharya et al. 2012; Bhattacharya and Ghrist 2018), simplicial complices (Pokorny et al. 2016a), task projections (Pokorny et al. 2016b) or mutual crossings of robots (Mavrogiannis and Knepper 2016). However, all those approaches often become computationally intractable for high-dimensional systems, multiple robots or nonholonomic constraints. Fiber bundles are a complementary effort to organize regions on different levels of abstraction (Orthey and Toussaint 2020).
+Apart from region-based decompositions, we identify three other methods to exploit additional information. First, we can exploit distance information in workspace to compute sets of feasible states (Quinlan 1994), which can be used to plan safe motions (Bialkowski et al. 2016) or compute covers of free space (Lacevic et al. 2016; Lacevic and Osmankovic 2020). Second, we can exploit differentiable constraints when available (Toussaint et al. 2018; Henkel and Toussaint 2020). Third, we can exploit alternative state space representations, for example by using topology-preserving mappings (Zarubin et al. 2012; Ivan et al. 2013). This is complementary to our approach, in that Zarubin et al. (2012) tries to ﬁnd alternative representations of a state space, while we concentrate on ﬁnding simpliﬁcations of a given space.
+
+2.4 Beneﬁts of Fiber Bundle Formulation
+We mentioned that ﬁber bundles are closely related to quotient spaces, constraint relaxations and admissible heuristics. Thus, we can reuse previous results whenever applicable while adding additional insights. However, most previous approaches are limited in the number of projections (S¸ ucan and Kavraki 2009; Corte´s et al. 2008), the number of robots (Vidal et al. 2019), use only holonomic constraints (Zhang et al. 2009), use only euclidean spaces (Reid et al. 2019, 2020) or work only in speciﬁc situations (Gochev et al. 2012; Kim et al. 2015). We can apply ﬁber bundles to any manifold space (we show it for compound spaces including the special euclidean and orthogonal groups in 2d and 3d), any ﬁnite number of projections (up to 98 in our evaluations), any ﬁnite number of robots (up to 8 in our evaluations) and any nonholonomic constraint (for Dubin’s state spaces in our evaluations). With ﬁber bundles, we also provide a shared vocabulary, in which we could reformulate previous seemingly unrelated results like path restriction sampling (Zhang et al. 2009; Tonneau et al. 2018; Vidal et al. 2019) or graph restriction sampling (Grey et al. 2017; Orthey et al. 2018; Reid et al. 2020). Since we also provide an open source implementation in OMPL, we can benchmark different multilevel strategies (Appendix B) and we can show the beneﬁt of ﬁber bundles compared to classical motion planners (Sec. 8).
+3 Preliminaries
+We ﬁrst introduce some notation and basic background on optimal motion planning, equivalence relations, quotient spaces, constraint relaxation, and admissible heuristics. The ﬁber bundle formulation we introduce in the next section will integrate these concepts in a coherent formulation. The conﬁdent reader may skip ahead and return if the need arises.
+3.1 Optimal Motion Planning
+Let R1, . . . , RM be M robots with associated (component) state spaces Y1, . . . , YM , respectively. We can combine the robots into one generalized robot R with associated (composite) state space X = Y1 × · · · × YM .
+To each state space, we add two complementary structures. First, we add a constraint function φ : X → {0, 1} on X which takes an element x in X and returns zero if x is feasible and one otherwise. Examples of constraints are joint-limits, self-collisions, environment-robot collisions and robot-robot collisions. Second, we add a steering function ψ, which takes two elements x1 and x2 in X as input and returns a path steering the robot from x1 to x2 (while potentially ignoring constraints). We denote a state space X together with the constraint function φ and the steering function ψ as a planning space (X, φ, ψ). The planning space implicitly deﬁnes the free state space as Xf = {x ∈ X | φ(x) = 0}.
+Given a planning space, we deﬁne a motion planning problem as a tuple (Xf, xI , XG). To solve a motion planning problem, we need to develop an algorithm to ﬁnd a path from an initial state xI ∈ Xf to a desired goal region XG ⊂ Xf. Often, we are not only interested in some path, but in a path which optimizes a cost functional c : XI → R≥0 whereby I is the unit interval and XI is the set of continuous
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+5
+
+x2
+
+x2
+
+x
+
+x
+
+x
+
+x1
+
+x1
+
+x1
+
+R2
+
+R2/ ∼
+
+R1
+
+Figure 2. Quotient space example. Left: Space R2. Middle: Quotient space Q = R2/ ∼, the set of equivalence classes of vertical lines. Right: Representative space R1 under representation mapping ν : Q → R1 (Adapted from (Orthey
+et al. 2018)).
+
+paths from I to X with ﬁnite length (Karaman and Frazzoli 2011; Janson et al. 2018). We then deﬁne the optimal motion planning problem as ﬁnding a path from xI to XG minimizing the cost functional c.
+3.2 Equivalence Relations
+An equivalence relation ∼ is a binary relation on a space X such that for any elements x, y, z ∈ X we have x ∼ x (reﬂexive), if x ∼ y then y ∼ x (symmetric) and if x ∼ y and y ∼ z then x ∼ z (transitive) (Munkres 2000).
+An equivalence relation partitions the space X into disjoint subsets we call equivalence classes (Munkres 2000). Given an element x in X, the equivalence class of x is the set of elements [x] = {y | y ∼ x}.
+
+planning problem on X, we need to search through the free space Xf, which might have zero-measure constraints or narrow passages. To simplify such a problem, we replace the constraint function φ by a constraint relaxation function φR under the condition
+
+φR(x) ≤ φ(x)
+
+(1)
+
+for any x in X. We can explain this condition geometrically as an
+expansion of the free space Xf when using φR (Orthey and Toussaint 2019). Constraint relaxations (Roub´ıcˇek 2011) are advantageous, because we can use solutions of the relaxed problem as certiﬁed lower bounds on the solution of the original problem.
+
+3.5 Admissible Heuristics
+
+In a search problem, we like to ﬁnd paths through a state
+space X to move from an initial element xI ∈ X to a goal element xG ∈ X. When casting this as a search problem, we often like to know which state to expand next. A helpful tool is the cost-to-go (or value) function h∗ : X → R which
+deﬁnes the cost of the optimal path from any point to the
+goal. An admissible heuristic is an estimate h : X → R which lower-bounds h∗ as
+
+h(x) ≤ h∗(x)
+
+(2)
+
+for any x in X (Pearl 1984; Edelkamp and Schroedl 2011; Aine et al. 2016). Admissible heuristics are important because we can use them to guarantee optimality and completeness in algorithms like A* (Hart et al. 1968; Pearl 1984) and to often decrease planning time signiﬁcantly (Aine et al. 2016).
+
+3.3 Quotient Spaces
+We often like to simplify a space X under an equivalence relation ∼ by taking the quotient. Taking the quotient means that we compute the quotient space Q = X/ ∼ under the quotient map π : X → Q. The quotient space is the set of all equivalence classes imposed by ∼ on X. To manipulate those equivalence classes, we can often represent the quotient space by assigning an equivalence class to a point of a representative space. We deﬁne this representative space as a space B under a (bijective) representative mapping ν : Q → B (Lee 2003).
+Let us consider an example. In Fig. 2, we show the plane R2 with elements x = (x1, x2) under the equivalence relation of vertical lines, i.e. x ∼ x if x1 = x1. An equivalence class [x] = {x | x ∼ x} represents a vertical line, i.e. the set of points in R2 with equivalent x1 value. Taking the quotient, we obtain the quotient space Q = R2/ ∼, the set of vertical lines in R2 (Fig. 2 Middle). We can then represent Q by the representative space R1 by associating to each equivalence class (vertical line) the real value x1 using the representative mapping ν : Q → R1 we deﬁne as ν([x]) = x1 (Fig. 2 Right).
+3.4 Constraint Relaxation
+To approximate a complex problem, we can often use the concept of constraint relaxation. Let X be a space and φ : X → R be a constraint function on X. To solve a
+
+4 Fiber Bundle Formulation
+
+To model multiple levels of abstractions of state spaces, we use the framework of ﬁber bundles (Steenrod 1951; Husemoller 1966; Lee 2003). A ﬁber bundle is a tuple (F, X, B, π), consisting of the total space X, the ﬁber space F , the base space B and the projection map
+
+π:X →B.
+
+(3)
+
+The mapping π needs to fulﬁl two properties:
+
+1. Union of Fibers. The total space X is a (disjoint) union of copies of the ﬁber space F , parameterized by the base space B (Lee 2003). This means that, if we take any element b in B, the preimage π−1(b) is isomorphic to the ﬁber space F .
+2. Local Product Space. The total space X locally equals the product space B × F . This means, if we take any element b in B, there exists a neighborhood U (an open set containing b) such that the preimage π−1(U ) is homeomorphic to U × F (Lee 2003).
+
+In other words, a ﬁber bundle locally has the structure of a product space, and π provides a projection from the total space X to a “parameterization” of ﬁbers in B. This local product structure and the projection π aligns with the previous description in terms of equivalence classes and quotient spaces. Our main motivation for leveraging the terminology of ﬁber bundles are the notions we introduce next.
+
+Prepared using sagej.cls
+
+6 π−1 (xB )
+
+International Journal of Robotics Research XX(X)
+
+X
+
+x2
+
+x2
+
+xB
+Figure 3. Bundle restrictions on ﬁber bundle R3 → R2. Left: Point restriction (Fiber). Middle: Path restriction. Right: Graph restriction.
+
+x1
+
+x1
+
+b1
+
+b2
+
+b3 b4 b5 B
+
+Figure 4. Bundle sections on ﬁber bundle X → B with base path {b1, b2, b3, b4, b5}. We show three interpolated sections on the bundle space: L2 section (solid line), L1 ﬁber ﬁrst section (dashed line) and L1 ﬁber last section (dotted line).
+
+4.1 Bundle Restrictions
+Given a ﬁber bundle (F, X, B, π), a bundle restriction X|U ⊆ X is the subspace of the total space that projects to U ⊆ B, namely X|U = π−1(U ), which we call the restriction of X to U (Tu 2017).
+In our algorithms, we will consider three special kinds of restrictions. First, given a point xB on the base space, we use its restriction F |xB = π−1({xB}). Note that we call F |xB a ﬁber as it is, by deﬁnition, isomorphic to F (Assertion 1.). We visualize this in Fig. 3 (Left). Second, given a path pB : I → B on the base space, with I = [0, 1] the unit interval, we have its restriction X|pB = π−1({pB(t) : t ∈ I}) (Fig. 3 Middle). And third, given a graph GB on the base space, we have the graph restriction π−1(GB) ⊆ X, where we unproject the union of all its vertices and edges (Fig. 3 Right).
+We use these three restrictions for different computations. First, we use point restrictions (ﬁbers) to lift base space elements up to the total space (Sec. 4.2). Second, we use path restrictions to quickly compute sections, which are paths on the total space constraint to the path restriction (Sec. 4.2 and Sec. 6.4). Third, we use graph restrictions to formulate restriction sampling, i.e. sampling restricted to elements of the total space that project onto the base space graph (Sec. 6.1). It is important to note that restriction sampling is dense in the free total space, if the graph on B is dense. We then proceed to use the denseness property to prove probabilistic completeness and asymptotic optimality (Sec. 7).
+4.2 Bundle Sections
+Given a ﬁber bundle (F, X, B, π) and a subspace U ⊆ B of the base space, a section of U is a map s : U → X such that π(s(u)) = u (Lee 2003). In other words, while a restriction X|U unprojects U to all elements x ∈ X that project to U , a section maps each u ∈ U to just one speciﬁc element x ∈ X that projects to u. (It also follows, that s(u) ∈ X|U for any section s.)
+We deﬁne useful special cases of sections in the following:
+4.2.1 Lift When U contains only a single element {b}, we call the section a lift. A lift s(b) takes as input an element b in B and returns an element x on the total space. We often like to single out a speciﬁc element x by additionally choosing
+
+a ﬁber space element f , whereby we overload the lift as s(b, f ). In the case of X being a product space, we deﬁne the lift as s(b, f ) = (b, f ). However, if X → B is not trivial, the base space element b deﬁnes an isomorphic transformation of the ﬁber space (including the ﬁber element f ), which in turn uniquely deﬁnes the element x. Luckily, all total spaces in this work are trivial except the Mobius strip. For the Mobius strip, we deﬁne the transformation as a linear transformation, involving a translation of the ﬁber space (here: the unit [0, 1] interval) around the circle while simultaneously rotating the ﬁber space.
+4.2.2 Path Section When the subset U is an interval, we call the section a path section. A path section of a path pB : I → B is itself a path p : I → X such that pB = π ◦ p.
+Our algorithms will aim to ﬁnd feasible path section, i.e., feasible unprojections of paths in the base space to paths in the full space. We use three interpolation methods to this end. All three methods take as input a base path pB and two total space elements x1 and x2 in X. Let πF be the projection of the total space onto the the ﬁber space (i.e. orthogonal to the base space projection π). We then compute ﬁber space elements f1 = πF (x1) and f2 = πF (x2) that introduce coordinates along the ﬁbers, and which we use to interpolate. Each method differs by how we interpolate between f1 and f2 along the path restriction π−1(pB) (see also Fig. 4).
+4.2.3 L2 Section To interpolate a section, we can use a straightforward L2 section. To interpolate an L2 section, we use the shortest path under the L2-norm, which is simply the linear interpolation
+
+lL2 (t) = (1 − t)f1 + t(f2 − f1) .
+
+(4)
+
+We then compute the section as
+
+p(t) = s(pB(t), lL2 (t))
+
+(5)
+
+by lifting each path base element to the bundle space. We use the L2 section mainly to compute quotient space metrics (Sec. 6.2).
+4.2.4 L1 Section An alternative to L2 sections are L1 sections. In an interpolation with an L1 section, we compute the section as
+
+p(t) = s(p˜B(t), lL1 (t))
+
+(6)
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+7
+
+with the interpolation
+
+lL1 =
+
+f1, f2,
+
+if
+
+t
+
+<
+
+1 2
+
+if
+
+t
+
+≥
+
+1 2
+
+(7)
+
+We use two ﬂavors of L1 sections. The ﬁrst ﬂavor are ﬁber ﬁrst (FF) sections, where we use the adjusted base path as
+
+p˜FF(t) =
+
+pB (0),
+
+pB (2(t
+
+−
+
+1 2
+
+)),
+
+if
+
+t
+
+<
+
+1 2
+
+if
+
+t
+
+≥
+
+1 2
+
+(8)
+
+The second ﬂavor are L1 ﬁber last (FL) sections, where we use the base path as
+
+p˜FL(t) =
+
+pB (2t), pB (1),
+
+if
+
+t
+
+<
+
+1 2
+
+if
+
+t
+
+≥
+
+1 2
+
+(9)
+
+Both ﬁber ﬁrst and ﬁber last L1 sections are a cornerstones
+
+of our method, which we will use alternately to ﬁnd feasible
+
+sections (see Sec. 6.4 for details).
+
+If a projection mapping is admissible w.r.t. given φ and φB, we call the ﬁber bundle an admissible ﬁber bundle. Analogously, if a sequence of ﬁber bundles contains only admissible projections, we call it an admissible ﬁber bundle sequence. It is important to note that admissibility is a requirement, if we like to prove probabilistic completeness or asymptotic optimality.
+Using admissible ﬁber bundle (sequences), we thus can tie together the notions of quotient spaces, constraint relaxations and admissible heuristics. First, we can interpret ﬁber bundles as a generalization of constraint relaxations (Orthey and Toussaint 2019), where paths on the base space are lower bound estimates on solution paths on the total space. Second, we can use a solution on the base space as an admissible heuristic (Aine et al. 2016) and exploiting it by using either restriction sampling, by using a quotient space (base space) metric (Passino and Antsaklis 1994; Pearl 1984) or by computing sections along a given base space path (Zhang et al. 2009).
+
+4.3 Bundle Sequences
+
+With a ﬁber bundle we simplify the state space onto a
+
+simpliﬁed base space. Often, however, we like to continue
+
+simplifying the base space, for which we require sequences
+
+of ﬁber bundles. We deﬁne a ﬁber bundle sequence as a
+
+tuple (X1:K , F1:K−1, π1:K−1) such that the k-th base space
+
+is equal to the k − 1-th total space. We write such a sequence
+
+as
+
+XK −π−K−−→1 XK−1 −π−K−−→2 . . . −π→1 X1
+
+(10)
+
+whereby we call the space Xk the k-th bundle space. When working with sequences of ﬁber bundles, we can
+
+apply the same methods as before. However, when we are on the k-th bundle space, we can choose to consider it as the base space for the k + 1-th total space or as the total space with the base space being the k − 1-th bundle space.
+
+This is advantageous, since we can use a bundle space to
+
+simultaneously behave both as a base space and as a total
+
+space.
+
+4.4 Admissible Fiber Bundles
+While ﬁber bundles allow many projections, we usually are only interested in admissible projections (Orthey et al. 2018). With admissible projections we roughly mean projections that preserve feasibility of solutions. This is important, since we can use it to later prove asymptotic optimality of our algorithms. We next deﬁne admissible projections and discuss the corresponding notion of admissible ﬁber bundles.
+Let φ and φB be constraint functions on X and B, respectively. Given the constraint functions, we can deﬁne the free total space Xf and the free base space Bf (see Sec. 3.1). For an admissible projection, we require the projection mapping to fulﬁll the ﬁrst two requirements (Assertions 1 and 2 above) plus the following third requirement
+3. Admissible. The projection mapping does not invalidate solutions. This means, if we map the free state space Xf via π onto the base space, then the image π(Xf) is a subset of the free base space Bf. Or, equivalently, φB(π(x)) ≤ φ(x) for any x ∈ X (Orthey and Toussaint 2019).
+
+4.5 Examples of Fiber Bundles in Robotics
+To make the discussion more concrete, we discuss three (multilevel) abstractions which are often used in motion planning.
+
+4.5.1 Tangent Bundle and Path-Velocity Decomposition When planning for a dynamical system, we often can simplify planning using a tangent bundle decomposition. Given a state space X we impose a tangent bundle X = T M = M × Rn with projection
+
+M × Rn −π→ M
+
+(11)
+
+whereby n = dim M , Rn is the ﬁber space and M is the base space. We call M the conﬁguration space and T M the tangent bundle. Planning on tangent bundles often follows a two step approach. First, we compute a path pM on the conﬁguration space M (the base space) avoiding obstacles and self-collisions. Second, we compute a velocity along the path, i.e. a time reparameterization. Such a time reparameterization is a path section of pM and we can ﬁnd such a section by solving a convex optimization problem (Bobrow et al. 1985), which we can solve efﬁciently (Pham and Pham 2018). To guarantee completeness, however, we need to either plan on the full tangent bundle T M (LaValle and Kuffner Jr 2001) or track valid speed proﬁles along paths on M (Pham et al. 2017).
+
+4.5.2 Prioritized Multi-Robot Motion Planning To plan motions for multiple robots, we can prioritize the robots (Erdmann and Lozano-Perez 1987; Ma et al. 2019). Given M robots, we rank them, then plan for the most important robot and use its motion as a constraint on the motion of the next robot. We can formalize this as a ﬁber bundle sequence
+
+Y1:M −π−M−− −→1 Y1:M−1 −π−M−− −→2 · · · −π→1 Y1
+
+(12)
+
+whereby Ym is the state space of the m-th robot and Y1:M is the cartesian product of the state spaces Y1, . . . , YM . In the ﬁber bundle sequence, we remove, in each step, the conﬁguration space and the geometry of the least important robot. We can then either plan a path in Y1 and use it as a
+
+Prepared using sagej.cls
+
+8
+
+International Journal of Robotics Research XX(X)
+
+constraint for the next robot (i.e. ﬁnding a feasible section in the path restriction). This is known as path coordination (Sime´on et al. 2002). Or we use the graph on Y1 to restrict sampling for the remaining robots, which is known as graph coordination (Svestka and Overmars 1998). In practice, we can realize graph coordination either by using an oracle to guide expansion (Solovey et al. 2016) or by expanding dimensionality when conﬂicts arise (Wagner and Choset 2015).
+4.5.3 Workspace Reduction Often the topology of the workspace of a robot is correlated with the topology of the conﬁguration space of the robot (Bialkowski et al. 2016). In those cases, knowing the free workspace gives information we can exploit to estimate the free conﬁguration space. This is often true for rigid bodies, in particular for some unmanned aerial vehicles (UAV) or autonomous underwater vehicles (AUV). If W depicts the workspace and C the conﬁguration space, we can often use the ﬁber bundle
+
+C →W
+
+(13)
+
+whereby W = Rd with d = {2, 3} and the projection could be a mapping from joint conﬁgurations onto a ball Bd of ﬁxed or variable size (Brock and Kavraki 2001).
+If we consider a distance function in W of the ball to obstacles, we can use the geometry of the original robot to formulate subsets of free conﬁguration space (Quinlan 1994), thereby computing covers of free space (Yang and Lavalle 2004; Shkolnik and Tedrake 2011). We can extend this to robots with non-holonomic constraint (Khatib 1996), to manipulators (Lacevic and Osmankovic 2020) or even to molecular structures (Rickert et al. 2014).
+If we have a path of spheres in the free workspace, we can use it to compute a section in the restriction of the balls. If the robot geometry, however, differs too much from the workspace geometry, we often observe a signiﬁcant increase in computation time (Rickert et al. 2014).
+
+Algorithm 1 BundlePlanner(xI , xG, X1, · · · , XK )
+
+1: Let X be a PRIORITY QUEUE
+
+2: for k = 1 to K do
+
+3: FINDSECTION(Xk)
+
+4: X.PUSH(Xk)
+
+5: while ¬PTC(Xk) do
+
+6:
+
+Xselect = X.POP
+
+7:
+
+GROW(Xselect)
+
+8:
+
+X.PUSH(Xselect)
+
+9: end while
+
+10: end for
+
+Sec. 6.4
+Sec. 6.3 Sec. 5.2
+
+5.1 Abstract Multilevel Planner
+To solve a multilevel motion planning problem, we develop a set of algorithms generalizing common motion planner to ﬁber bundles. All those algorithms share the same highlevel structure we detail in Algorithm 1. In Alg. 1, we ﬁrst initialize a priority queue sorted by the importance of each bundle space (Line 1.1). We then iterate over all bundle spaces, try to ﬁnd a section on the k-th bundle space (Line 1.3) and then push the k-th bundle space into the priority queue (Line 1.4). We then execute the while loop while a planner terminate condition (PTC) is not fulﬁlled for the kth bundle space (Line 1.5). Inside the loop, we select the most important bundle space, grow the graph or tree and push the space back into the queue (Line 1.6 to 1.8). We terminate if the PTC for the K-th bundle space has been fulﬁlled. This means we either terminate successfully, found the problem to be infeasible or reach a timelimit.
+All bundle space algorithms are alike in sharing the same high-level structure; each bundle space algorithm differs in their Grow function (Line 1.7) and their primitive methods (Sec. 6).
+5.2 Concrete Multilevel Planner
+
+5 Optimal Multilevel Motion Planning on Sequences of Fiber Bundles
+Let X be a state space and let XK π−K→−1 . . . −π→1 X1 be a ﬁber bundle on XK = X. Given a start and a goal conﬁguration xI , xG ∈ XK and an objective cost functional c, we deﬁne the optimal multilevel motion planning problem as the tuple (xI , xG, X1, . . . , XK ) asking us to ﬁnd a path from xI to xG while minimizing the cost c. Thus, by deﬁning a optimal multilevel motion planning problem, we generalize optimal motion planning (Sec. 3.1) by adding additional information. Our goal is to develop algorithms which efﬁciently exploit this additional information.
+Before we can exploit this additional information, we attach additional structures to each bundle space Xk. In particular:
+1. A ﬁber space Fk = Xk/Xk−1 2. A base space projection πk : Xk → Xk−1 3. A ﬁber space projection πkF : Xk → Fk 4. Projected start state xkI and goal region XGk 5. A graph Gk = (Vk, Ek) containing |Vk| vertices and
+|Ek| edges
+
+The BundlePlanner algorithm is the backbone, which we can use to develop novel algorithms by changing the Grow function. To implement the Grow function, we can utilize almost any single-level planning algorithm. In our case, we use the algorithms RRT, RRT*, PRM and PRM* (please consult Tab. 1 for abbreviations of algorithms).
+All grow functions in a multilevel versions of our algorithms differ from their single-level version in four points. First, we replace uniform sampling by restriction sampling, as we detail in Sec. 6.1. Algorithms might differ in how we implement graph sampling in restriction sampling. Second, when pushing a new bundle space into the priority queue, we check for a feasible section over the solution path on the last bundle space, as we detail in Sec. 6.4. This computation is equivalent for each bundle planner. Third, we rank bundle spaces based on a selection criterion, which we detail in Sec. 6.3. Algorithms might differ in the type of selection criterion we employ. Fourth, we adjust the metric on the bundle space, which affects both nearest neighbors computation and the steering method, as we detail in Sec. 6.2. While different metrics are possible (Orthey et al. 2018), we use the intrinsic bundle metric for all algorithms (as determined by our meta-analysis in Appendix B).
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+9
+
+5.3 QRRT
+In Alg. 2, we show the QRRT algorithm. We previously introduced QRRT in Orthey and Toussaint (2019). We differ here by using an exponential importance primitive (Sec. 6.3.2) and by adding the ﬁnd section primitive (Sec. 6.4). The remaining structure, however, remains unchanged. In detail, we sample a random element from the bundle space (Line 2.1) using restriction sampling (Sec. 6.1). We then choose the nearest vertex from the tree (Line 2.2) and steer from the nearest to the random element (Line 2.3). We then check if the motion is collision-free and add the new state to the tree. Note that we stop steering if the distance goes above a threshold, similar to RRT (LaValle and Kuffner Jr 2001).
+5.4 QRRT*
+While QRRT performs well in our evaluations, we can improve upon QRRT by developing an asymptotic optimal version. We call this QRRT* and depict the algorithm in Alg. 3. By developing QRRT*, we generalize RRT* (Karaman and Frazzoli 2011) to multiple levels of abstraction. To implement QRRT*, we use one iteration of QRRT (Line 3.1), then compute k nearest neighbors of the new state (Line 3.2). We choose the k as k = kRRT log(N ) whereby N is the number of vertices in the tree (Karaman and Frazzoli 2011). The parameter kRRT can be chosen based on the dimension of the problem (Karaman and Frazzoli 2011; Kleinbort et al. 2019).
+After computing k nearest neighbors, we perform two rewire operations (this dicussion follows closely Salzman and Halperin (2016)). First, we rewire the nearest neighbors to the new state (Line 2.4). Second, we rewire the new state to the nearest neighbors (Line 2.7). We show the rewire operation in Alg. 4. Inside the rewire algorithm, we update the incoming edge of state y by checking if the cost to come from state x (cost from initial state to x) plus the cost to go from x to y is smaller than the cost to come for state y. In that case, we update the graph by removing all incoming edges into y and adding a directed edge from x to y. Contrary to similar implementations (Karaman and Frazzoli 2011; Salzman and Halperin 2016), we also update the tree Gk such that we can use the same restriction sampling method for each algorithm. While the grow method is similar to the RRT* method (Salzman and Halperin 2016), we note that much of the complexity is encapsulated in the primitive methods (Sec. 6), which we use to sample, to compute distances, to ﬁnd sections and to choose a bundle space to grow next.
+5.5 QMP
+In Alg. 5, we show the QMP algorithm, which we introduced in Orthey et al. (2018). In the QMP algorithm, we differ from QRRT by not growing a tree, but a graph (Kavraki et al. 1996). QMP generalizes PRM in the sense that QMP becomes equivalent to PRM when we choose a single-level abstraction. The algorithm QMP as presented here differs slightly from its original conception (Orthey et al. 2018) in three points. First, we use the epsilon greedy importance (Sec. 6.3.2) instead of uniform importance to select a bundle space to expand. Second, we use the intrinsic bundle metric
+
+Algorithm 2 GrowQRRT(Xk)
+1: xrand ← RESTRICTIONSAMPLING(Xk) 2: xnear ← NEAREST(xrand, Gk) 3: xnew ← STEER(xnear, xrand, Gk) 4: if ¬CHECKMOTION(xnear, xrand) then 5: return 6: end if 7: Gk = Gk ∪ {xnear, xnew}
+
+Algorithm 3 GrowQRRT*(Xk)
+1: GROWQRRT(Xk) 2: x1:K ← K-NEARESTNEIGHBORS(xnew, Gk, Gk−1) 3: for xnbh ∈ x1:K do 4: REWIRE(xnbh, xnew) 5: end for 6: for xnbh ∈ x1:K do 7: REWIRE(xnew, xnbh) 8: end for
+
+Algorithm 4 Rewire(x, y)
+
+1: if CHECKMOTION(x,y) then
+
+2: c ← COST(x, y)
+
+3: if COST(x) + c < COST(y) then
+
+4:
+
+UPDATETREE(y, x, Gk)
+
+5: end if
+
+6: end if
+
+Algorithm 5 GrowQMP(Xk)
+1: xrand ← RESTRICTIONSAMPLING(Xk) 2: if ¬ISVALID(xrand) then return 3: end if 4: Gk = Gk ∪ {xrand} 5: x1:K ← K-NEARESTNEIGHBORS(xrand, Gk, Gk−1) 6: for xnbh ∈ x1:K do 7: xnew ← STEER(xnbh, xrand, Gk) 8: Gk = Gk ∪ {xnbh, xnew} 9: end for
+
+(Sec. 6.2) instead of the quotient space metric, which we found to not scale well to high-dimensional state spaces (see Appendix B). Third, we use the FindSection method to quickly check for sections (Sec. 6.4).
+5.6 QMP*
+QMP* is similar as QMP, but we use a different k in each iteration to chose the nearest neighbors. This k is chosen such that the resulting algorithm is almost-surely asymptotically optimal (Karaman and Frazzoli 2011). In general we use k = kPRM log(N ) with N being the number of vertices in the graph. See also Solovey and Kleinbort (2020) for recent developments on choosing the parameter kPRM.
+5.7 Open Source Implementation
+To make the algorithms freely available, we provide implementations in C/C++, which we split into two frameworks. The ﬁrst framework is a graphical user interface
+
+Prepared using sagej.cls
+
+10
+
+International Journal of Robotics Research XX(X)
+
+Algorithm 6 RestrictionSampling(Xk)
+
+1: if EXISTS(Xk−1) then
+
+2: xbase ← SAMPLEBASE(Gk−1)
+
+3: xﬁber ← SAMPLE(xbase, Fk)
+
+4:
+
+xrand ← LIFT(xbase, xﬁber)
+
+5: else
+
+Element of Xk−1 Element of Fk Element of Xk
+
+6: xrand ← SAMPLE(Xk) 7: end if 8: return xrand
+
+sampling (Hsu et al. 2003), maximum clearance (Wilmarth et al. 1999), quasi-random (Branicky et al. 2001), utilitybased (Burns and Brock 2005) or deterministic sampling (Janson et al. 2018; Palmieri et al. 2019). To guarantee probabilistic completeness and asymptotic optimality, we only need to verify that those sequences are dense.
+The main method of restriction sampling is the SampleBase method. In the SampleBase method, we sample the graph Gk−1 on the base space. While numerous methods exist to sample a graph (Leskovec and Faloutsos 2006), we found ﬁve methods particularly important.
+
+(GUI) where users can specify ﬁber bundles by providing URDF (Uniﬁed Robotic Description Format) ﬁles for each level and specify the bundle structure in an XML (Extensible Markup Language) ﬁle. We then provide functionalities to step through each level and to visualize the lowest-cost path on each level. The code is freely available on github∗.
+The second framework is the actual implementation of ﬁber bundles, bundle algorithms and primitives, which we implement as a submodule of the Open Motion Planning Library (OMPL) (S¸ ucan and Kavraki 2009). In particular, we encapsulate our code as an ompl::base::Planner class, which we can use in OMPL for benchmarking (Moll et al. 2015) or analysis. There is a pending pull request† to include the algorithms into the main branch of OMPL. We also include a high-level introduction, a tutorial and additional demos.
+6 Primitive Methods for Bundle Space Planning
+All bundle algorithms are based on a set of primitive methods, which we use to sample the base space, to compute a metric, to select a bundle space to grow next and to rapidly ﬁnd a feasible section. To implement each method, we can use different strategies. We discuss several of those strategies and we discuss how they inﬂuence the algorithms. To select the best strategies for each algorithm, we perform a metaanalysis in Appendix B.
+6.1 Restriction Sampling
+In restriction sampling, we sample states on the total space Xk by sampling exclusively in the graph restriction induced by the graph on the base space Xk−1 (see Sec. 4.1), as we detail in Alg. 6. We ﬁrst check if the base space Xk−1 exists (Line 6.1). If it does not exists, we revert to a standard sampling method like uniform sampling (Line 6.6). If it does exists, we ﬁrst sample a base space element (Line 6.2), then use it to sample a ﬁber space element (Line 6.3) and ﬁnally lift the base space element to the bundle space using the ﬁber space element (Line 6.4). The lift operation depends on if the bundle is trivial, in which case we just concatenate base element and ﬁber element. If the bundle is non-trivial (like the Mobius strip), we use the base element to index the correct ﬁber space, then use the ﬁber element to index the correct bundle space element (see Sec. 4.2).
+To implement the Sample function, we use uniform sampling of the space. However, other sampling techniques are certainly possible, like gaussian sampling (Boor et al. 1999), obstacle-based sampling (Amato et al. 1998), bridge
+
+6.1.1 Random Vertex Sampling First, we can chose a vertex at random, which we refer to as Random-Vertex (RV) sampling (Leskovec and Faloutsos 2006). In RV sampling, we choose a random integer between 1 and |V | which uniquely deﬁnes a vertex on the graph G. This sampling is particularily fast (O(1) operations), but might be overly constrictive if we sample from a tree or a graph with long edges. However, for large graphs, this sampling procedure is often the only alternative to not slow down sampling.
+6.1.2 Random Edge Sampling Second, we can choose an edge at random, then pick a state on this edge, a method we refer to as Random-Edge (RE) sampling (Leskovec and Faloutsos 2006). This method requires two operations, ﬁrst to pick an edge, then to pick a number between 0 and 1 to determine the state on the edge. This method seems to be superior if the graph is sparse and has long edges, in particular edges going through narrow passages.
+6.1.3 Random Degree Vertex Sampling Third, we can choose a vertex at random, but biased towards vertices with a low degree (number of outgoing edges). We refer to this as Random-Degree-Vertex (RDV) sampling. With RDV sampling, we bias samples to vertices which are either in tight corners or inside of narrow passages. Vertices in large open passages often have many neighbors and thereby a large degree. This method, however, requires to update a probability function which tracks the degrees of each vertex.
+6.1.4 Path Restriction Sampling Fourth, we can choose a sample on the lowest cost path on the graph, a method we refer to as path restriction (PR) sampling. We can utilize PR sampling in two ways. Either we sample on the path restriction with a ﬁxed probability βﬁxed. This is similar to the ﬁxed tunnel radius proposed by Reid et al. (2019). Or, we ﬁrst sample exclusively on the path restriction, then gradually decay towards the ﬁxed path bias. We call this method PR decay sampling.
+PR decay sampling allows us to model a change in belief. It is often true that the shortest path on the base space contains a feasible section, which we should search for by exclusively sampling on the path restriction (Orthey et al. 2018). If we do not ﬁnd a valid section, we should gradually dismiss our belief that a section exists and try to sample the graph restriction instead. To model this change in belief, we use an exponential decay function to smoothly transition from probability 1 down to the ﬁxed probability βﬁxed using
+∗https://github.com/aorthey/MotionExplorer †https://github.com/ompl/ompl/pull/727
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+11
+
+a decay constant λ. See Appendix A for the deﬁnition of exponential decay.
+Before using PR decay sampling, we simplify the path. Simplifying the path is similar to the local path reﬁnement method (Zhang et al. 2009), where a path is optimized to increase its clearance. We use a path optimizer with a cost term for path length.
+6.1.5 Neighborhood Sampling Fifth, we can choose a sample not directly on the graph, but in an epsilon neighborhood. We refer to this as neighborhood (NBH) sampling. NBH sampling is helpful when there is a path through a narrow passage which comes close to its boundary. Those paths often do not have a feasible section. Instead, if we would perturbate the path slightly, we can often ﬁnd a path admitting a feasible section. With NBH sampling, we ﬁrst sample a conﬁguration x exactly on the graph, and then sample a second conﬁguration x which we sample uniformly in an epsilon ball around x. In practice, we use an exponential decay (Appendix A) to smoothly vary the size of the neighborhood from zero up to epsilon. With NBH sampling, we can often solve problems where a solution through a narrow passage has few or no samples, while using nearby samples allows us a bit more wriggle room. Note that instead of uniform epsilon sampling, we could also use a Gaussian distribution with mean x and epsilon variance (Reid et al. 2019). However, in preliminary testing, we could not observe a difference between them.
+
+6.2 Bundle Space Metric
+An essential component of bundle algorithms are the nearest neighbor computations, which depend on choosing a good metric function. We discuss two possible metrics, the intrinsic bundle metric (ignoring the base space) and the quotient space metric (exploiting the base space).
+6.2.1 Intrinsic Bundle Metric To straightforwardly attach a metric to the bundle space, we use the geodesic distance between two points while ignoring the base space. We compute this intrinsic metric on X as
+
+d(x1, x2) = dX (x1, x2)
+
+(14)
+
+While this is a naive way to compute the metric, we note that using base space information is often costly, and the total space metric is often good enough (Orthey and Toussaint 2019).
+
+6.2.2 Quotient Space Metric If a base space is available,
+we can consider it as a quotient space, on which we can
+deﬁne a quotient space metric (Guo et al. 2019). To deﬁne
+a quotient space metric between two states, we ﬁrst project both states onto the base space, compute a shortest path pB using the base graph and then interpolate an L2 section along the path restriction X|pB (see Sec. 4.2).
+In particular, given two points x1 and x2 in Xk, we project them onto the base space Xk−1 to yield b1 = π(x1) and b2 = π(x2). We then compute the nearest vertices v1 and v2 on the graph Gk−1 and we compute a path on Gk−1 between v1 and v2 using the A* algorithm with the intrinsic base space metric as an admissible heuristic. Finally, we use the ﬁber space projection of x1 and x2 to compute ﬁber space elements f1 = πF (x1) and f2 = πF (x2), which we
+
+use to integrate an L2 section (Sec. 4.2). We then compute the bundle space metric as
+
+
+
+dX (x1, x2) 
+
+v1 = v2
+
+   
+
+dF
+
+(f1
+
+,
+
+f2)
+
+
+
+d(x1, x2) = + dB(y1, v1)
+
+   
+
++
+
+dB(y2, v2)
+
+otherwise
+
+(15)
+
+
+
+ 
+
++
+
+dGk (v1, v2)
+
+with dF being the ﬁber space metric (L2), dB the base space metric and dGk the length of the shortest path on Gk between vertices under the base space metric.
+While the quotient space metric is more mathematically sound, we see two practical problems. First, computing this metric is costly, because we need to perform a graph search operation. Second, the graph on the base space might not yet be dense, thereby potentially returning values leading to an inadmissible heuristic, which in turn would mislead the planner on the bundle space.
+
+6.3 Bundle Space Importance
+In each iteration of multilevel motion planning, we make a choice about expanding a graph by selecting a level. To select a level, we attach an importance function to each bundle space, which we use to rank the bundle spaces. We develop three different importance strategies.
+
+6.3.1 Uniform In uniform importance, we select all bundle
+
+spaces an equal amount of times. This is similar to round-
+
+robin change, which we know from scheduling operations
+
+(Russell and Norvig 2002). Here we use a slight variation,
+
+where we compute the importance based on the number of
+
+vertices, thereby ensuring a uniform expansion of each level.
+
+In particular, for bundle space Xk with graph Gk and |Vk|
+
+vertices,
+
+we
+
+compute
+
+its
+
+importance
+
+as
+
+1 |Vk |+1
+
+.
+
+6.3.2 Exponential To densely cover spaces with higher
+
+dimensions, we usually require more samples. In general,
+
+the
+
+sampling density is proportional
+
+to
+
+N1 d
+
+where
+
+N
+
+is
+
+the number of samples and d the dimensionality (Hastie
+
+et al. 2009). Therefore, we should select the space with the
+
+lowest density ﬁrst, thereby guaranteeing equal sampling
+
+density across all spaces. We can compute the exponential
+
+importance
+
+as
+
+1 |Vk |1/d +1
+
+which
+
+reﬂects
+
+an
+
+exponential
+
+increase of samples in higher dimensions. This idea is
+
+similar to the selection of bundle spaces using a geometric
+
+progression (Xanthidis et al. 2018). Note also the close
+
+connection to multilevel monte carlo (Giles 2015) and sparse
+
+grid methods (Bungartz and Griebel 2004).
+
+6.3.3 Epsilon Greedy Whenever we ﬁnd a graph connecting initial and goal state on the base space, it seems reasonable to greedily exploit this graph to ﬁnd a path on the bundle space. This strategy is not complete, since the graph might not yet contain a feasible section (see Sec. 4.1). We can, however, create a complete algorithm by extending the base space with an epsilon probability while extending the bundle space the rest of the time. We compute this as
+
+K−k − K−k+1 k > 1
+
+f (k) = K−1
+
+(16) otherwise
+
+Prepared using sagej.cls
+
+12
+
+International Journal of Robotics Research XX(X)
+
+Algorithm 7 FindSection(Xk)
+
+1: if EXISTS(Xk−1) then
+
+2:
+
+p ← SHORTESTPATH(xkI −1, XGk−1, Gk−1)
+
+3: FINDSECTION(p, xkI , XGk , 0, true)
+
+4: if ¬PTC(Xk) then
+
+5:
+
+FINDSECTION(p, xkI , XGk , 0, false)
+
+6: end if
+
+7: end if
+
+Algorithm 8 FindSection(p, xa, XGk , d, F F )
+
+1: Let bMAX be the maximal branching factor 2: Let dMAX be the maximal depth 3: if d ≥ dMAX then 4: return false
+
+5: end if 6: s ← INTERPOLATEL1(p, xa, XGk , F F ) see Sec. 4.2 7: x ← PROPAGATEWHILEVALID(s) Return last valid 8: if x is in XGk then 9: return true
+
+10: end if
+
+11: xbase ← PROJECTBASE(x)
+
+12: for j ← 1 to bMAX do
+
+13: xﬁber ← SAMPLE(xbase, Fk)
+
+Sidestep on ﬁber
+
+14: xj ← LIFT(xbase, xﬁber)
+
+15: if CHECKMOTION(x, xj ) then
+
+16:
+
+Gk ← Gk ∪ {x, xj}
+
+17:
+
+pj ← GETSEGMENT(p, xbase)
+
+18:
+
+return FINDSECTION(pj, xj, XGk , d + 1, F F )
+
+19: end if
+
+20: end for
+
+whereby k is the bundle space level and K is the total number
+
+of bundle spaces. We then compute the importance for the
+
+k-th
+
+bundle
+
+space
+
+as
+
+|Vk
+
+1 |/f (k)+1
+
+,
+
+reﬂecting
+
+our
+
+desire
+
+to
+
+expand recent levels more aggressively.
+
+6.4 Finding Path Sections
+Finding path sections quickly and reliably is one of the cornerstones of all bundle planners. In this section, we use the interpolation methods of Sec. 4.2 to develop a recursive path section algorithm, which we depict in Alg. 7. For this to work, we need to have at least a base space (Line 7.1). We then compute the shortest path on the base space (Line 7.2) and recursively compute a section, either by starting from an L1 ﬁber-ﬁrst section (Line 7.3) or if unsuccessful, by starting from an L1 ﬁber-last section (Line 7.5).
+To recursively compute a section, we show the pseudocode in Alg. 8. We terminate the algorithm if we reach a certain depth dMAX (Line 8.3) or if we reach the goal region (Line 8.8). Inside each recursion iteration, we interpolate an L1 section, either ﬁber ﬁrst (if FF is true) or ﬁber last (if FF is false) (Line 8.6). We then propagate the system along the section while valid (Line 8.7) and return the last valid state.
+If we do not reach the goal state with the last valid state, we do up to bMAX sidesteps along the ﬁber space. Sidestepping means that we project the last valid state onto the base space (Line 8.11), then sample a random ﬁber space element (Line 8.13) and lift the states to the bundle space to obtain a state xk
+
+(Line 8.14). We then check if we can move from the last valid state to the state xk (Line 8.15). Since both states have the same base space projection, we call this a sidestep (i.e. a step orthogonal to the base space). If the motion is valid, we then clip the remaining base path (Line 8.17) and recursively call the algorithm (Line 8.18). In the recursion call, we increase the depth, use the clipped base path segment and change the interpolation method from ﬁber ﬁrst to ﬁber last. We change the interpolation at this point, because we observe an alternation between interpolation methods to substantially improve runtime.
+6.4.1 Nonholonomic Constraints In the case of holonomic constraints, we can use the L1 interpolation (Line 8.6) and the base space segment (Line 8.17) to follow the path restriction exactly. However, if we have nonholonomic constraints, we often cannot follow the path restriction exactly, in particular if the base space path is piece-wise linear. Note that a base space path is often piece-wise linear if we do not impose additional smoothness assumptions (Vidal et al. 2019; Ho¨nig et al. 2018).
+To still compute path sections over piece-wise linear base space paths in the nonholonomic case, we do a two-phase approach. First, we compute the interpolation values as in Sec. 4.2, but only at discrete points, which provides us with a set of points on the bundle space. Second, we interpolate between those points by using the nonholonomic steering function. While we might deviate from the base path restriction, we follow, however, the base path restriction as close as the steering function allows us. This approach is similar to the idea of interpolating waypoints with dynamically feasible path segments, which has been done for ﬂying quadrotors (Richter et al. 2016) and for underwater vehicles (Yu et al. 2019). However, we differ by ﬁrst interpolating values for the ﬁber spaces along the base space path. The remaining computation in Alg. 8 remains exactly as in the holonomic case.
+7 Analysis of Algorithms
+Let XK −π−K−−→1 . . . −π→1 X1 be a ﬁber bundle. We like to prove that the algorithms QRRT, QRRT*, QMP and QMP* are probabilistically complete (PC) and that QRRT* and QMP* are asymptotically optimal (AO).
+To prove those properties, we use two methods. First, we state three assumptions on the importance function and the datastructures, which we use to establish that restriction sampling is dense. Second, we argue that the bundle algorithms, when using restriction sampling, inherit all properties from their single-level counterpart.
+7.1 Assumptions
+To be able to give proofs, we require three assumptions to hold true.
+1. The importance function of each bundle space (Sec. 6.3) monotonically converges to zero (we select every bundle space inﬁnitely many times)
+2. Restriction sampling is dense in X1 3. If restriction sampling is dense, the graph on the k-th
+bundle space is space ﬁlling in the connected initial component
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+13
+
+whereby the connected initial component is the set of points in Xk which are path-connected‡ to πk(xI ), i.e. to the projection of the initial state onto the k-th bundle space. A graph is said to be space-ﬁlling in a set U , if for any x in U there exists a path in the graph starting at xI and converges to x (Kuffner and LaValle 2011) (in the limit when running time goes to inﬁnity).
+7.2 Proof that Restriction Sampling is Dense
+When stripping down to the essentials, we observe that the bundle planners differ on the last level from non-multilevel planners by replacing uniform sampling with restriction sampling. While uniform sampling is dense in the complete state space, restriction sampling differs, in that we can prove it to be dense in the connected initial component.
+To prove denseness, we need some notations. First, let us give the deﬁnition of dense. We say that a set U is dense in X if the intersection of U with any non-empty open subset V of X is non-empty (Munkres 2000). We abbreviate this by saying that a set is dense if its closure cl(U ) — the smallest closed set containing U — contains the space X. When using a sequence of samples α1, α2, . . ., we can interpret the sequence as a set A = {αi | i ∈ N}. We can then say that the sequence is dense in the space X if the closure cl(A) contains X (or is equal to).
+Let Ik be the connected initial component(on the bundle space k) and let Ak be a restriction sampling sequence. To prove Ak to be dense in Ik, we choose an arbitrary set U in Ik. We then prove that there will be a non-empty intersection of U with Ak, i.e. given enough time, we will at least sample once from U . Our proof goes inductive, i.e. we prove it to be true for k = 1, then use this to inductively argue for arbitrary k (under the assumptions given).
+In a preliminary version of the proof (Orthey and Toussaint 2019), we showed restriction sampling to be dense in the free state space, which is true only if there is a single connected component. To make the proof more general, we replace the free state space here with the connected initial component.
+Theorem 1. Ak is dense in Ik for k ≥ 1.
+Proof. By induction for k = 1, A1 is dense in X1 by assumption and therefore dense in I1 since I1 ⊆ X1. For the induction step, we can assume Ak−1 to be dense in Ik−1. Let U be a non-empty open subset of Ik. Since U is open, πK−1(U ) is open (by property of ﬁber bundle). By induction assumption there exists a y in Ak−1 ∩ πK−1(U ). Consider an open set V of the preimage πK−1−1(y). Since Ak is dense in πk−−11(Ak−1) (by deﬁnition of restriction sampling), there exists an x in Ak ∩ V which is a subset of U . Since U was arbitrary, Ak is dense in Ik.
+
+been proven for sampling-based planners, in the case of a graph (Svestka 1996) including the case of a tree (Kuffner and LaValle 2000).
+Probabilistic completeness follows in our case directly from the assumptions and our proof that restriction sampling is dense. In particular, let us assume a given motion planning problem to be feasible and containing a solution in the interior of the free space. Since restriction sampling is dense, by assumption, we have a space-ﬁlling graph containing a path starting at the initial state and converging to the goal state.
+In the grow functions of QRRT, QRRT*, QMP and QMP*, we directly implement the corresponding versions of RRT, RRT*, PRM and PRM*, which all have been shown to be probabilistically complete (see corresponding papers listed in Tab. 1). They therefore necessarily need to construct a space-ﬁlling graph (tree) (Kuffner and LaValle 2011) and we observe that all bundle space planners, when using restriction sampling, inherit the probabilistic completeness property.
+7.4 Inheritance of Asymptotical Optimality
+An algorithm is (almost surely) asymptotically (near-) optimal (AnO) (Karaman and Frazzoli 2011; Salzman and Halperin 2016) if it converges to a cost at most (1 + ) times the cost of the optimal path. An algorithm is (almost surely) asymptotically optimal if it is AnO with = 0.
+Similar to probabilistic completeness, we can argue that QRRT* and QMP* are asymptotically optimal, since we inherit this property from RRT* and PRM* (Karaman and Frazzoli 2011), respectively. This is true, since on the last level, we only change the sampling function from uniform to restriction sampling. Since we showed restriction sampling to be dense and we will select the last bundle space inﬁnitely many times, we can be sure that the optimality properties are kept intact. Note that this line of reasoning is slightly different from the proof of asymptotic optimality for HBFMT (Reid et al. 2020), where Reid et al. (2020) deﬁne a probability l with which they switch to use uniform sampling, thereby guaranteeing optimality by actually reverting to BFMT. We, however, rely on the denseness property of restriction sampling, thereby avoiding an uniform extension step.
+Detailed proofs of asymptotic optimality for samplingbased planner can be found in Karaman and Frazzoli (2011). See also Salzman and Halperin (2016) or Solovey and Kleinbort (2020) for a treatise of asymptotic near-optimality. Please also see recent progress on ﬁxing the optimal distance bound on nearest neighbor evaluations for PRM* (Solovey and Kleinbort 2020) and the rewiring factor of RRT* (Kleinbort et al. 2019).
+
+Due to Theorem 1, we observe that restriction sampling differs from uniform sampling by removing states which cannot be feasible. Therefore, algorithms using restriction sampling maintain all their properties, which we can inherit.
+7.3 Inheritance of Probabilistic Completeness
+A motion planning algorithm is probabilistically complete, if the probability that the algorithm will ﬁnd a path (if one exists) goes to one as time goes to inﬁnity. This property has
+
+8 Evaluation
+To show the wide applicability of ﬁber bundles and bundle algorithms, we apply them to a wide range of multilevel planning scenarios. In particular, we evaluate the algorithms on eight planning scenarios, including computer animation,
+‡We say that two states are path-connected if there exists a continuous path connecting them.
+
+Prepared using sagej.cls
+
+14
+
+International Journal of Robotics Research XX(X)
+
+pre-grasping, multi-robot coordination and non-holonomic constraints. The dimensionality of the state spaces ranges from 21-dof (box folding) to 100-dof (hypercube). We compare our algorithms with all available algorithms currently implemented in the Open Motion Planning Library (OMPL) as of May 2020 (Moll et al. 2015). We detail all algorithms in Tab. 1. Those algorithms do not use the additional information which ﬁber bundles provide. We like to show that we can exploit ﬁber bundles to plan more efﬁciently. Note that due to the difﬁculty of the scenarios (multi-robots, nonholonomic constraints), we occasionally have to remove some OMPL algorithms from the benchmarks.
+Each benchmark includes all OMPL algorithms (if not otherwise declared). We let each algorithm run 10 times with a cut-off timelimit of 60s. We then report on the average time over all 10 runs. As a platform, we use a 4-core laptop running Ubuntu 18.04 with 20GB of RAM. The parameters of the algorithms are set as follows. For the FindSection method, we use dMAX = 3 and bMAX = 10. For path restriction sampling, we use the decay constant λ = 1 × 10−3 and ﬁxed probability βﬁxed = 0.1. For QRRT, we use a maximal distance range of 0.2µ whereby µ is the measure of the space (same value as in RRT or RRTConnect). For QMP, we use k = 10 to compute nearest neighbors (same as in PRM). For QMP*, we use the optimal number of nearest neighbors in each iteration similar to PRM* (Solovey and Kleinbort 2020). The choice of primitive methods has been indepently optimized using a meta analysis (See Appendix B). We set any other parameters to be equivalent to the corresponding single-level planner.
+
+8.1 100-dof Hypercube (98 levels)
+The hypercube (Gipson et al. 2013) is a classical motion planning benchmark, where we need to move a point robot in an n-dimensional cube X = [0, 1]n from xI = (0, . . . , 0) to xG = (1, . . . , 1). We allow the robot to move only along corridors of size = 0.1 along the edges of the cube as shown in Fig. 6a. For more details see Gipson et al. (2013). As a ﬁber bundle, we choose the sequence of reductions
+
+[0, 1]n → [0, 1]n−1 → . . . → [0, 1]2
+
+(17)
+
+where the constraint function is the constraint function of the corresponding cube.
+Prior work showed solutions to 25-dimensional cubes in around 100s (Gipson et al. 2013). Here, we attempt to solve a 100-dimensional cube version. The benchmarks are shown in Fig. 6b. All bundle planners have an average runtime of less than 0.1s. Also the non-bundle planner SPARS2 terminates with a runtime of around 0.2s. However, we note that SPARS2 terminates with a probabilistic infeasibility proof, i.e. they declare this problem infeasible. Only QRRT, QMP and their star versions can solve this problem in the time limit given. While we terminate all planner at 60s, we can provide a rough estimate of performance improvement of QRRT compared to STRIDE (which outperforms PRM, KPIECE, EST and RRT (Gipson et al. 2013)). To do that, we let STRIDE run on the n = {3, . . . , 9} dimensional version of the cube, then we extrapolate the results by ﬁtting a cubic curve (see Fig. 5). Comparing the extrapolation to QRRT at
+
+Time (s)
+
+106
+
+104
+
+3.5E+06
+
+102
+
+100
+
+10 2 STRIDE QRRT
+
+0
+
+20
+
+40 #Dimension6s0
+
+80
+
+100
+
+Figure 5. Hypercube scenario comparison of algorithms STRIDE and QRRT.
+
+the dimension 100, we observe that QRRT performs around 6 orders of magnitude better than STRIDE.
+Note that for this scenario, we had to remove the planner SST and PDST due to memory leaks crashing the benchmarks.
+8.2 21-dof Box folding (5 levels)
+To automate deliveries or assemble production pieces, we often need to compute folding motions. Here we concentrate on computing the folding motion of a small packing box with 21-dof (Fig. 6c). Such problems are challenging, because parts of the box have to ﬁt into small narrow passages, which is challenging for sampling-based planner. We use a ﬁber bundle sequence as
+SE(2) × R18 → SE(2) × R16 → SE(2) × R13 → SE(2) × R10 → SE(2) × R7 (18) → SE(2)
+which corresponds to the removal of (1) ﬂaps on lid, (2) lid, (3) right side, (4) left side, (5) back/front elements. The notation SE(2) is an abbreviation for the special euclidean group (Selig 2004), the group of position and orientation of a rigid body in 2D space. We show the benchmarks in Fig. 6d. The best performing algorithm is QMP with 0.68s of planning time. QRRT performs worse with around 6.4s. We discuss this performance difference in Sec. 9. Both QMP and QRRT together with QMP* outperform all other planning algorithms, i.e. no OMPL algorithm was able to solve this scenario in our timelimit.
+8.3 24-dof Dubins Cars crossing (3 levels)
+With several companies pushing towards autonomous driving (Fridman et al. 2019), we increasingly need efﬁcient algorithms to solve coordination of multiple car-like robots under non-holonomic constraints. We concentrate here on the problem of planning motions for eight dubin cars (Dubins 1957), which are cars with constant forward speed, which we can steer left or right. The cars start on different ends of a crossroad (in reverse direction) and we need them to cross the road while avoiding each other (Fig. 6e). We impose a
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+15
+
+ﬁber bundle as
+
+SE(2)8 → (R2)8 → (R2)4
+
+(19)
+
+which corresponds to the reduction onto a disk inscribed in the car and the removal of the upper four robots, respectively. We show the benchmark in Fig. 6f. We see that QRRT performs best with a planning time of 0.28s closely followed by QRRT* (0.29s) and QMP (1.77s). QMP* performs less well with 12.41s of planning time. Except EST with planning time of around 54s, there was no non-bundle algorithm able to solve this coordination problem in the timelimit given.
+
+8.4 30-dof airport (15 levels)
+While coordinating motions for multiple cars are essential for trafﬁc coordination, we often need to coordinate multiple vehicles in 3D under non-holonomic constraints. One particular instance of this problem is an airport, in which we might need to coordinate cars, planes and zeppelins, each with different state spaces and different possible nonholonomic constraints. Here, we use a scenario with 3 trucks, 1 zeppelin, 1 propeller plane, 1 airplane while taxiing§ and 2 airplanes while ﬂying (see Fig. 6g). This scenario is particularly challenging, since we have non-holonomic constraints on all vehicles except the zeppelin. We model the dynamics of the trucks and the planes as Dubins car and Dubins airplane (LaValle 2006), respectively. Note that arbitrary dynamically constraints could be imposed, but there are implementations of Dubins car and airplane spaces available in OMPL, which makes them also useable with other algorithms in the library. We use a prioritization-like abstraction as
+
+SE(2)4 × SE(3) × (R3 × SO(2))3 → R2 × SE(2)3 × SE(3) × (R3 × SO(2))3 →
+SE(2)3 × SE(3) × (R3 × SO(2))3 → R2 × SE(2)2 × SE(3) × (R3 × SO(2))3 →
+SE(2)2 × SE(3) × (R3 × SO(2))3 → R2 × SE(2) × SE(3) × (R3 × SO(2))3 →
+SE(2) × SE(3) × (R3 × SO(2))3 → R2 × SE(3) × (R3 × SO(2))3 → (20) SE(3) × (R3 × SO(2))3 → (R3 × SO(2))3 → R3 × (R3 × SO(2))2 → (R3 × SO(2))2 → R3 × (R3 × SO(2)) → (R3 × SO(2)) → R3
+where the ﬁrst four SE(2) spaces represent the three trucks and the taxiing airplane. The SE(3) space represents the zeppelin and the remaining 3 spaces of R3 × SO(2) represent the two ﬂying airplanes and the propeller plane, respectively. Each projection either projects an SE(2) space by using the simpler robots of a nested disk, by removing a robot completely (and its geometry) or by nesting an
+
+inscribed sphere. The benchmarks are shown in Fig. 6h. The best performing planner are QRRT (0.52s), QMP (0.99s) and QMP* (0.94s). QRRT* performs signiﬁcantly worse with a planning time of around 58s, which suggest that it could not completely solve this problem in the time allocated. Besides the bundle planner, we also observe that RRTConnect shows competitive results with 4.5s of planning time.
+
+8.5 37-dof pregrasp (3 levels)
+
+Manipulation of objects is a challenging task for robots
+
+(Daﬂe et al. 2018; Driess et al. 2020), in particular if we have
+
+to deal with realistic hands with many dofs. We concentrate
+
+here on computing a pregrasp for a 37-dof shadow-hand
+
+robot mounted on a KUKA LWR robot. We deﬁne the
+
+problem as ﬁnding a pregrasp for the grasping of a small
+
+glass, as we depict in Fig. 7a. We impose a ﬁber bundles
+
+as
+
+R31 → R18 → R13
+
+(21)
+
+which corresponds to a reduction by ﬁrst removing all ﬁngers except thumb and index ﬁnger and second removing the thumb. The benchmark for this problem are shown in Fig. 7b. We see that QMP and QMP* perform best with around 6.81s and 12.36s of planning time. In this scenario, there is no nonbundle planner which can solve this problem. Please note that the planner QRRT and QRRT* perform around 44s and 48s. We discuss this performance further in Sec. 9.
+
+8.6 48-dof drones (8 levels)
+Planning motions for multiple quadrotors (Ho¨nig et al. 2018) is essential for drone delivery, in disaster response scenarios and for entertainment purposes. We consider here the problem of coordinating the motion of eight drones which have to traverse a small forest-like environment as shown in Fig. 7c. We use the ﬁber bundle
+
+SE(3)8 → SE(3)7 → · · · → SE(3)
+
+(22)
+
+which corresponds to a prioritization of the drones, i.e. in each projection we remove one robot. The benchmarks are shown in Fig. 7d. While the best algorithm is QRRT (0.14s) closely followed by QMP (0.15s) and QMP* (0.16s), we observe that also RRTConnect and BFMT show competitive performances with 0.59s and 6.05s, respectively.
+
+8.7 54-dof Kraken animation (17 levels)
+Computer animation is an important application of planning algorithms (Plaku et al. 2018). In animations for movies, an animator would probably insert keyframes to guide the planning of motions. However, if we like to compute animations online, for example for a computer game, we require fast planning algorithms.
+We show here the problem of animating a 54-dof Krakenlike robot (see Fig. 7e), which has to wrap its arms around a
+
+§Taxiing refers to movements of an airplane on the ground, for example after landing or before take-off.
+
+Prepared using sagej.cls
+
+16
+
+International Journal of Robotics Research XX(X)
+
+sailing ship. We use a ﬁber bundle reduction as
+
+SE(3) × R48 → SE(3) × R45 → SE(3) × R42
+
+→ ... →
+
+(23)
+
+SE(3) × R6 → SE(3) × R3 → SE(3)
+
+which corresponds to the removal of each arm (6-dof revolute joints) on each stage, whereby we ﬁrst remove the last three links (removal of 3-dof) and then remove the remaining arm (3-dof). We show the benchmark in Fig. 7f. We observe that both QRRT (0.20s) and QMP (0.23s) perform below 1s to ﬁnd a feasible solution. Next comes QMP* with a planning time of 6.21s. The next best nonbundle planner is BiTRRT with a performance of around 22s planning time. The performance of the bundle planner QRRT is thus two orders of magnitude better than the next best nonbundle planner.
+
+space, thereby removing states which cannot be feasible (Orthey et al. 2018). Third, we have dedicated methods to exploit admissible heuristics. If we have a path on the base space, we often can quickly ﬁnd solutions by using our recursive path section method or by using path restriction sampling (Zhang et al. 2009). By staying on the path restriction, we exploit the information from the base space, similar to how we would exploit an admissible cost-to-go heuristic in a discrete search scenario (Pearl 1984; Aine et al. 2016).
+While our evaluation seems to corroborate both statements, we believe there are two issues. The ﬁrst issue are evaluation outlier, which seemingly contradict our statements. We discuss what they are and what we can do about them. The second issue we identify is our reliance on prespeciﬁcation of ﬁber bundles, which we do for this work by hand. We discuss options to automatically specify them.
+
+8.8 72-dof manipulators (3 levels)
+When automating construction work (Hartmann et al. 2020) or warehouse operations (Salzman and Stern 2020; Eppner et al. 2016), we often need to coordinate multiple robots with many dofs. Here, we consider the coordination of eight KUKA manipulators on disk-shaped mobile bases. Each manipulator starts around a circle and needs to change position with its antipodal partner (see Fig. 7g). We impose a ﬁber bundle as
+
+(SE(2) × R6)8 → (R2)8 → (R2)4
+
+(24)
+
+which corresponds to the removal of arms and the removal of the upper half of the robots. The benchmarks are shown in Fig. 7h. We observe that QRRT solves this problem in 3.65s while QRRT* requires 19s. Only one non-bundle planner is able to terminate on average before the timelimit: RRTConnect with around 39s seconds of planning time. Note that this problem is difﬁcult for QMP (57s) and QMP* (50s) which perform worse than RRTConnect.
+
+9 Discussion
+From the preceding evaluation section, we believe to have shown two broad statements. First, we can rarely solve high-dimensional planning problems with classical motion planning algorithms. This should not be surprising, since we know the problem to be NP-hard (Hopcroft et al. 1984; Canny 1988; Solovey 2020) and the spaces to contain multiple narrow passages (Lozano-Pe´rez and Wesley 1979; Salzman et al. 2013).
+Second, we often can quickly and reliably solve highdimensional planning problems by exploiting the ﬁber bundle structure. We believe there are three primary contributing factors. First, we have expansions of narrow passages. If we project a narrow passage onto a base space, we often observe the narrow passage to increase its volume relative to the surrounding space. We thereby increase our chance to sample narrow passages on the base space, which we can use to guide sampling on the total space (Orthey and Toussaint 2019). Second, we have the removal of infeasible preimages. If we ﬁnd a point on the base space to be infeasible, we can remove their preimage from the bundle
+
+9.1 Evaluation Outlier
+From the evaluations, we observe that we often can ﬁnd solutions over multilevel abstractions quickly and reliably. However, we observe three noteworthy exceptions. First, we observe that QRRT performs below 3s on every enviroment, except the 37-dof pregrasp (43s) and the box folding task (8s). We believe both environments to be challenging for QRRT, because they are examples of ingress problems, i.e. problems where we need to enter a narrow passage, similar to a bugtrap (Yershova et al. 2005). We believe to be able to overcome such problems in future work by developing bidirectional versions of QRRT (LaValle 2006), by using biased sampling towards narrow passages (Yang and Lavalle 2004) or by selectively expanding states at the frontier of the tree (Yershova et al. 2005; Denny et al. 2020).
+Second, we observe that QRRT* performs worse by an order of magnitude compared to QRRT on 5 out of 8 environments. We believe the rewiring of the tree in Alg. 3 slows down planning over multilevel abstractions. In the future, we could overcome this by either postpone rewiring of the tree until a solution is found or by exploiting informed sets (Gammell et al. 2014), which are admissible lower bounds on the optimal solution. It could also be fruitful to investigate the connection between quotient space metrics and the geometric shape of informed sets, which we could use as admissible heuristics (Gammell et al. 2020).
+Third, we observe that the non-multilevel planner RRTConnect performs competitively on the 30-dof airport and the 48-dof drones environment. Also BFMT performs competitively on 48-dof drones. It seems, we could solve both problems without using ﬁber bundles. We believe this to happen because both scenarios involve SE(3) state spaces, where narrow passages might be rarer than in SE(2) scenarios. In those environments, we therefore have enough volume to quickly ﬁnd valid samples, which we can exploit using RRTConnect and BFMT. However, we believe we still need ﬁber bundles. First, we do not know if RRTConnect or BFMT would still perform well if we further increase dimensionality. Second, only by using bundle planners can we consistently and reliably ﬁnd solutions in all environments. Third, ﬁber bundles are often the only option if we want to rapidly establish infeasibility or organize local minima over high-dimensional state spaces (Orthey et al.
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+17
+
+Motion Planning Algorithm
+
+Origin Paper
+
+FB PC AnO
+
+QRRT
+
+Rapidly-exploring random quotient space trees (Orthey and Toussaint 2019) x x
+
+QMP
+
+Quotient-space roadmap planner
+
+(Orthey et al. 2018)
+
+xx
+
+QRRT*
+
+Optimal version of QRRT
+
+this paper
+
+xx x
+
+QMP*
+
+Optimal version of QMP
+
+this paper
+
+xx x
+
+PRM
+
+Probabilistic Roadmap Planner
+
+(Kavraki et al. 1996)
+
+x
+
+PRM*
+
+Optimal version of PRM
+
+(Karaman and Frazzoli 2011)
+
+x
+
+LazyPRM*
+
+Optimal version of LazyPRM
+
+(Karaman and Frazzoli 2011)
+
+x
+
+SPARS
+
+Sparse roadmap spanners
+
+(Dobson and Bekris 2014)
+
+xx
+
+SPARS2
+
+SPARS w/o dense graph
+
+(Dobson and Bekris 2014)
+
+xx
+
+RRT
+
+Rapidly-exploring random tree
+
+(Lavalle 1998)
+
+x
+
+RRTConnect
+
+Bidirectional RRT
+
+(Kuffner and LaValle 2000)
+
+x
+
+RRT*
+
+Optimal version of RRT
+
+(Karaman and Frazzoli 2011)
+
+x
+
+LazyRRT
+
+Lazy edge evaluation RRT
+
+(Kuffner and LaValle 2000)
+
+x
+
+TRRT
+
+Transition-based RRT
+
+(Jaillet et al. 2010)
+
+x
+
+BiTRRT
+
+Bidirectional TRRT
+
+(Jaillet et al. 2010)
+
+x
+
+LBTRRT
+
+Lower-bound tree RRT
+
+(Salzman and Halperin 2016)
+
+xx
+
+RRTX
+
+RRT /w pseudo-optimal tree
+
+(Otte and Frazzoli 2016)
+
+xx
+
+RRT#
+
+RRT sharp
+
+(Arslan and Tsiotras 2013)
+
+xx
+
+InformedRRT*
+
+Informed search RRT*
+
+(Gammell et al. 2014)
+
+xx
+
+SORRT*
+
+Sorted InformedRRT*
+
+(Gammell et al. 2014)
+
+xx
+
+SBL
+
+Single-query bidirectional lazy PRM
+
+(Sa´nchez and Latombe 2003)
+
+x
+
+SST
+
+Stable sparse RRT
+
+(Li et al. 2016)
+
+xx
+
+STRIDE
+
+Search Tree with Resolution
+
+(Gipson et al. 2013)
+
+x
+
+Independent Density Estimation
+
+FMT
+
+Fast marching tree
+
+(Janson et al. 2015)
+
+xx
+
+BFMT
+
+Bidirectional FMT
+
+(Janson et al. 2015)
+
+xx
+
+BIT*
+
+Batch informed trees
+
+(Gammell et al. 2020)
+
+xx
+
+ABIT*
+
+Advanced BIT*
+
+(Strub and Gammell 2020)
+
+xx
+
+EST
+
+Expansive spaces planner
+
+(Hsu et al. 1999)
+
+x
+
+BiEST
+
+Bidirectional EST
+
+(Hsu et al. 1999)
+
+x
+
+ProjEST
+
+Projection EST
+
+(Hsu et al. 1999)
+
+x
+
+KPIECE
+
+Kinodynamic Motion Planning
+
+(S¸ ucan and Kavraki 2009)
+
+x
+
+by Interior-Exterior Cell Exploration
+
+BKPIECE
+
+Bidirectional KPIECE
+
+(S¸ ucan and Kavraki 2009)
+
+x
+
+LBKPIECE
+
+Lazy BKPIECE
+
+(S¸ ucan and Kavraki 2009)
+
+x
+
+PDST
+
+Path-Directed Subdivision Tree
+
+(Ladd and Kavraki 2004)
+
+x
+
+Table 1. List of motion planning algorithms used in experimental section. Properties of the algorithms are: Supporting ﬁber bundles (FB), being probabilistically complete (PC) and being asymptotically (near-)optimal (AnO).
+
+2020). It is, however, interesting to investigate how narrow passages slow down planning and how we could overcome them using ﬁber bundles. We previously conducted some evaluations in that direction for QRRT (Orthey and Toussaint 2019).
+9.2 Specifying Fiber Bundles
+For each problem, we currently specify ﬁber bundles manually. To automate the selection of ﬁber bundles, we could optimize over primitive sets of ﬁber bundles. To create a primitive set of ﬁber bundles, we could use the largest inscribed sphere for a rigid body, the removal of links from a chain or the removal of nonholonomic constraints from a dynamical system. We can then search the landscape of such primitive ﬁber bundles to ﬁnd an efﬁcient ﬁber bundle for a speciﬁc robot and a speciﬁc set of environments. A recent study by Brandao and Havoutis (2020) shows promising results in that direction by using evolutionary algorithms to select an abstraction. It could also be promising to use workspace information to select a ﬁber bundle (Yoshida
+
+2005), either by choosing joints which can actuate links of interest through the workspace (Luna et al. 2020) or by choosing a bundle on-the-ﬂy based on which links are closest to obstacles (Kim et al. 2015). We thereby could choose different ﬁber bundles for large rooms, for narrow passages or for ingress tasks. However, in those cases, we would need to consider ﬁber bundles with changing dimensions, which are in general given by the concept of a sheaf (Bredon 2012).
+10 Conclusion
+We modelled multilevel motion planning problems using the framework of ﬁber bundles. To exploit ﬁber bundles, we developed the bundle algorithms QRRT* and QMP* which we showed to be probabilistically complete and asymptotically optimal. We also extended the existing bundle algorithms QRRT (Orthey and Toussaint 2019) and QMP (Orthey et al. 2018) using an exponential importance criterion and a recursive L1 path section method (Fig. 1). We conducted a meta-analysis to investigate the inﬂuence
+
+Prepared using sagej.cls
+
+(g) 30-dof airport Figure 6. Benchmarks
+Prepared using sagej.cls
+
+(h) Benchmark
+
+(e) 24-dof dubin cars crossing
+
+(f) Benchmark
+60 50 40 30 20 10 0
+
+QRRT QRRT*
+QMP QMP* RRT RRTConnect RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo
+SST EST BiEST
+
+Time (s)
+
+(d) Benchmark of 21-dof folding box problem
+60 50 40 30 20 10 0
+
+QRRT QRRT*
+QMP QMP* RRT RRTConnect RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo
+SST EST BiEST
+
+Time (s)
+
+QRRT QRRT* QMP QMP*
+RRT RRTConnect
+RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo SST EST BiEST
+
+Time (s)
+
+(c) 21-dof box folding problem
+
+(b) Benchmark of 100-dof hypercube
+60 50 40 30 20 10 0
+
+(a) 100-dof hypercube (3-dof version shown)
+
+60 50 40 30 20 10 0
+
+InRfoRRLrSLBBTRmPaLKKKCTSLAPzeaSQBPPPoXkBOySrRdzTIIIiBRnQAoQRsBkPPPTTTEEEyRRRSRQtnPjiRBBRRFFARRRRRRRCMCCSEEEatRRRIReMMMTwIIDMMRRRRRRREEESSSBtTTTTTTPcM#i111SEoTTTTTTTTTTTPLc*********t
+
+Time (s)
+
+International Journal of Robotics Research XX(X)
+
+18
+
+(b) Benchmark
+60 50 40 30 20 10 0
+(d) Benchmark
+60 50 40 30 20 10 0
+(f) Benchmark
+60 50 40 30 20 10 0
+(h) Benchmark
+
+(a) 37-dof pre-grasp
+(c) 48-dof drones
+(e) 54-dof kraken animation
+(g) 72-dof manipulators Figure 7. Benchmarks
+Prepared using sagej.cls
+
+QRRT QRRT*
+QMP QMP* RRT RRTConnect RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo
+SST EST BiEST
+
+Time (s)
+
+QRRT QRRT*
+QMP QMP* RRT RRTConnect RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo
+SST EST BiEST
+
+Time (s)
+
+QRRT QRRT*
+QMP QMP* RRT RRTConnect RRT# RRT* RRTXstatic LazyRRT TRRT BiTRRT LBTRRT FMT BFMT PRM PRM* LazyPRM* SPARS SPARStwo
+SST EST BiEST
+
+Time (s)
+
+60 50 40 30 20 10 0
+
+InRfoRRLrSLBBTRmPaLKKKCTSLAPzeaSBPPPoXkBQOySrRdzTIIIiBRnQAoQsBkPPPPTTTEEEyQRRRRSRtnPjiRBBRRFFDARRRRRRCMCCSSEEEatRRRRMIReMMTwIIDMMRRRRRRREEESSSSSBtTTTTTTPcM#iP111SEoTTTTTTTTTTTTTLc*********t
+
+Time (s)
+
+19
+
+Orthey et al.
+
+20
+
+International Journal of Robotics Research XX(X)
+
+of different graph sampling, metric, importance and path section methods.
+Using our bundle algorithms, we robustly and efﬁciently solved challenging high-dimensional motion planning problems, from 21-dof to 100-dof. However, we believe there is still room for improvement. In particular, we believe we can further lower runtime by developing a bidirectional version of QRRT (LaValle and Kuffner Jr 2001), by improving convergence of QRRT* and QMP* using informed sets (Gammell et al. 2014), by investigating novel path section optimization methods (Zhang et al. 2009) or by automatically searching ﬁber bundles to exploit (Kim et al. 2015; Brandao and Havoutis 2020) — i.e. with respect to a given bundle algorithm (Orthey and Toussaint 2019). We also believe it will be worthwhile to investigate the connection to complementary approaches, like differentiable constraints (Henkel and Toussaint 2020), computing neighborhoods (Lacevic and Osmankovic 2020) or exploiting sufﬁciency conditions (Grey et al. 2017).
+However, despite room for improvement, we showed our bundle algorithms to robustly and efﬁciently exploit ﬁber bundles. By exploiting ﬁber bundles, we can outperform existing planners often by up to 2 orders of magnitude, occasionally up to 6 orders of magnitude. By exploiting ﬁber bundles, we can also organize region-based decompositions hierarchically (Orthey and Toussaint 2020). Thus, we believe to not only have contributed to solving multilevel planning problems in the now, but also to have contributed tools and insights to investigate high-dimensional state spaces in the future.
+11 Acknowledgement
+The authors disclose receipt of the following ﬁnancial support for the research, authorship and publication of this article: This work was supported by the Alexander von Humboldt Foundation [individual grant], the Japan Society for the Promotion of Science [individual grant] and the MaxPlanck Society [fellowship grant].
+References
+Aine S, Swaminathan S, Narayanan V, Hwang V and Likhachev M (2016) Multi-heuristic a*. International Journal of Robotics Research 35(1-3): 224–243.
+Amato NM, Bayazit OB, Dale LK, Jones C and Vallejo D (1998) Obprm: An obstacle-based prm for 3d workspaces. In: Workshop on the Algorithmic Foundations of Robotics. pp. 155–168.
+Arslan O and Tsiotras P (2013) Use of relaxation methods in sampling-based algorithms for optimal motion planning. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 2421–2428.
+Baginski B (1996) Local motion planning for manipulators based on shrinking and growing geometry models. In: IEEE International Conference on Robotics and Automation. Citeseer, pp. 3303–3308.
+Bayazit OB, Xie D and Amato NM (2005) Iterative relaxation of constraints: a framework for improving automated motion planning. In: IEEE International Conference on Intelligent Robots and Systems. pp. 3433–3440.
+
+Bhattacharya S and Ghrist R (2018) Path homotopy invariants and their application to optimal trajectory planning. Annals of Mathematics and Artiﬁcial Intelligence 84(3-4): 139–160.
+Bhattacharya S, Likhachev M and Kumar V (2012) Topological constraints in search-based robot path planning. Autonomous Robots 33(3).
+Bialkowski J, Otte M, Karaman S and Frazzoli E (2016) Efﬁcient collision checking in sampling-based motion planning via safety certiﬁcates. International Journal of Robotics Research 35(7): 767–796.
+Bobrow JE, Dubowsky S and Gibson J (1985) Time-optimal control of robotic manipulators along speciﬁed paths. International Journal of Robotics Research 4(3): 3–17.
+Bohlin R and Kavraki LE (2000) Path planning using lazy prm. In: IEEE International Conference on Robotics and Automation, volume 1. IEEE, pp. 521–528.
+Boor V, Overmars MH and Van Der Stappen AF (1999) The gaussian sampling strategy for probabilistic roadmap planners. In: IEEE International Conference on Robotics and Automation, volume 2. IEEE, pp. 1018–1023.
+Boyd S and Vandenberghe L (2004) Convex Optimization. Cambridge university press.
+Brandao M and Havoutis I (2020) Learning sequences of approximations for hierarchical motion planning. In: International Conference on Automated Planning and Scheduling, volume 30. pp. 508–516.
+Branicky MS, LaValle SM, Olson K and Yang L (2001) Quasirandomized path planning. In: IEEE International Conference on Robotics and Automation, volume 2. IEEE, pp. 1481–1487.
+Bredon GE (2012) Sheaf theory, volume 170. Springer Science & Business Media.
+Bretl T (2006) Motion planning of multi-limbed robots subject to equilibrium constraints: The free-climbing robot problem. International Journal of Robotics Research 25(4): 317–342.
+Brock O and Kavraki LE (2001) Decomposition-based motion planning: A framework for real-time motion planning in highdimensional conﬁguration spaces. In: IEEE International Conference on Robotics and Automation, volume 2. IEEE, pp. 1469–1474.
+Bungartz HJ and Griebel M (2004) Sparse grids. Acta numerica 13: 147–269.
+Burns B and Brock O (2005) Toward optimal conﬁguration space sampling. In: Robotics: Science and Systems. Cambridge, USA, pp. 105–112.
+Canny JF (1988) The complexity of robot motion planning. MIT press.
+Corte´s J, Jaillet L and Sime´on T (2008) Disassembly path planning for complex articulated objects. Transactions on Robotics 24(2): 475–481.
+Daﬂe NC, Holladay R and Rodriguez A (2018) In-Hand Manipulation via Motion Cones. In: Robotics: Science and Systems. Pittsburgh, Pennsylvania.
+Deits R and Tedrake R (2014) Footstep planning on uneven terrain with mixed-integer convex optimization. In: IEEE International Conference on Humanoid Robots. IEEE, pp. 279–286.
+Denny J, Sandstro¨m R, Bregger A and Amato NM (2020) Dynamic region-biased rapidly-exploring random trees. In: Algorithmic Foundations of Robotics XII. Springer, pp. 640–655.
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+21
+
+Dobson A and Bekris KE (2014) Sparse roadmap spanners for asymptotically near-optimal motion planning. International Journal of Robotics Research 33(1): 18–47.
+Driess D, Ha JS and Toussaint M (2020) Deep visual reasoning: Learning to predict action sequences for task and motion planning from an initial scene image. In: rss.
+Dubins LE (1957) On curves of minimal length with a constraint on average curvature, and with prescribed initial and terminal positions and tangents. American Journal of mathematics 79(3): 497–516.
+Edelkamp S and Schroedl S (2011) Heuristic search: theory and applications. Elsevier.
+Eppner C, Ho¨fer S, Jonschkowski R, Mart´ın-Mart´ın R, Sieverling A, Wall V and Brock O (2016) Lessons from the amazon picking challenge: Four aspects of building robotic systems. In: Robotics: Science and Systems. AnnArbor, Michigan.
+Erdmann M and Lozano-Perez T (1987) On multiple moving objects. Algorithmica 2(1-4): 477.
+Farber M (2008) Invitation to topological robotics, volume 8. European Mathematical Society.
+Farber M (2017) Conﬁguration spaces and robot motion planning algorithms. Combinatorial And Toric Homotopy: Introductory Lectures 35: 263.
+Ferbach P and Barraquand J (1997) A method of progressive constraints for manipulation planning. Transactions on Robotics 13(4): 473–485.
+Fridman L, Brown DE, Glazer M, Angell W, Dodd S, Jenik B, Terwilliger J, Patsekin A, Kindelsberger J, Ding L et al. (2019) Mit advanced vehicle technology study: Large-scale naturalistic driving study of driver behavior and interaction with automation. IEEE Access 7: 102021–102038.
+Gammell JD, Barfoot TD and Srinivasa SS (2018) Informed sampling for asymptotically optimal path planning. Transactions on Robotics 34(4): 966–984.
+Gammell JD, Barfoot TD and Srinivasa SS (2020) Batch informed trees (bit*): Informed asymptotically optimal anytime search. International Journal of Robotics Research 39(5): 543–567.
+Gammell JD, Srinivasa SS and Barfoot TD (2014) Informed RRT*: Optimal sampling-based path planning focused via direct sampling of an admissible ellipsoidal heuristic. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 2997–3004.
+Giles MB (2015) Multilevel monte carlo methods. Acta Numerica 24: 259–328.
+Gipson B, Moll M and Kavraki LE (2013) Resolution independent density estimation for motion planning in high-dimensional spaces. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 2437–2443.
+Gochev K, Safonova A and Likhachev M (2012) Planning with adaptive dimensionality for mobile manipulation. In: IEEE International Conference on Robotics and Automation. pp. 2944–2951.
+Gochev K, Safonova A and Likhachev M (2013) Incremental planning with adaptive dimensionality. In: International Conference on Automated Planning and Scheduling.
+Grey MX, Ames AD and Liu CK (2017) Footstep and motion planning in semi-unstructured environments using randomized possibility graphs. In: IEEE International Conference on Robotics and Automation. pp. 4747–4753.
+
+Guo X, Srivastava A and Sarkar S (2019) A Quotient Space Formulation for Statistical Analysis of Graphical Data. arXiv e-prints .
+Ha JS, Park SS and Choi HL (2019) Topology-guided path integral approach for stochastic optimal control in cluttered environment. Robotics and Autonomous Systems 113: 81–93.
+Hart PE, Nilsson NJ and Raphael B (1968) A formal basis for the heuristic determination of minimum cost paths. IEEE transactions on Systems Science and Cybernetics 4(2): 100– 107.
+Hartmann VN, Oguz OS, Driess D, Toussaint M and Menges A (2020) Robust task and motion planning for longhorizon architectural construction planning. arXiv preprint arXiv:2003.07754 .
+Hastie T, Tibshirani R and Friedman J (2009) The elements of statistical learning: data mining, inference, and prediction. Springer Science & Business Media.
+Hauser K (2015) Lazy collision checking in asymptotically-optimal motion planning. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 2951–2957.
+Henkel C and Toussaint M (2020) Optimized directed roadmap graph for multi-agent path ﬁnding using stochastic gradient descent. In: The 35th ACM/SIGAPP Symposium on Applied Computing (SAC ’20). Brno, Czech Republic.
+Ho¨nig W, Preiss JA, Kumar TS, Sukhatme GS and Ayanian N (2018) Trajectory planning for quadrotor swarms. Transactions on Robotics 34(4): 856–869.
+Hopcroft JE, Schwartz JT and Sharir M (1984) On the complexity of motion planning for multiple independent objects; pspacehardness of the” warehouseman’s problem”. International Journal of Robotics Research 3(4): 76–88.
+Hristov Y, Lascarides A and Ramamoorthy S (2018) Interpretable latent spaces for learning from demonstration. In: Conference on Robot Learning. pp. 957–968.
+Hsu D, Jiang T, Reif J and Sun Z (2003) The bridge test for sampling narrow passages with probabilistic roadmap planners. In: IEEE International Conference on Robotics and Automation, volume 3. IEEE, pp. 4420–4426.
+Hsu D, Latombe JC and Motwani R (1999) Path planning in expansive conﬁguration spaces. International Journal of Computational Geometry and Applications 9(4-5): 495–512.
+Hsu D, Sa´nchez-Ante G, Cheng Hl and Latombe JC (2006) Multilevel free-space dilation for sampling narrow passages in prm planning. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 1255–1260.
+Husemoller D (1966) Fibre bundles, volume 5. Springer. Ichter B and Pavone M (2019) Robot motion planning in learned
+latent spaces. Robotics and Automation Letters 4(3): 2407– 2414. Ivan V, Zarubin D, Toussaint M, Komura T and Vijayakumar S (2013) Topology-based representations for motion planning and generalization in dynamic environments with interactions. International Journal of Robotics Research 32(9-10): 1151– 1163. Jaillet L, Corte´s J and Sime´on T (2010) Sampling-based path planning on conﬁguration-space costmaps. Transactions on Robotics 26(4): 635–646. Jaillet L and Porta JM (2013) Path planning under kinematic constraints by rapidly exploring manifolds. Transactions on
+
+Prepared using sagej.cls
+
+22
+
+International Journal of Robotics Research XX(X)
+
+Robotics 29(1): 105–117. Jaillet L and Sime´on T (2008) Path deformation roadmaps:
+Compact graphs with useful cycles for motion planning. International Journal of Robotics Research 27(11-12): 1175– 1188. Janson L, Ichter B and Pavone M (2018) Deterministic sampling-based motion planning: Optimality, complexity, and performance. International Journal of Robotics Research 37(1): 46–61. Janson L, Schmerling E, Clark A and Pavone M (2015) Fast marching tree: A fast marching sampling-based method for optimal motion planning in many dimensions. International Journal of Robotics Research 34(7): 883–921. Karaman S and Frazzoli E (2011) Sampling-based algorithms for optimal motion planning. The international journal of robotics research 30(7): 846–894. Kavraki LE, Svestka P, Latombe JC and Overmars MH (1996) Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces. Transactions on Robotics 12(4): 566– 580. Khatib M (1996) Sensor-based motion control for mobile robots. PhD Thesis, LAAS-CNRS. Kim DH, Choi YS, Park T, Lee JY and Han CS (2015) Efﬁcient path planning for high-dof articulated robots with adaptive dimensionality. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 2355–2360. Kingston Z, Moll M and Kavraki LE (2019) Exploring implicit spaces for constrained sampling-based planning. International Journal of Robotics Research 38(10–11): 1151–1178. Kleinbort M, Solovey K, Littleﬁeld Z, Bekris K and Halperin D (2019) Probabilistic completeness of rrt for geometric and kinodynamic planning with forward propagation. Robotics and Automation Letters 4(2): 277–283. Konidaris G (2019) On the necessity of abstraction. Current opinion in behavioral sciences 29: 1–7. Kuffner JJ and LaValle SM (2000) RRT-connect: An efﬁcient approach to single-query path planning. In: IEEE International Conference on Robotics and Automation, volume 2. pp. 995– 1001. Kuffner JJ and LaValle SM (2011) Space-ﬁlling trees: A new perspective on incremental search for motion planning. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 2199–2206. Lacevic B and Osmankovic D (2020) Improved c-space exploration and path planning for robotic manipulators using distance information. In: IEEE International Conference on Robotics and Automation. Lacevic B, Osmankovic D and Ademovic A (2016) Burs of free c-space: a novel structure for path planning. In: IEEE International Conference on Robotics and Automation. pp. 70– 76. Ladd AM and Kavraki LE (2004) Fast tree-based exploration of state space for robots with dynamics. In: Algorithmic Foundations of Robotics VI. Springer. Lavalle SM (1998) Rapidly-exploring random trees: A new tool for path planning. Technical report, Iowa State University. LaValle SM (2006) Planning Algorithms. Cambridge University Press.
+
+LaValle SM and Kuffner Jr JJ (2001) Randomized kinodynamic planning. International Journal of Robotics Research 20(5): 378–400.
+Lee JM (2003) Introduction to Smooth Manifolds. New York, NY: Springer New York.
+Leskovec J and Faloutsos C (2006) Sampling from large graphs. In: Proceedings of the 12th ACM SIGKDD international conference on Knowledge discovery and data mining. ACM, pp. 631–636.
+Li Y, Littleﬁeld Z and Bekris KE (2016) Asymptotically optimal sampling-based kinodynamic planning. International Journal of Robotics Research .
+Lozano-Pe´rez T (1983) Spatial planning: A conﬁguration space approach. IEEE Trans. Computers 32(2): 108–120.
+Lozano-Pe´rez T and Wesley MA (1979) An algorithm for planning collision-free paths among polyhedral obstacles. Communications of the ACM 22(10): 560–570.
+Luna R, Moll M, Badger J and Kavraki LE (2020) A scalable motion planner for high-dimensional kinematic systems. International Journal of Robotics Research 39(4): 361–388.
+Ma H, Harabor D, Stuckey PJ, Li J and Koenig S (2019) Searching with consistent prioritization for multi-agent path ﬁnding. In: AAAI Conference on Artiﬁcial Intelligence, volume 33. pp. 7643–7650.
+Mandalika A, Choudhury S, Salzman O and Srinivasa S (2019) Generalized lazy search for robot motion planning: Interleaving search and edge evaluation via event-based toggles. In: International Conference on Automated Planning and Scheduling, volume 29. pp. 745–753.
+Mavrogiannis CI and Knepper RA (2016) Decentralized multiagent navigation planning with braids. In: Workshop on the Algorithmic Foundations of Robotics.
+Mo¨bius AF (1858) Werke 2: 519. Moll M, S¸ ucan IA and Kavraki LE (2015) Benchmarking motion
+planning algorithms: An extensible infrastructure for analysis and visualization. Robotics and Automation Magazine 22(3): 96–102. Munkres J (2000) Topology. Pearson. Nguyen MK, Jaillet L and Redon S (2018) Art-rrt: As-rigid-aspossible exploration of ligand unbinding pathways. Journal of Computational Chemistry 39(11): 665–678. Orthey A, Escande A and Yoshida E (2018) Quotient-space motion planning. In: IEEE International Conference on Intelligent Robots and Systems. pp. 8089–8096. Orthey A, Fre´sz B and Toussaint M (2020) Motion planning explorer: Visualizing local minima using a local-minima tree. Robotics and Automation Letters 5(2): 346–353. Orthey A and Toussaint M (2019) Rapidly-exploring quotientspace trees: Motion planning using sequential simpliﬁcations. International Symposium of Robotics Research . Orthey A and Toussaint M (2020) Visualizing local minima in multi-robot motion planning using multilevel morse theory. Workshop on the Algorithmic Foundations of Robotics . Otte M and Frazzoli E (2016) Rrtx: Asymptotically optimal singlequery sampling-based motion planning with quick replanning. International Journal of Robotics Research 35(7): 797–822. Palmieri L, Bruns L, Meurer M and Arras KO (2019) Dispertio: Optimal sampling for safe deterministic motion planning. Robotics and Automation Letters 5(2): 362–368.
+
+Prepared using sagej.cls
+
+Orthey et al.
+
+23
+
+Palmieri L, Koenig S and Arras KO (2016) Rrt-based nonholonomic motion planning using any-angle path biasing. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 2775–2781.
+Pappas GJ, Lafferriere G and Sastry S (2000) Hierarchically consistent control systems. IEEE Transactions on Automatic Control 45(6): 1144–1160.
+Passino KM and Antsaklis PJ (1994) A metric space approach to the speciﬁcation of the heuristic function for the a* algorithm. IEEE transactions on systems, man, and cybernetics 24(1): 159–166.
+Pearl J (1984) Heuristics: Intelligent search strategies for computer problem solving. Addision Wesley .
+Persson SM and Sharf I (2014) Sampling-based a* algorithm for robot path-planning. International Journal of Robotics Research 33(13): 1683–1708.
+Pham H and Pham QC (2018) A new approach to time-optimal path parameterization based on reachability analysis. Transactions on Robotics 34(3): 645–659.
+Pham QC, Caron S, Lertkultanon P and Nakamura Y (2017) Admissible velocity propagation: Beyond quasi-static path planning for high-dimensional robots. International Journal of Robotics Research 36(1): 44–67.
+Plaku E (2015) Region-guided and sampling-based tree search for motion planning with dynamics. IEEE Transactions on Robotics 31(3): 723–735.
+Plaku E, Kavraki LE and Vardi MY (2010) Motion planning with dynamics by a synergistic combination of layers of planning. Transactions on Robotics 26(3): 469–482.
+Plaku E, Rashidian S and Edelkamp S (2018) Multi-group motion planning in virtual environments. Computer Animation and Virtual Worlds 29(6).
+Pokorny FT, Hawasly M and Ramamoorthy S (2016a) Topological trajectory classiﬁcation with ﬁltrations of simplicial complexes and persistent homology. International Journal of Robotics Research 35(1-3): 204–223.
+Pokorny FT, Kragic D, Kavraki LE and Goldberg K (2016b) High-dimensional winding-augmented motion planning with 2d topological task projections and persistent homology. In: IEEE International Conference on Robotics and Automation. pp. 24–31.
+Quinlan S (1994) Real-time modiﬁcation of collision-free paths. PhD Thesis, Stanford University Stanford.
+Reid W, Fitch R, Go¨ktog˘an AH and Sukkarieh S (2019) Samplingbased hierarchical motion planning for a reconﬁgurable wheelon-leg planetary analogue exploration rover. Journal of Field Robotics .
+Reid W, Fitch R, Go¨ktogan AH and Sukkarieh S (2020) Motion planning for reconﬁgurable mobile robots using hierarchical fast marching trees. In: Algorithmic Foundations of Robotics XII. Springer, pp. 656–671.
+Richter C, Bry A and Roy N (2016) Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments. In: Robotics Research. Springer, pp. 649–666.
+Rickert M, Sieverling A and Brock O (2014) Balancing exploration and exploitation in sampling-based motion planning. Transactions on Robotics 30(6): 1305–1317.
+Roub´ıcˇek T (2011) Relaxation in optimization theory and variational calculus, volume 4. Walter de Gruyter.
+
+Ro¨weka¨mper J, Tipaldi GD and Burgard W (2013) Learning to guide random tree planners in high dimensional spaces. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 1752–1757.
+Russell S and Norvig P (2002) Artiﬁcial intelligence: a modern approach .
+Saha M, Latombe JC, Chang YC and Prinz F (2005) Finding narrow passages with probabilistic roadmaps: The small-step retraction method. Autonomous Robots 19(3): 301–319.
+Salzman O (2019) Sampling-based robot motion planning. Communications of the ACM 62(10): 54–63.
+Salzman O and Halperin D (2016) Asymptotically near-optimal rrt for fast, high-quality motion planning. Transactions on Robotics 32(3): 473–483.
+Salzman O, Hemmer M and Halperin D (2013) On the power of manifold samples in exploring conﬁguration spaces and the dimensionality of narrow passages. In: Frazzoli E, LozanoPerez T, Roy N and Rus D (eds.) Algorithmic Foundations of Robotics X. Berlin, Heidelberg: Springer Berlin Heidelberg, pp. 313–329.
+Salzman O and Stern R (2020) Research challenges and opportunities in multi-agent path ﬁnding and multi-agent pickup and delivery problems. In: Proceedings of the 19th International Conference on Autonomous Agents and MultiAgent Systems. pp. 1711–1715.
+Sa´nchez G and Latombe JC (2003) A single-query bi-directional probabilistic roadmap planner with lazy collision checking. In: Robotics research. Springer, pp. 403–417.
+Sekhavat S, Svestka P, Laumond JP and Overmars MH (1998) Multilevel path planning for nonholonomic robots using semiholonomic subsystems. International Journal of Robotics Research 17(8): 840–857.
+Selig JM (2004) Geometric fundamentals of robotics. Springer Science & Business Media.
+Shkolnik A and Tedrake R (2011) Sample-based planning with volumes in conﬁguration space. arXiv preprint arXiv:1109.3145 .
+Shome R, Solovey K, Dobson A, Halperin D and Bekris KE (2020) drrt*: Scalable and informed asymptotically-optimal multirobot motion planning. Autonomous Robots 44(3): 443–467.
+Sime´on T, Laumond JP and Nissoux C (2000) Visibility-based probabilistic roadmaps for motion planning. Advanced Robotics 14(6): 477–493.
+Sime´on T, Leroy S and Laumond JP (2002) Path coordination for multiple mobile robots: A resolution-complete algorithm. IEEE Transactions on Robotics and Automation 18(1): 42–49.
+Simon HA (1969) The sciences of the artiﬁcial. MIT press. Solovey K (2020) Complexity of planning. arXiv preprint
+arXiv:2003.03632 . Solovey K and Halperin D (2014) k-color multi-robot motion
+planning. International Journal of Robotics Research 33(1): 82–97. Solovey K and Kleinbort M (2020) The critical radius in samplingbased motion planning. International Journal of Robotics Research 39(2-3): 266–285. Solovey K, Salzman O and Halperin D (2016) Finding a needle in an exponential haystack: Discrete RRT for exploration of implicit roadmaps in multi-robot motion planning. International Journal of Robotics Research 35(5): 501–513.
+
+Prepared using sagej.cls
+
+24
+
+International Journal of Robotics Research XX(X)
+
+Steenrod NE (1951) The topology of ﬁbre bundles . Strub MP and Gammell JD (2020) Advanced bit*(abit*): Sampling-
+based planning with advanced graph-search techniques. In: IEEE International Conference on Robotics and Automation. S¸ ucan IA and Kavraki LE (2009) Kinodynamic motion planning by interior-exterior cell exploration. In: Algorithmic Foundation of Robotics VIII. Springer, pp. 449–464. S¸ ucan IA and Kavraki LE (2011) A sampling-based tree planner for systems with complex dynamics. Transactions on Robotics 28(1): 116–131. S¸ ucan IA, Moll M and Kavraki L (2012) The open motion planning library. Robotics and Automation Magazine 19(4): 72–82. Svestka P (1996) On probabilistic completeness and expected complexity for probabilistic path planning, volume 1996. Utrecht University: Information and Computing Sciences. Svestka P and Overmars MH (1998) Coordinated path planning for multiple robots. Robotics and Autonomous Systems 23(3): 125– 152. Tonneau S, Prete AD, Pettr J, Park C, Manocha D and Mansard N (2018) An Efﬁcient Acyclic Contact Planner for Multiped Robots. Transactions on Robotics 34(3): 586–601. Toussaint M, Allen K, Smith K and Tenenbaum JB (2018) Differentiable physics and stable modes for tool-use and manipulation planning. Robotics: Science and Systems . Toussaint M and Lopes M (2017) Multi-bound tree search for logic-geometric programming in cooperative manipulation domains. In: IEEE International Conference on Robotics and Automation. pp. 4044–4051. Tu LW (2017) Differential geometry: connections, curvature, and characteristic classes, volume 275. Springer. Vahrenkamp N, Scheurer C, Asfour T, Kuffner J and Dillmann R (2008) Adaptive motion planning for humanoid robots. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 2127–2132. Van den Berg JP and Overmars MH (2005) Using workspace information as a guide to non-uniform sampling in probabilistic roadmap planners. International Journal of Robotics Research 24(12): 1055–1071. Van Den Berg JP and Overmars MH (2005) Prioritized motion planning for multiple robots. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 430– 435. Vega-Brown W and Roy N (2018) Admissible abstractions for nearoptimal task and motion planning. In: Proceedings of the 27th International Joint Conference on Artiﬁcial Intelligence. pp. 4852–4859. Vidal E, Moll M, Palomeras N, Herna´ndez JD, Carreras M and Kavraki LE (2019) Online multilayered motion planning with dynamic constraints for autonomous underwater vehicles. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 8936–8942. Vona´sek V and Peˇnigˆka R (2019) Sampling-based motion planning of 3d solid objects guided by multiple approximate solutions. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 1480–1487. Wagner G and Choset H (2015) Subdimensional expansion for multirobot path planning. Artiﬁcial Intelligence 219: 1–24. Wilmarth SA, Amato NM and Stiller PF (1999) Maprm: A probabilistic roadmap planner with sampling on the medial
+
+axis of the free space. In: IEEE International Conference on Robotics and Automation, volume 2. IEEE, pp. 1024–1031. Xanthidis MP, Esposito JM, Rekleitis I and O’Kane JM (2018) Analysis of motion planning by sampling in subspaces of progressively increasing dimension. arXiv preprint arXiv:1802.00328 . Yang L and Lavalle SM (2004) The sampling-based neighborhood graph: An approach to computing and executing feedback motion strategies. Transactions on Robotics 20(3): 419–432. Yershova A, Jaillet L, Sime´on T and LaValle SM (2005) Dynamicdomain rrts: Efﬁcient exploration by controlling the sampling domain. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 3856–3861. Yoshida E (2005) Humanoid motion planning using multi-level dof exploitation based on randomized method. In: IEEE International Conference on Intelligent Robots and Systems. IEEE, pp. 3378–3383. Yu H, Lu W, Han Y, Liu D and Zhang M (2020) Heterogeneous dimensionality reduction for efﬁcient motion planning in highdimensional spaces. IEEE Access 8: 42619–42632. Yu H, Lu W and Liu D (2019) A uniﬁed closed-loop motion planning approach for an i-auv in cluttered environment with localization uncertainty. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 4646–4652. Zarubin D, Ivan V, Toussaint M, Komura T and Vijayakumar S (2012) Hierarchical motion planning in topological representations. Robotics: Science and Systems . Zhang L, Pan J and Manocha D (2009) Motion planning of human-like robots using constrained coordination. In: IEEE International Conference on Humanoid Robots. pp. 188–195. Zhang L and Zhang B (2004) The quotient space theory of problem solving. Fundamenta Informaticae 59(2-3): 287–298. Zucker M, Kuffner J and Bagnell JA (2008) Adaptive workspace biasing for sampling-based planners. In: IEEE International Conference on Robotics and Automation. IEEE, pp. 3757– 3762.
+
+A Exponential Change
+To model quick but smooth transitions between two parameter values, we use an exponential decay function. Let κ0 be the start and κ1 be the ﬁnal parameter value. We model the change between κ0 and κ1 using the exponential decay function
+
+κ(t) = (κ0 − κ1) exp(−λt) + κ1
+
+(25)
+
+with t ∈ R≥0 being the time or iteration number, κ(0) = κ0, limt→∞ κ(t) = κ1, exp being the exponential function and λ ∈ R≥0 being the decay parameter.
+
+B Meta-Analysis of Primitive Methods
+There are multiple ways we can sample a base space graph, to select a bundle space or to compute a metric. We can also choose to employ the recursive path section method or remove it. To ﬁnd out which method works best for a speciﬁc algorithm, we perform a meta-analysis. In this metaanalysis, we select each bundle algorithm QRRT, QRRT*, QMP and QMP* and vary its primitive methods. We vary
+
+Prepared using sagej.cls
+
+Ratio
+
+Ratio
+
+Ratio
+
+Ratio
+
+QMP*(intrinsic) QMP*(QS metric)
+QMP*(uniform) QMP*(greedy) QMP*(exponential) QMP*(randomvertex) QMP*(randomedge) QMP*(degreevertex) QMP*(Find Section) QMP*(No Find Section)
+
+QMP(intrinsic) QMP(QS metric)
+QMP(uniform) QMP(greedy) QMP(exponential) QMP(randomvertex) QMP(randomedge) QMP(degreevertex) QMP(Find Section) QMP(No Find Section)
+
+QRRT*(intrinsic) QRRT*(QS metric) QRRT*(uniform)
+QRRT*(greedy) QRRT*(exponential) QRRT*(randomvertex) QRRT*(randomedge) QRRT*(degreevertex) QRRT*(Find Section) QRRT*(No Find Section)
+
+QRRT(intrinsic) QRRT(QS metric) QRRT(uniform)
+QRRT(greedy) QRRT(exponential) QRRT(randomvertex) QRRT(randomedge) QRRT(degreevertex) QRRT(Find Section) QRRT(No Find Section)
+
+Orthey et al.
+2.5 2.0 1.5 1.0 0.5 0.0
+1.25 1.00 0.75 0.50 0.25 0.00
+6 4 2 0
+2.5 2.0 1.5 1.0 0.5 0.0
+Figure 8. Meta Analysis
+Prepared using sagej.cls
+
+25
+those methods by taking the runtime average over the same set of environments as in Sec. 8 (except the hypercube). We then present the results as ratios of the best runtime. This means, to ﬁnd the best sampling method for QRRT, we let QRRT run on all environments with different sampling method, then average the results for each method. We then take the method with the lowest runtime and assign it the ratio 1. All other runtimes are represented as multiples of the lowest runtime.
+The results are shown in Fig. 8. We divide the results into four groups. First, we compare the intrinsic metric to the quotient space (QS) metric (left group). Second, we compare the importance selection of a bundle space by comparing uniform, exponential and epsilon greedy (middle left). Third, we compare the graph sampling strategies, namely random vertex, random edge and degree vertex (middle right). Finally, we compare the algorithms with enabled ﬁnd section method and without (right).
+In the case of QRRT, we observe the best metric to be the intrinsic metric (left) and that using the recursive ﬁnd section method, we can lower the runtime signiﬁcantly (right). However, for sampling and selection, we do not have a clear best strategy. Instead, for all four we observe that a change in sampling or importance has a marginal inﬂuence on the performance. For the other three algorithms QRRT*, QMP and QMP*, we observe similar results. One exception is QRRT*, where we observe the QS metric and the no ﬁnd section method to perform only 1.25 times worse. However, we believe the result show a clear advantage of using the intrinsic metric plus the ﬁnd section method.
+It seems that there is not one single best sampling or importance strategy. Instead, we believe them to be problem speciﬁc. We need to further investigate how changes in importance affects performance over a many bundle spaces. One approach could be to perform an analysis of importance or graph sampling performance with respect to the number of bundles chosen. This is left for future work.
+

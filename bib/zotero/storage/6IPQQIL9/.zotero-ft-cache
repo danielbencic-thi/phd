@@ -1,0 +1,494 @@
+2021 International Conference on Unmanned Aircraft Systems (ICUAS) Athens, Greece. June 15-18, 2021
+
+2021 International Conference on Unmanned Aircraft Systems (ICUAS) | 978-1-6654-1535-4/21/$31.00 ©2021 IEEE | DOI: 10.1109/ICUAS51884.2021.9476874
+
+Autonomous ﬂight through cluttered outdoor environments using a memoryless planner
+Junseok Lee1†, Xiangyu Wu1†, Seung Jae Lee2, and Mark W. Mueller1
+
+Abstract— This paper introduces a collision avoidance system for navigating a multicopter in cluttered outdoor environments based on the recent memory-less motion planner, rectangular pyramid partitioning using integrated depth sensors (RAPPIDS). The RAPPIDS motion planner generates collision-free ﬂight trajectories at high speed with low computational cost using only the latest depth image. In this work we extend it to improve the performance of the planner by taking the following issues into account. (a) Changes in the dynamic characteristics of the multicopter that occur during ﬂight, such as changes in motor input/output characteristics due to battery voltage drop. (b) The noise of the ﬂight sensor, which can cause unwanted control input components. (c) Planner utility function which may not be suitable for the cluttered environment. Therefore, in this paper we introduce solutions to each of the above problems and propose a system for the successful operation of the RAPPIDS planner in an outdoor cluttered ﬂight environment. At the end of the paper, we validate the proposed method’s effectiveness by presenting the ﬂight experiment results in a forest environment. A video can be found at www.youtube.
+com/watch?v=3av5xEuKg2w&ab_channel=HiPeRLab
+
+Fig. 1. The vehicle ﬂies autonomously using visual-inertial odometry and the collision-avoidance planner through a forest, avoiding trees.
+
+I. INTRODUCTION
+Motion planning algorithms for multicopter unmanned aerial vehicles to ﬂy autonomously to their destination in cluttered environments are in general grouped into two categories. One is to separately run a path planning algorithm to generate collision-free path as a purely geometrical problem without considering dynamics [1], and use a path follower to follow the collision-free path. Since it does not consider dynamics constraints, collision avoidance can not be guaranteed at high speed since dynamics constraints, such as motor thrust limit, are not considered at the time of planning. The other approach considers dynamics constraints and directly generates control commands by including obstacle avoidance as a constraint inside an optimization problem rather than separating path planning and tracking, for example, based on the rapidly-exploring random tree star (RRT*) [2], the nonlinear optimization [3], and the mixed-integer programming (MIP) [4].
+We focus on the latter category which considers dynamics in planning as well as collision avoidance. The collisionfree trajectories are often further constrained by minimizing
+†Junseok Lee and Xiangyu Wu contributed equally to this article. Names are in alphabetical order.
+1Junseok Lee, Xiangyu Wu, and Mark W. Mueller are with the High Performance Robotics Lab (HiPeRLab) at the Department of Mechanical Engineering, UC Berkeley, CA 94720, USA {junseok lee,wuxiangyu,mwm}@berkeley.edu
+2Seung Jae Lee is with the Automation and Systems Research Institute (ASRI), Seoul National University, Seoul, Republic of Korea sjlazza@snu.ac.kr
+
+a cost function depending on applications, for example, the minimum time, the minimum energy, and the shortest distance. Trajectory generation algorithms may be divided into two major types: map-based algorithms and memoryless algorithms [5].
+Map-based algorithms are global planning methods of creating collision-free optimal trajectories after a single large map is constructed or while creating a map by fusing all spatial sensor information obtained during ﬂights. For instance, in [6], a local map of the environment is used and a nonconvex, nonlinear optimization problem is solved to get collision-free smooth trajectories. In [7]–[9] the free-space in the map is represented as multiple convex regions, and an optimization problem is then solved to ﬁnd a series of trajectories through the free-space. In [10], the convex hull property of B-spline trajectories is used to solve for safe and fast trajectories, and the success rate and optimality is improved in the subsequent work of [11]. Map-based algorithms have the advantage of optimal trajectory generation because it presupposes that map information is already known when planning. However, they usually have high computational cost and due to fusing sensor data into the map.
+On the other hand, memory-less algorithms use only the most recent sensor information to avoid obstacles, such as using the k-d-tree [12], [13], and a trajectory library precomputed ofﬂine to reduce a signiﬁcant amount of online computation [14]. Therefore, memory-less algorithms are classiﬁed as local planning methods and are advantageous for obstacle avoidance in a dynamic obstacle environment
+
+978-0-7381-3115-3/21/$31.00 ©2021 IEEE
+
+1131
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+due to low computational cost and high update frequency. However, there is a disadvantage that it is challenging to ﬁnd a globally optimal trajectory since global spatial information is not available at the time of planning.
+For trajectory generation of a small-size multicopter that requires high-speed maneuver but has a limited payload capacity, memory-less algorithms have great utility due to the following reasons. First, memory-less algorithms are easy to be implemented in real-time on miniature on-board computers with limited computational resources. Second, due to the fast trajectory update speed thanks to the low computational cost, memory-less algorithms can cope with rapidly changing surroundings during high-speed ﬂight. Lastly, the algorithm is less prone to accumulated odometry errors during ﬂights in a cluttered environment because it utilizes only the latest sensor information for the planning.
+Recently, a memory-less planner is proposed using rectangular pyramid partitioning using integrated depth sensors (RAPPIDS) motion planner, which has high computational efﬁciency for high-speed collision avoidance ﬂights [15]. Using the RAPPIDS motion planner, the authors were able to achieve high collision avoidance ﬂight performance in cluttered indoor ﬂight environment, using only stand-alone depth images and visual-inertial odometry information processed by an on-board computer mounted on the vehicle.
+In this paper, we extend the RAPPIDS planner to operate in a cluttered outdoor off-road environment. We describe the system’s development process and ﬂight results. In the experiment, the system was able to ﬂy 30 meters in a forest environment, as shown in Fig. 1, with a maximum speed of 2.7 m/s. The remaining parts of the paper are organized as follows: in Section II, we outline the principles of the RAPPIDS planner. Section III introduces modiﬁcations to the algorithm to ensure successful outdoor ﬂights. Finally, in Section IV, the system’s performance is demonstrated by introducing the experiment results of obstacle avoidance ﬂights in a forest environment.
+II. RAPPIDS MOTION PLANNING FRAMEWORK
+In this section, we repeat some details from [15], and add a velocity limiting check for stable visual-inertial odometry. Motion primitives are sampled and then go through a series of checks to ﬁnd a trajectory that is minimum-cost, inputfeasible, velocity-admissible, and collision-free, as shown in Algorithm 1. Since the planner has a low computational cost, we plan in a receding horizon fashion every time a new depth image arrives. This keeps a collision-free trajectory being updated with the latest depth view, and allows avoiding obstacles that are not included in the previous camera view.
+A. Candidate trajectory sampling
+We sample candidate trajectories ﬁrst by sampling an endpoint and constructing a polynomial trajectory connecting the current position to the endpoint. Speciﬁcally, we ﬁrst uniformly sample a 2D point in the pixel coordinates of a depth camera. We also draw a sampled depth from a uniform
+
+Algorithm 1 Trajectory Constraint Checks
+
+Require: A sampled candidate trajectory
+
+1: procedure CONSTRAINTSCHECK
+
+2: if lower cost than known then
+
+3:
+
+if input feasibility then
+
+4:
+
+if velocity admissibility then
+
+Subsection II-B
+
+5:
+
+if collision-free then
+
+Subsection II-C
+
+6:
+
+trajectory status ← collision free
+
+7:
+
+else
+
+8:
+
+trajectory status ← in collision
+
+9:
+
+end if
+
+10:
+
+else
+
+11:
+
+trajectory status ← velocity inadmissible
+
+12:
+
+end if
+
+13:
+
+else
+
+14:
+
+trajectory status ← input infeasible
+
+15:
+
+end if
+
+16: else
+
+17:
+
+trajectory status ← higher cost
+
+18: end if
+
+19: end procedure
+
+distribution, and then back-project the 2D point using the sampled depth to obtain a sampled endpoint sT ∈ R3.
+Denote s(t), s˙(t), and s¨(t) ∈ R3 to be the position, velocity and acceleration of the vehicle in the inertial frame. The candidate motion primitives are described as below.
+s(t) = α t5 + β t4 + γ t3 + s¨(0)t2 + s˙(0)t + s(0), t ∈ [0 T ], 120 24 6 2 (1)
+where T is the trajectory duration, s(0), s˙(0), and s¨(0) are the initial position, velocity, and acceleration of the vehicle at the time when the trajectory starts, and α, β and γ are coefﬁcients such that s(T ) = sT , and s˙(T ) = s¨(T ) = 0. This terminal condition is selected to be at rest to guarantee safety in every depth frame. Speciﬁcally speaking, even if the planner fails to ﬁnd a new collision-free trajectory in the following frames, the vehicle can keep tracking the current trajectory, which is collision-free in a static environment. This 5th order polynomial corresponds to the minimum-jerk trajectory, which minimizes the average Euclidean norm of jerk over the trajectory duration T . The trajectory is smooth and can be checked for collisions efﬁciently, as shown in [16].
+
+B. Velocity constraints for stable visual-inertial odometry
+We impose velocity constraints to prevent the visualinertial odometry from losing track in high-speed ﬂights. The sampled trajectories are ﬁltered out if their maximum velocity exceeds a predeﬁned threshold, vmax. For the sake of computational tractability, the constraints are checked for each per-axis velocity using analytical solution for thirdorder polynomials. It should be noted that checking the magnitude requires solving higher-order polynomials numerically, because analytical solutions do not exist. The following equation can be derived by taking the derivative of (1),
+
+s˙(t) = α t4 + β t3 + γ t2 + s¨(0)t + s˙(0)
+
+(2)
+
+24 6 2
+
+1132
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 2. The planner uses a collection of pyramids to represent the free space, which allows simple and fast collision check of a sampled trajectory. The ﬁgure is sourced from [15].
+
+To ﬁnd its extrema, we compute its derivative and ﬁnd the zeros as below.
+
+s¨(t)
+
+=
+
+α 6
+
+t3
+
++
+
+β 2
+
+t2
+
++ γt
+
++
+
+s¨(0)
+
+=
+
+0
+
+(3)
+
+The third-order polynomial can be efﬁciently solved, and the magnitude of (2) is evaluated at the roots as well as the boundary, 0 and T . The procedure is repeated for every axis, and we discard the motion primitive candidate if the speed on any axis exceeds the per-axis velocity limit vmax.
+
+C. Collision check: Pyramid method
+
+The RAPPIDS planner determines whether the candidate trajectory intrudes the obstacle by pyramid inﬂation. Fig. 2 shows the process in which the depth camera on the ﬂying vehicle searches for area P that guarantees a non-collision path. First, we deﬁne free space F and occupied space O based on the depth camera image. We also treat all spaces outside the ﬁeld of view that are l distance from the vehicle as occupied spaces to avoid collisions with unrecognized obstacles outside the camera’s ﬁeld of view. Next, we select the ﬁnal position s(T ) through random sampling and then search for the nearest depth pixel p from s(T ). Then, starting at pixel p and reading the surrounding depth pixels in a spiral sequence, we get the largest possible rectangular space Pexp that does not intrude the occupied space O. Finally, pyramid P distanced with vehicle radius r is created by shrinking the expanded pyramid Pexp. By checking whether the s(t) candidate trajectory remaining inside P, we can conclude that the trajectory is collision-free from the detected obstacles.
+The algorithm can guarantee zero collision trajectory, because the trajectory generated by the algorithm inherently avoids not only the obstacles recognized by the depth sensor but also the obstacles located in an unobserved (U ) or unknown area (O) obscured by the detected obstacles. A detailed description of this algorithm can be found at [15].
+
+III. ALGORITHMS FOR OUTDOOR FLIGHT
+In this section, we describe modiﬁcations to the motion planner other than the velocity check described in section IIB, for collision-free ﬂights outdoors to autonomously reach
+
+Fig. 3. Efﬁcient trajectory sampling in the ﬁeld of view (FOV) of the depth camera. An occluded space O at the center makes the planner construct pyramids around the FOV. A sampled trajectory (blue) with an endpoint close to the FOV is likely to have a part that resides outside the ﬁeld of view (highlighted by yellow), which is classiﬁed by the planner as incollision as space outside of the FOV is considered as occupied. To increase the sampling efﬁciency, we sample points only between 10% and 90% of horizontal and vertical FOV.
+a target waypoint. (a) We sample trajectories with ﬁnal positions around the center of the view of the depth camera to improve the efﬁciency of sampling trajectories. (b) We proposed a new utility function that behaves similarly to the utility function of maximizing the average velocity, but also considers making the vehicle stay around the target. (c) The vehicle is always yawed towards the goal to dynamically change the view during the ﬂight that can potentially increase the chance of ﬁnding a collision-free trajectory compare to the view with a ﬁxed yaw. (d) The initial acceleration used for sampling trajectories is approximated by the total thrust command divided by the mass instead of using noisy IMU measurements, since the noise in acceleration hampers the planner from ﬁnding proper trajectories. (e) We compensate the thrust change because of battery voltage drop during the ﬂight.
+A. Sampling efﬁciency
+As collision checking at the last step of the planner is computationally expensive, it is beneﬁcial to increase the probability of ﬁnding a collision-free trajectory from candidate trajectories. We improve the sampling efﬁciency by excluding candidate trajectories with high chances of being classiﬁed as in collision. One of the most common cases is when a sampled candidate trajectory has an endpoint around the ﬁeld of view (FOV), as shown in Fig. 3. If the endpoint is close to the edges of the FOV, it is likely that some parts of the sampled trajectory fall outside of the FOV, and it is classiﬁed by the planner as in-collision because regions outside of the FOV are considered occupied by the planner, as described in section II-C. To improve the trajectory sampling efﬁciency by avoiding those cases, the ﬁnal trajectory position is sampled between 10% and 90% of the ﬁeld-of-view.
+B. Utility function
+We propose a utility function, which is equivalent to a negative cost function, as below to generate trajectories that not only consider maximizing the average velocity to the
+
+1133
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+15.0V ﬁt (kv=1.0000)
+
+12
+
+15.0V
+
+15.5V ﬁt (kv=1.0472)
+
+10
+
+15.5V
+
+16.4V ﬁt (kv=1.1443)
+
+8
+
+16.4V
+
+thrust force [N]
+
+Fig. 4. A new cost function to maximize average velocity and handle the behavior around the goal point G is proposed. Every time a new depth image arrives, the planner attempts to ﬁnd a new collision-free trajectory using the current estimates st , and if found, the tracking controller discards the previous trajectory (gray-dashed parts), and starts tracking the new trajectory (brown). When far from the goal point, for example point A, the utility function is roughly the average velocity measured in direction to the goal (depicted by the green arrow), which still allows lateral motion. However, around the goal, such as point B, the utility function encourages the planner to generate a new collision-free trajectory with the endpoint around the goal, not beyond the goal.
+
+goal, but also keep the trajectories’ end points around the
+
+target.
+
+U (P, t) = dstG − dPG ,
+
+(4)
+
+t
+
+where dstG , dPG , and t are the distances between the current position and the goal, the distance between the
+
+endpoint of the motion primitives and the goal, and the
+
+primitive execution time, respectively. As shown in Fig. 4, when the vehicle is far from the waypoint, the term dPG does not vary much, and hence the utility function is to
+
+maximize the average velocity to the waypoint. Around the waypoint, however, the term dPG plays a role to encourage the planner to choose a trajectory whose ﬁnal position falls
+
+around the goal.
+
+C. Desired yaw angle
+The yaw angle can be arbitrarily chosen while tracking a collision-free trajectory. We yaw the vehicle always towards the goal, because it is more likely to ﬁnd a trajectory to the goal when facing towards it.
+
+ψc = arctan2 ([0 1 0] (sG − s), [1 0 0] (sG − s)) (5) ∈ [−π, π] ,
+
+where arctan2(y, x) measures the signed angle between the point (x, y) and the positive x-axis, and ψc, sG and s are the commanded yaw angle, the positions of the goal and the vehicle in the inertial frame, respectively. It should be noted that the yaw control can be replaced with a more intelligent control from a high-level planner.
+
+D. Acceleration estimation
+
+Our planner checks collision of a trajectory that is sampled
+
+given the current position, velocity, and acceleration (section
+
+II-A). Using acceleration measurements from IMU for the
+
+current acceleration results in inaccurate sampled trajectories
+
+due to the noise in IMU acceleration measurements. We
+
+instead estimate acceleration using the last commanded thrust
+
+as below
+
+s¨ (0)
+
+=
+
+c m zB
+
+−
+
+g,
+
+(6)
+
+6
+
+4
+
+2
+
+0
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+throttle [0-1]
+
+Fig. 5. Thrust force at different thrust commands (solid lines) and secondorder ﬁtting results (dotted lines). The command-thrust relationship changes depending on the voltage applied to the propulsion system.
+
+where c, zB, m, and g are the last collective thrust command, body z-axis, mass, and gravitational acceleration.
+
+E. Thrust adaptation
+
+Once the collision-free trajectory is selected, the cascaded ﬂight controller generates motor speed commands to maneuver the vehicle, as shown in Fig. 9. The commands are then sent to the electric speed controllers (ESCs), which control each motor’s rotation speed based on the predeﬁned protocol in their ﬁrmware.
+Commonly used ESCs, including those used in this project, run in ‘open-loop’ mode, meaning that the rotor angular velocity produced is not ﬁxed for a ﬁxed command, but varies with e.g. battery voltage. The relationship between the thrust command, battery voltage, and thrust force produced is shown in Fig. 5 for the experimental vehicle. This section describes the mitigation strategy used in this work to achieve reliable thrust commands with such openloop ESCs, with speciﬁcally an ofﬂine calibration for the major variations, followed by an online adaptive loop to compensate for remaining model error.
+1) Ofﬂine calibration: At a constant battery voltage, a quadratic ﬁt matches the data shown in Fig. 5 well:
+
+f¯i(ui) = kv(Vbatt)(c0(ui + c1)2 + c2),
+
+(7)
+
+with f¯i the thrust produced by motor i at command ui, kv(·) a term dependent on the battery voltage Vbatt, and c{0,1,2} voltage-independent ﬁxed parameters. The function kv(·), and parameters ci are common to all motors, and are estimated using a least-squares approach.
+The voltage-dependent function kv(·) is estimated from a long-term hover, where the vehicle maintained a constant
+position as the battery voltage varied from fully charged to
+almost depleted. The result is shown in Fig 6, and a simple
+ﬁrst-order ﬁt for the voltage dependence is used:
+
+kv(Vbatt) = kv1 + kv2Vbatt
+
+(8)
+
+1134
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+throttle [0-1]
+
+raw data
+
+0.64
+
+ﬁrst-order ﬁt
+
+0.62
+
+0.60
+
+0.58
+
+0.56
+14.4 14.6 14.8 15.0 15.2 15.4 15.6 15.8 voltage [V]
+
+Fig. 6. Change in throttle command required at hover as the vehicle’s battery is depleted from fully charged (approx. 15.8V) to nearly depleted (approx. 14.4V).
+
+with Vbatt the battery voltage, and kv{1,2} parameters estimated via least squares.
+2) Online adaptation: To compensate for remaining er-
+rors, we compare the thrust estimated from the accelerometer
+data to the desired thrust. We model the actual thrust produced by the propellers, fi in relation to the ofﬂine model f¯i with the adaptation coefﬁcient ka, common to all propellers:
+
+fi = ka f¯i
+
+(9)
+
+The estimate of the actual thrust is computed as follows,
+
+noting that the translational dynamics of a multicopter are
+
+given by
+
+ms¨ = RezΣ fi + mg,
+
+(10)
+
+where R is the vehicle’s attitude expressed as a rotation matrix, and ez = [0 0 1]T . Note that this assumes that there are no other forces acting on the vehicle, such as aerodynamic disturbances, drag forces, etc. Noting that the vehicle’s accelerometer measures the vehicle’s proper acceleration, i.e. acceleration relative to free fall, we have that the output α of an ideal, noise-free accelerometer located at the vehicle centre of mass given by
+
+Rα + g = s¨,
+
+(11)
+
+Comparing (10) and (11), we can bring the following result
+
+mαz = Σ fi,
+
+(12)
+
+where αz is the component of the accelerometer measurement parallel to the thrust vector. I.e. we can estimate the actual thrust force generated from the vehicle with zdirectional IMU acceleration measurements. The coefﬁcient ka is then computed as follows:
+
+ka = LPF
+
+mαz Σ f¯i
+
+(13)
+
+with LPF(·) a suitable low pass ﬁlter, necessary to average out the noisy data.
+
+Fig. 7. The custom built quadcopter. 1 - Pixracer ﬂight controller; 2 RGB camera (not used in feedback); 3 - D435i depth camera; 4 - infra-red camera (not used in feedback); 5 - T265 tracking camera; 6 - GPS (not used in feedback); 7 - Jetson AGX Xavier
+Fig. 8. Satellite image of the small forest at the Richmond Field Station where the experiment was conducted. Image is from www.usgs.gov .
+Given a desired thrust value (e.g. from the controller), an ESC command is generated by computing the corresponding calibrated thrust f¯i from (9), and then solving the quadratic in (7) to compute the desired low-level ESC command ui.
+IV. EXPERIMENTAL RESULTS We have shown in outdoor experiments that the system is able to navigate in a complex forest experiment with a maximum speed of 2.7 m/s. The experiment was repeated several times and we got similar performance. In this section we give detailed explanation of one of these experiments. A. System setup A custom-built quadcopter, as shown in Fig. 7, was used through the experiments. It weighs 2.4 kg and the distance between two diagonal motors is 382 mm. The diameter of each propeller is 229 mm. On the vehicle, an Intel D435i
+
+1135
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 9. A block diagram of the system, showing the relationship between components. The yellow shaded area contains components running on the AGX Xavier on-board computer, while the red shaded area contains components running on the Pixracer ﬂight controller.
+
+depth camera is installed for collision avoidance and an Intel T265 camera is installed for state estimation. The depth camera is forward-looking to detect obstacles in forward ﬂights, and the T265 camera has a 37-degree angle with the horizontal ground, to track features on the ground for state estimation and to avoid view occlusion from other parts of the vehicle. The GPS and two other cameras (one is a RGB camera and the other one is an infra-red camera) on the vehicle are not used for the vehicle’s motion planning. The relationship between the components of the system, is shown in Fig. 9. The RAPPIDS motion planner, the position and attitude controllers, and the thrust adapter runs on an on-board computer (Jetson AGX Xavier), at a frequency of 100Hz. The pixracer runs the standard PX4 ﬁrmware [17]. It takes in the desired angular velocity and thrust from the Xavier and sends the motor speed commands to the ESCs, which control the motors’ rotation speed.
+B. Obstacle avoidance experiment
+The experiments were conducted at a small forest at the Richmond Field Station (37.915535 N, -122.335059 E), as shown in Fig. 8. The vehicle’s radius r (shown in Fig. 2) was set to 0.6m for the planner during the experiment, leaving a minimum safety margin of about 0.3 m between the vehicle and the nearest obstacles. The velocity constraint vmax in section II-B was set to 3 m/s because of the limit of the T265 tracking camera (a speed of above 3 m/s could make the state estimation of T265 unreliable), and trajectories exceeding this speed limit will be rejected.
+The vehicle was ﬁrst controlled to take off manually to about 1 m above the ground and then switched to autonomous hovering at its current position, which was used as the starting point. The target point was set to be 30 meters forward with respect to the starting point of the vehicle, to ﬂy the vehicle to the other side of the forest. When the vehicle was close to the target point (less than 1 m in this case), the motion planner in Fig. 9 stopped generating new trajectories, and the vehicle tracked the last reference trajectory to reach the target point. After the vehicle reached the target point, it hovered there and waited for the pilot to send other commands, e.g. landing. In the experiment the vehicle was able to reach the target point
+
+position y [m]
+
+position x [m]
+
+position z [m]
+
+Fig. 10. Path of the vehicle (red line) during the autonomous collision avoidance ﬂight from the start point (marked with a blue dot) to the end point (marked with a green dot). The trees detected by the depth camera were visualized using Octomap [18]. The distance between the start point and the end point is 30 meters.
+30 20 10
+0
+0
+−1
+1
+0 0.0 2.5 5.0 7.5 10.0 12.5 15.0 time [s]
+Fig. 11. The estimated position of the vehicle during the autonomous collision avoidance ﬂight, with respect to the starting point of the autonomous ﬂight. The target point of the vehicle was at x = 30 m, y = 0 m, z = 0 m.
+
+1136
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+3
+
+60000
+
+number of sampled trajectories
+
+2
+
+40000
+
+velocity [m/s]
+
+1
+
+0
+
+−1
+
+x
+
+y
+
+−2
+
+z
+
+−3
+
+magnitude
+
+0.0 2.5 5.0 7.5 10.0 12.5 15.0 time [s]
+
+Fig. 12. The estimated velocity for each axis of the vehicle, as well as the Euclidean norm (magnitude) of the velocity during the autonomous collision avoidance ﬂight. With the velocity check in section II-B, the velocity on none of the three axis exceeds the velocity limit of 3.0 m/s (marked as magenta dashed lines).
+
+while generating and tracking collision-free trajectories. The path of the vehicle is visualized in Fig. 10 and its position is shown in Fig. 11. The manual take-off and landing part are omitted and only the autonomous collision avoidance ﬂight part is plotted for clarity. With the velocity check in section II-B on the sampled trajectories, the velocity on none of the three axis exceeds the velocity limit of 3.0 m/s, shown in Fig. 12.
+The number of sampled trajectories and better-than-current trajectories (i.e. trajectories that pass all the checks in Algorithm 1 and have a lower cost than the current reference trajectory) throughout the experiment is shown in Fig. 13. Thanks to the computational efﬁciency of the algorithm, a large number of sampled trajectories could be processed on-board in real-time. The current reference trajectory was updated when a better-than-current trajectory was found, which happened most of the time during the ﬂight. When no better trajectory was found (e.g. when the view of the depth camera was occluded by the obstacles), the vehicle would track the current trajectory. After 14.7 s, the vehicle was within 1 m to the target point, and the trajectory generator stopped generating new trajectories and followed the last reference trajectory to reach the target point.
+V. CONCLUSIONS
+In this paper, we presented various considerations of the RAPPIDS motion planner for outdoor ﬂights. We consider a planner under the assumption of static environment, in which recursive feasibility is guaranteed by the way how collisionfree trajectories are constructed. Speciﬁcally speaking, the terminal conditions of sampled trajectories are selected to be at rest, and that guarantees safety in that executing a primitive should always lead to the vehicle advancing to the objective and coming to rest without collision. Continuous re-sampling of trajectories, in a receding horizon fashion, allows the vehicle to progress towards the objective. In
+
+20000 0
+20
+
+number of better trajectories
+
+10
+
+0
+
+0.0
+
+2.5
+
+5.0
+
+7.5 10.0 12.5 15.0
+
+time [s]
+
+Fig. 13. A large number of trajectories were sampled during the autonomous ﬂight of the vehicle, as shown in the ﬁrst row. The sampled trajectories then went through the checks in Algorithm 1, and the number of trajectories that are better than the current trajectory is shown in the second row.
+
+the event that no samples result in feasible trajectories, the system simply continues the previous trajectory, thereby guaranteeing recursive feasibility.
+We also introduced the velocity constraint of the planner to satisfy the speed limit of the visual-inertial odometry camera, increased the trajectory sampling efﬁciency based on the prior that sampling close to the edge of ﬁeld of view of the depth camera is prone to result in in-collision trajectories, and used estimated acceleration instead of noisy IMU acceleration measurements. In addition, a new utility function was proposed to consider not only maximizing the average velocity toward the goal but also keeping the vehicle around the goal. A thrust adaptation method is introduced to compensate decrease in motor thrusts due to voltage drop during ﬂights. Lastly, the experimental results in a challenging outdoor environment were presented, which validated the ability of this system to autonomously navigate through complex obstacles outdoors.
+ACKNOWLEDGEMENT
+Research was sponsored by the Army Research Laboratory and was accomplished under Cooperative Agreement Number W911NF-20-2-0105. The views and conclusions contained in this document are those of the authors and should not be interpreted as representing the ofﬁcial policies, either expressed or implied, of the Army Research Laboratory or the U.S. Government. The U.S. Government is authorized to reproduce and distribute reprints for Government purposes notwithstanding any copyright notation herein. The experimental testbed at the HiPeRLab is the result of contributions of many people, a full list of which can be found at hiperlab.berkeley.edu/members/.
+
+1137
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] T. Baumann, “Obstacle Avoidance for Drones Using a 3DVFH* Algorithm,” Master thesis, ETH Zurich, 2015.
+[2] B. Sakcak, L. Bascetta, G. Ferretti, and M. Prandini, “Sampling-based optimal kinodynamic planning with motion primitives,” Autonomous Robots, vol. 43, no. 7, pp. 1715–1732, Oct. 2019.
+[3] S. Spedicato and G. Notarstefano, “Minimum-Time Trajectory Generation for Quadrotors in Constrained Environments,” IEEE Transactions on Control Systems Technology, vol. 26, no. 4, pp. 1335–1344, Jul. 2018.
+[4] J. Park, S. Karumanchi, and K. Iagnemma, “Homotopy-Based Divideand-Conquer Strategy for Optimal Trajectory Planning via MixedInteger Programming,” IEEE Transactions on Robotics, vol. 31, no. 5, pp. 1101–1115, Oct. 2015.
+[5] Y. Lu, Z. Xue, G.-S. Xia, and L. Zhang, “A survey on vision-based UAV navigation,” Geo-spatial Information Science, vol. 21, no. 1, pp. 21–32, 2018.
+[6] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and E. Galceran, “Continuous-time trajectory optimization for online uav replanning,” in 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2016, pp. 5332–5339.
+[7] Sikang Liu, M. Watterson, S. Tang, and V. Kumar, “High speed navigation for quadrotors with limited onboard sensing,” in 2016 IEEE International Conference on Robotics and Automation (ICRA), 2016, pp. 1484–1491.
+[8] Jing Chen, Tianbo Liu, and Shaojie Shen, “Online generation of collision-free trajectories for quadrotor ﬂight in unknown cluttered environments,” in 2016 IEEE International Conference on Robotics and Automation (ICRA), 2016, pp. 1476–1483.
+[9] J. Tordesillas, B. T. Lopez, and J. P. How, “Faster: Fast and safe trajectory planner for ﬂights in unknown environments,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2019, pp. 1934–1940.
+[10] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019.
+[11] B. Zhou, F. Gao, J. Pan, and S. Shen, “Robust real-time uav replanning using guided gradient-based optimization and topological paths,” in 2020 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2020, pp. 1208–1214.
+[12] P. Florence, J. Carter, and R. Tedrake, “Integrated perception and control at high speed: Evaluating collision avoidance maneuvers without maps,” in Algorithmic Foundations of Robotics XII. Springer, 2020, pp. 304–319.
+[13] B. T. Lopez and J. P. How, “Aggressive 3-d collision avoidance for high-speed navigation,” in 2017 IEEE International Conference on Robotics and Automation (ICRA), 2017, pp. 5759–5765.
+[14] J. Zhang, C. Hu, R. G. Chadha, and S. Singh, “Maximum likelihood path planning for fast aerial maneuvers and collision avoidance,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2019, pp. 2805–2812.
+[15] N. Bucki, J. Lee, and M. W. Mueller, “Rectangular pyramid partitioning using integrated depth sensors (rappids): A fast planner for multicopter navigation,” IEEE Robotics and Automation Letters, vol. 5, no. 3, pp. 4626–4633, 2020.
+[16] N. Bucki and M. W. Mueller, “Rapid collision detection for multicopter trajectories,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2019, pp. 7234–7239.
+[17] PX4. (2021) Px4 drone autopilot. [Online]. Available: https: //github.com/PX4/PX4-Autopilot/tree/v1.10.1
+[18] A. Hornung, K. M. Wurm, M. Bennewitz, C. Stachniss, and W. Burgard, “OctoMap: An efﬁcient probabilistic 3D mapping framework based on octrees,” Autonomous Robots, vol. 34, no. 3, pp. 189–206, Apr. 2013.
+1138
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:08:45 UTC from IEEE Xplore. Restrictions apply.
+

@@ -1,0 +1,718 @@
+Learning Space Partitions for Path Planning
+Kevin Yang1∗ Tianjun Zhang1∗ Chris Cummins2 Brandon Cui2 Benoit Steiner2 Linnan Wang3 Joseph E. Gonzalez1 Dan Klein1 Yuandong Tian2 1UC Berkeley 2Facebook AI Research 3Brown University {yangk,tianjunz,jegonzal,klein}@berkeley.edu {cummins,bcui,benoitsteiner,yuandong}@fb.com linnan_wang@brown.edu
+Abstract
+Path planning, the problem of efﬁciently discovering high-reward trajectories, often requires optimizing a high-dimensional and multimodal reward function. Popular approaches like CEM [37] and CMA-ES [16] greedily focus on promising regions of the search space and may get trapped in local maxima. DOO [31] and VOOT [22] balance exploration and exploitation, but use space partitioning strategies independent of the reward function to be optimized. Recently, LaMCTS [45] empirically learns to partition the search space in a reward-sensitive manner for black-box optimization. In this paper, we develop a novel formal regret analysis for when and why such an adaptive region partitioning scheme works. We also propose a new path planning method LaP3 which improves the function value estimation within each sub-region, and uses a latent representation of the search space. Empirically, LaP3 outperforms existing path planning methods in 2D navigation tasks, especially in the presence of difﬁcult-to-escape local optima, and shows beneﬁts when plugged into the planning components of model-based RL such as PETS [7]. These gains transfer to highly multimodal real-world tasks, where we outperform strong baselines in compiler phase ordering by up to 39% on average across 9 tasks, and in molecular design by up to 0.4 on properties on a 0-1 scale. Code is available at https://github.com/yangkevin2/neurips2021-lap3.
+1 Introduction
+Path planning has been used extensively in many applications, ranging from reinforcement learning [7, 13, 14] and robotics [27, 35, 26] to biology [24], chemistry [40], material design [21], and compiler optimization [42]. The goal is to ﬁnd the most rewarding trajectory (i.e., state-action sequence) x = (s0, a0, s1, . . . , sn) in the search space Ω: x∗ = arg maxx∈Ω f (x), where f (x) is the reward.
+In this work, we focus on deterministic path planning problems with long trajectories x, and discontinuous and/or multimodal reward functions f . Such high-dimensional non-convex optimization problems exist in many real domains, both continuous and discrete. While we could always ﬁnd nearoptimal x by random sampling given an inﬁnite query budget, in practice we prefer a sample-efﬁcient method that achieves high-reward trajectories with fewer queries of the reward function f .
+While global methods like Bayesian Optimization (BO) [3] may struggle with limited samples and high-dimensional spaces, classic approaches like CEM [37] and CMA-ES [16] learn a local model around promising trajectories. For example, CEM tracks a population of trajectories and repeatedly resamples its population according to the highest-performing trajectories from the previous generation. On the other hand, such a focus can trap CEM in local optima, as conﬁrmed empirically (Sec. 5).
+Other recent approaches, such as VOOT [22] and DOO [31], use a (recursive) region partitioning scheme: they split the search space Ω into sub-regions Ω = Ω1 ∪ . . . ∪ Ωk, then invest more samples into promising sub-regions while continuing to explore other regions via an upper conﬁdence bound
+35th Conference on Neural Information Processing Systems (NeurIPS 2021).
+
+(UCB). While such exploration-exploitation procedures adaptively focus on promising sub-regions and lead to sub-linear regret and optimality guarantees, their region partition procedure is manually designed by humans and remains non-adaptive. For example, DOO partitions the space with uniform axis-aligned grids and VOOT with Voronoi cells, both independent of the reward f to be optimized.
+Recently, Wang et al. proposed LaNAS [46] and LaMCTS [45], which adaptively partition the search regions based on sampled function values, and focus on good regions. They achieve strong empirical performance on Neural Architecture Search (NAS) and black-box optimization, outperforming many existing methods including evolutionary algorithms and BO. Notably, in recent NeurIPS’20 black-box optimization challenges, two teams that use variants of LaMCTS ranked 3rd [38] and 8th [23].
+In this paper, we provide a simple theoretical analysis of LaMCTS to reveal the underlying principles of adaptive region partitioning, an analysis missing in the original work. Based on this analysis, we propose Latent Space Partitions for Path Planning (LaP3), a novel optimization technique for path-planning. Unlike LaMCTS, LaP3 uses a latent representation of the search space. Additionally, we use the maximum (instead of the mean) as the node score to improve sample efﬁciency, veriﬁed empirically in Sec. 5.3. Both changes are motivated by our theoretical analysis.
+We verify LaP3 on several challenging path-planning tasks, including 2D navigation environments from past work with difﬁcult-to-escape local optima, and real-world planning problems in compiler optimization and molecular design. In all tasks, LaP3 demonstrates substantially stronger exploration ability to escape from local optima compared to several baselines including CEM, CMA-ES and VOOT. On compiler phase ordering, we achieve on average 39% and 31% speedup in execution cycles comparing to -O3 optimization and OpenTuner [1], two widely used optimization techniques in compilers. On molecular design, LaP3 outperforms all of our baselines in generating molecules with high values of desirable properties, beating the best baseline in average property value by up to 0.4 on properties in a [0, 1] range. Additionally, extensive ablation studies show factors that affect the quality of planning and verify the theoretical analysis.
+LaP3 is a general planning technique and can be readily plugged into existing algorithms with path planning components. For example, we apply LaP3 to PETS [7] in model-based RL and observe substantially improved performance for high-dimensional continuous control and navigation, compared to CEM as used in the original PETS framework.
+
+2 Latent Space Monte Carlo Tree Search (LaMCTS)
+
+LaMCTS [45] is recently proposed to solve black-box optimization problems x∗ = arg maxx f (x)
+via recursively learning f -dependent region partitions. Fig. 1 and Alg. 1 show the details of LaMCTS as well as our proposed approach LaP3 (formally introduced in Sec. 4) for comparison.
+
+Algorithm 1 LaP3 Pseudocode for Path Planning. Improvements over LaMCTS in green.
+
+1: Input: Number of rounds T , Environment Oracle: f (x), Dataset D, Sampling Latent Model h(x),
+
+Partitioning Latent Model s(x).
+
+2: Parameters: Initial #samples Ninit, Re-partitioning interval Npar, Node partition threshold Nthres, UCB
+
+parameter Cp.
+
+3: Pre-train h(·) on D when D = ∅.
+
+4: Set region partition V0 = {Ω}.
+5: Draw Ninit samples uniformly from S0 = {(xi, f (xi))}Ni=in1it ⊂ Ω. 6: for t = 0, . . . , T − Ninit − 1 do
+
+7: if t divides Npar then
+
+8:
+
+Train/ﬁne-tune latent model h(·) using samples St ∪ D (Eqn. ??).
+
+9:
+
+Re-learn region partition Vt ← Partition(Ω, St, Nthres, s(·)) in latent space Φs of s(·).
+
+10: end if
+
+11: for k := root, k ∈/ Vleaf do
+
+
+
+
+
+12:
+
+k
+
+←
+
+arg
+
+max
+Ωc ∈child(Ωk )
+
+bc,
+
+where
+
+bc
+
+:=
+
+n(Ω1 c) xi∈Ωcf (xi)
+
+max
+xi ∈Ωc
+
+f (xi)
+
++
+
+Cp
+
+2
+
+log n(Ωk n(Ωc )
+
+)
+
+.
+
+13: end for
+
+14: Initialize CMA-ES using encodings of St ∩ Ωk via h(·). Here Ωk is the chosen leaf sub-region. 15: St ← St−1 ∪ {(xt, f (xt))}, where xt is drawn from CMA-ES and decoded via h−1(·).
+
+16: end for
+
+2
+
+(a)
+Low 𝑓(𝒙)
+
+Instance 𝒙 ∈ Ω 𝜴𝟑
+
+(b)
+
+Root
+
+𝜴𝟐
+
+Good
+
+Ω
+Bad
+
+action
+
+action
+
+(c)
+Sample 𝒙 ∈ Ω! and get the function value 𝑓(𝒙)
+
+High 𝑓(𝒙) 𝜴𝟒
+
+Search Space Ω
+
+Ω'
+Good action
+
+Ω%
+
+Ω&
+
+Ω"
+Exploitation Exploration
+
+𝜴𝟒 (𝒙, 𝑓 𝒙 )
+
+Space partition
+
+Figure 1: LaP3 extends LaMCTS [45] to path planning. (a) Starting from a search space Ω, both LaP3 and
+LaMCTS ﬁrst draw a few samples x ∈ Ω, then learn to partition Ω into a sub-region Ω1 with good samples (high f (x)) and a sub-region Ω2 with bad samples (low f (x)). Compared to LaMCTS, LaP3 uses a latent space
+and reduces the dimensionality of the search space. (b) Sampling follows the learned recursive space partition, focusing on good regions while still exploring bad regions using UCB. LaP3 uses the maximum of the sampled
+value in a region (maxxi∈Ω f (xi)) as the node value, while LaMCTS uses the mean. (c) Upon reaching a leaf, new data points are sampled within the region and the space partition is relearned.
+
+LaMCTS starts with Ninit random samples of the entire search space Ω (line 5 in Alg. 1). For a region Ωk, let n(Ωk) be the number of samples within. LaMCTS dictates that, if n(Ωk) ≥ Nthres, then Ωk is partitioned into disjoint sub-regions Ωk = Ωgood ∪ Ωbad as its children (Fig. 1(a)-(b), line 9 in Alg. 1, the function Partition). Intuitively, Ωgood contains promising samples with high f , while Ωbad contains samples with low f . Unlike DOO and VOOT, such a partition is learned using St ∩ Ωk, our samples so far in the region, and is thus dependent on the function f to be optimized.
+Given tree-structured sub-regions, new samples are mostly drawn from promising regions and occasionally from other regions for exploration. This is achieved by Monte Carlo Tree Search (MCTS) [4] (line 11-13): at each tree branching, the UCB score b is computed to balance exploration and exploitation (line 12). Then the subregion with highest UCB score is selected (e.g., it may have high f and/or low n). This is done recursively until a leaf sub-region Ω is reached. Then a new sample x is drawn from Ω (line 15) either uniformly, or from a local model constructed by an existing optimizer (e.g., TuRBO [10], CMA-ES [16]), in which case LaMCTS becomes a meta-algorithm. When more samples are collected, regions are further partitioned and the tree gets deeper.
+Finally, the function Partition in Alg. 1 is deﬁned as follows: ﬁrst a 2-class K-means on (x, f (x)) is used to create positive/negative sample groups. Next, a SVM classiﬁer is used to learn the decision boundary (hence the partition), so that samples with high f (x) fall into Ωgood, and samples with low f (x) fall into Ωbad (Fig. 1(a)). See Appendix A for the pseudo code. The partition boundary can also be re-learned after more samples are collected (line 9).
+3 A Theoretical Understanding of Space Partitioning
+While LaMCTS [45] shows strong empirical performance, it contains several components with no clear theoretical justiﬁcation. Here we attempt to give a formal regret analysis when sub-regions {Ωk} are ﬁxed and all at the same tree level, and the function f is deterministic. We leave further analysis of tree node splitting and evolution of hierarchical structure to future work.
+Despite the drastic simpliﬁcation, our regret bound still shows why an f -dependent region partition is helpful. By showing that a better regret bound can be achieved by a clever region partition as empirically used in the Partition function in Alg. 1, we justify the design of LaMCTS. Furthermore, our analysis suggests several empirical improvements over LaMCTS and motivates the design of LaP3, which outperforms multiple classic approaches on hard path planning problems.
+
+3.1 Regret Analysis with Fixed Sub-Regions
+
+We consider the following setting. Suppose nt(Ωk) is the visitation count at iteration t.
+
+we The
+
+hgalovbeaKl opdt-idmimumensxi∗onraelsirdeegsioinnsso{Ωmke}uKkn=k1n, oawndn
+
+region Ωk∗ . At each iteration t, we visit a region Ωk, sample (uniformly or otherwise) a data point
+
+xt ∈ Ωk, and retrieve its deterministic function value ft = f (xt). In each region Ωk, deﬁne
+
+x∗k := arg maxx∈Ωk f (x) and the maximal value g∗(Ωk) = f (x∗k). The maximal value so far at iteration t is gt(Ωk) = maxt ≤t f (xt ). It is clear that gt ≤ g∗ and gt → g∗ when t → +∞.
+
+3
+
+(a) 𝐹! 𝑦 ≔ Prob[𝑓 ≤ 𝑔∗ − 𝑦]
+
+1
+
+Upper bound
+
+𝒚𝒅
+
+𝟏− 𝒄𝒌
+
+𝑧!
+
+𝑭𝒌
+
+𝑂
+
+𝑦
+
+(b) Ω"#
+Low 𝑓(𝒙)
+𝑥∗
+High 𝑓(𝒙)
+
+Ω"$
+
+(c)
+1
+
+𝐹!&
+(𝑐!" < 𝑐!)
+
+𝐹!
+
+𝑂
+
+Δ!%
+
+𝐹!% 𝑦
+
+Figure 2: Theoretical understanding of space partitioning. (a) Deﬁnition of (zk, ck)-diluted region Ωk (Def. 1). (b) Partition of region Ωk into good region Ωk1 and bad region Ωk2. Optimal solution x∗ ∈ Ωk1. (c) After space partitioning, Fk is split into Fk1 and Fk2. The good region Fk1 has much smaller ck1 while the bad region has much larger best-to-optimality gap ∆k2. As a result, the expected total regret decreases.
+
+We deﬁne the conﬁdence bound rt = rt(Ωk) so that with high probability, the following holds:
+
+gt(Ωk) ≥ g∗(Ωk) − rt(Ωk)
+
+(1)
+
+At iteration t, we pick region kt to sample based on the upper conﬁdence bound: kt = arg maxk gt(Ωk) + rt(Ωk). Many different conﬁdence bounds can be applied; for convenience in this analysis, we use the “ground truth” bound from the cumulative density function (CDF) of f within the region Ωk (Please check Appendix B for all proofs):
+Lemma 1. Let Fk(y) := P [f (x) ≤ g∗(Ωk) − y|x ∈ Ωk] be a strictly decreasing function, and let rk,t(Ωk) := Fk−1 δ1/nt(Ωk) . Then Eqn. 1 holds with probability 1 − δ.
+
+Here Fk−1 is the inverse function of Fk and randomness arises from sampling within Ωk. Since Fk is a strictly decreasing function, Fk−1 exists and is also strictly decreasing. By deﬁnition, Fk ∈ [0, 1], Fk(0) = 1 and Fk−1(1) = 0. We then deﬁne the dilution of each region as follows:
+Deﬁnition 1 ((zk, ck)-dilution). A region Ωk is (zk, ck)-diluted if there exist zk, ck such that Fk(y) ≤ 1 − (y/ck)d for y ∈ [0, ck(1 − zk)1/d], where zk is the smallest Fk(y) to make the inequality hold.
+
+The intuition for dilution for a given region, as depicted in Fig. 2(a), is that all but zk fraction of the region has function value close to the maximum, with "close" deﬁned based on ck (smaller ck implies a stricter deﬁnition of “close”). Obviously if Ωk is (zk, ck)-diluted then it is (zk, ck)-diluted for any ck ≥ ck and zk ≥ zk. Therefore, we often look for the smallest zk and ck to satisfy the condition. If a region Ωk has small ck and zk, we say it is highly concentrated. For example, if f (x) is mostly constant within a region, then ck is very small since Fk(y) drops to 0 very quickly. In such a case, most of the region’s function values are concentrated near the maximum, making it easier to optimize.
+
+While the deﬁnition of concentration may be abstract, we show it is implied by Lipschitz continuity:
+Corollary 1. If a region Ωk is Lk-Lipschitz continuous, i.e., |f (x)−f (x )| ≤ Lk x−x 2, and there exists an 0-ball B(x∗k, 0) ⊆ Ωk, then with uniform sampling, Ωk is (1 − d0V˜k−1, Lk d V˜k)-diluted. Here V˜k := Vk/V0 is the relative volume with respect to the unit sphere volume V0.
+
+Typically, a smoother function (with small Lk) and large 0 yield a less diluted (and more concentrated) region. However, the concept of dilution (Def. 1) is much broader. For example, if we shufﬂe function values within Ωk, Lipschitz continuity is likely to break but Def. 1 still holds.
+
+Now we will bound the total regret. Let Rt(at) := f ∗ − gt(Ωat ) ≥ 0 be the regret of pick-
+
+ing Ωat and R(T ) :=
+
+T t=1
+
+Rt(at)
+
+be
+
+the
+
+total
+
+regret,
+
+where
+
+T
+
+is
+
+the
+
+total
+
+number
+
+of
+
+sam-
+
+ples (queries to f ). Deﬁne the gap of each region ∆k := f ∗ − g∗(Ωk) and split the region
+
+indices into Kgood := {k : ∆k ≤ ∆0} and Kbad := {k : ∆k ≥ ∆0} by a threshold ∆0.
+
+Cgood :=
+
+1/d
+
+cd
+k∈Kgood k
+
+and Cbad :=
+
+cd
+k∈Kbad k
+
+1/d
+
+are the
+
+d-norms of the ck in these
+
+two sets. Finally, M := supx∈Ω f (x) − infx∈Ω f (x) is the maximal gap between function values. Treating each region Ωk as an arm and applying a regret analysis similar to multi-arm bandits [41],
+
+we obtain the following theorem:
+
+Theorem 1. Suppose all {Ωk} are (z√k, ck)-diluted with zk ≤ η/T 3 for some η > 0. The total expected regret E [R(T )] = O Cgood d T d−1 ln T + M (Cbad/∆0)d ln T + KM η/T .
+
+4
+
+3.2 Implications of Theorem 1
+The effect of space partitioning. Reducing {ck} results in a smaller regret R(T ). Thus if we can partition Ωk into two sub-regions Ωk1 and Ωk2 such that the good partition Ωk1 has smaller ck1 < ck and the bad partition Ωk2 has larger ∆k2 > ∆0 and falls into Kbad, then we can improve the regret bound (Fig. 2(b)-(c)). This coincides with the Partition function of LaMCTS very well: it samples a few points in Ωk, and trains a classiﬁer to separate high f from low f . On the other hand, if we partition a region Ωk randomly, e.g., each f (x) is assigned to either Ωk1 or Ωk2 at random, then statistically Fk1 = Fk2 = Fk and ck1 = ck2 = ck, which increases the regret bound. Therefore, the partition needs to be informed by data that have already been sampled within the region Ωk.
+Recursive region partitioning. In Theorem 1, we assume all regions {Ωk} have ﬁxed ck and zk, so the bound breaks for large enough T (as η/T 3 eventually becomes smaller than any ﬁxed zk). However, as LaMCTS conducts further internal partitioning within Ωk, its ck and zk keep shrinking with more samples T . If each split leads to slightly fewer bad f (i.e., lighter “tail”), with the ratio being γ < 1, then by the deﬁnition of CDF, zk is the probability mass of the tail and thus zk ∼ γ−T/Npar . This would yield zk ≤ η/T 3 for all T , since γ−T decays faster than 1/T 3 and Theorem 1 would hold for all T . See Appendix F.2 for empirical veriﬁcation of decaying zk.
+3.3 Related Work and Limitations
+While related to Lipschitz bandits [28] and coarse-to-ﬁne deterministic function optimization like DOO and SOO [32], our analysis is fundamentally different. We have discussed how f -dependent region partitioning and a data-driven learning procedure affect the regret bound, which to our knowledge has not been previously addressed. See Appendix B.5 for further remarks on Theorem 1.
+There is more work to be done to fully understand how LaMCTS works. In particular, we did not analyze when to split a node (e.g. how many samples we need to collect before making a decision), or the effect of relearning the space partition. We also have not considered stochastic reward functions, where the maximum function value in the sub-region may no longer be the best metric of goodness. We leave these to future work.
+
+4 LaP3 for Path Planning
+
+Based on our analysis, we propose LaP3, which extends LaMCTS to path planning, a problem with temporal structure. LaP3 outperforms baseline path planning approaches in both continuous and discrete path planning problems. Here we represent trajectories as action sequences x = (a0, a1, . . . , an−1) and treat them as high-dimensional vectors x in the trajectory space Ω.
+Thus, LaP3 searches over the space Ω, recursively partitioning Ω into subregions based on trajectory reward, and sampling from subregions using CMA-ES [16] (which is faster than TuRBO [10] used in the original LaMCTS). We emphasize again that LaP3’s region partitioning procedure is fully adaptive, in contrast to traditional MCTS approaches such as VOOT, which only partition the trajectory space based on one action at a time.
+
+Additionally, we have made several improvements over the original LaMCTS, as detailed in Algorithm
+
+1.
+
+First,
+
+we
+
+use
+
+the
+
+maximal
+
+value
+
+maxi∈Ωk
+
+f (xi)
+
+rather
+
+than
+
+the
+
+mean
+
+value
+
+1 n(Ωk )
+
+i∈Ωk f (xi) as
+
+the metric of goodness for each node k (and its associated region Ωk). This is driven by Theorem 1,
+
+which gives a regret bound based on maximum values. Intuitively, using the mean value would cause
+
+the algorithm to be slow to respond to newly discovered territory: it takes time for the mean metric to
+
+boost, and we may miss important leaves. We show the difference empirically in Sec. 5.3.
+
+Second, Theorem 1 suggests that a lower-dimensional (smaller d) and smoother (smaller ck) representation leads to lower regret. Therefore, LaP3 employs a latent space as described below.
+
+4.1 Latent Spaces For Partitioning and Sampling
+LaP3 leverages a latent space Φs for the partition space, by passing Ω through some encoder s. That is, we disentangle the sampling space Ω from which we sample new candidate trajectories, from the partition space Φs on which we construct the search space partition. Critically, we do not need s−1: we never decode from Φs back to Ω. Thus s can dramatically reduce the dimension of the partition
+
+5
+
+space, which may improve regularization due to the small number of samples, without suffering large reconstruction loss. s will be ﬁxed rather than learned in this case. Once the partition has been constructed on Φs, and we select a leaf region to propose from, we sample new x from Ω as before.1
+In principle, the sampling space can itself be a latent space Φh, with an encoder h and decoder h−1. That is, one runs the inner solver in Φh to propose samples before decoding back to Ω. h could be a principal component analysis (PCA) [49], a random network encoding [43], or a reversible ﬂow [9], depending on the environment’s particular Ω and state/action structure. While some latent representations can be ﬁxed by specifying the inductive bias (e.g., random network encoding), others can be learned from data, optimizing reconstruction loss minh Ex w(x) h−1(h(x)) − x 2 , where w(x) is a weighting function emphasizing trajectories with high cumulative reward f (x). In this case, h and h−1 may be ﬁne-tuned using each new (x, f (x)) pair when LaP3 proposes and queries a new trajectory x, or they may be pre-trained using a set of unlabeled x with w(x) ≡ 1. For consistency in our main experiments, we do not use a latent Φh, although we observe that using this second latent space can yield a slight performance in some environments (Appendix F.7).
+5 LaP3 on Synthetic Environments
+We test LaP3 on a diverse set of environments to evaluate its performance in different settings.
+Baselines. We compare LaP3 to several baselines. LaMCTS is the original LaMCTS algorithm using CMA-ES as an inner solver, like LaP3. Random Shooting (RS) [36] samples random trajectories and returns the best one. Cross-Entropy Methods (CEM) [2] use the top-k samples to ﬁt a local model to guide future sampling. A related approach, Covariance matrix adaptation evolution strategy (CMA-ES) [16], tracks additional variables for improved local model ﬁtting. Voronoi optimistic optimization applied to trees (VOOT) [22] is a “traditional” MCTS method for continuous action spaces that builds a tree on actions at each timestep. iLQR [26] is a seminal gradient-based local optimization approach used extensively in controls. Finally, proximal policy optimization (PPO) [39] is a standard reinforcement learning algorithm.
+LaP3 does not require substantially more tuning effort than CEM or CMA-ES, the best-performing among our baselines experimentally. The only additional hyperparameter tuned in LaP3 is the Cp controlling exploration when selecting regions to sample from, which is dependent on the scale of the reward function. However, our Cp only varies by a factor of up to 10 across our diverse environments, and performance is not overly sensitive to small changes (Appendix F.5).
+We use MiniWorld [5] for continuous path planning and MiniGrid [6] for discrete.
+5.1 MiniWorld
+
+(a) RS
+
+(b) CEM
+
+(c) LaP3
+
+Figure 3: MazeS3 environment. Start: Orange circle. Goal: Red circle. Dots indicate ﬁnal agent positions of
+2,000 proposed trajectories (green: ﬁrst iteration, blue: last iteration). CEM gets stuck in a local optimum of reward (shown as concentration of blue dots), while LaP3 succeeds in reaching the goal.
+
+We consider the following 2D navigation tasks in MiniWorld. MazeS3: Agent navigates in a 3 by 3 maze to a goal. Greedy path planning gets stuck in local optima (Figure 3). FourRooms: Agent navigates from one room in a 2 by 2 conﬁguration to a goal in the diagonally opposite room. Greedy path planning gets stuck in a corner. SelectObj: Open space with two goals. Large ﬁnal reward when
+1Speciﬁcally, we initialize the inner solver (CMA-ES in our experiments) using the pre-existing samples corresponding to the selected leaf region in Φs, and then propose new samples using that initialization.
+
+6
+
+% Success % Success % Success
+
+60
+
+LaP3
+
+50
+
+LaMCTS RS
+
+40
+
+CEM
+
+30
+
+CMA-ES VOOT
+
+20
+
+iLQR PPO
+
+10
+
+0 0 500 1000 1500 2000 # Func Evals
+
+(a) MazeS3
+
+50
+
+80
+
+40
+
+60
+
+30
+
+40
+
+20
+
+20
+
+10
+
+0 0 500 1000 1500 2000 # Func Evals
+(b) FourRooms
+
+0 0 1000 2000 3000 4000 # Func Evals
+(c) SelectObj
+
+Figure 4: Mean, and standard deviation of mean (256 trials; fewer for VOOT and PPO due to speed), of success rate across MiniWorld tasks. LaP3 signiﬁcantly outperforms all baselines on all three tasks.
+
+% Success (Last 64) % Success (Last 64)
+
+80
+
+60
+
+40
+
+20
+
+PETS-LaP3
+
+0
+
+PETS-CEM
+
+0 5#0Seeds10F0or Mo1d5e0l Train2in0g0 250
+
+(a) PETS FourRooms
+
+25 20 15 10 5 0
+0 5#0Seeds10F0or Mo1d5e0l Train2in0g0 250
+(b) PETS SelectObj
+
+Figure 5: LaP3 in PETS compared to original PETS planners on MiniWorld environments, using PETS-learned
+world models. Sliding length-64 window of success percentage against number of training seeds for world model. LaP3 signiﬁcantly outperforms all baselines on both tasks.
+
+reaching the farther goal, while a distance-based reward misleadingly points to the closer goal. For full environment speciﬁcs, see Appendix H.1.
+We modify the original setup to use a continuous action space (∆x and ∆y), and provide a sparse reward (proximity to goal, with an additional bonus for reaching the goal) at end-of-episode. We use a high-dimensional top-down image view as the state. We featurize this image using a randomly initialized convolutional neural network, a reasonable feature extractor as shown in [43]. LaP3 uses periodic snapshots of the featurized state as the partition space Φs. That is, we collect all the observed states over the course of the full trajectory, and then form the latent space by concatenating every nth state (here n = 20), while discarding the rest to reduce overall dimensionality. Success is deﬁned using a binary indicator for reaching the goal (far goal for SelectObj).
+Results. LaP3 substantially outperforms all baselines on all three tasks, despite heavily tuning the baselines’ hyperparameters (Appendix G), showing that LaP3 works for challenging tasks containing suboptimal local maxima. In MazeS3, LaP3 succeeds but CEM gets stuck (Figure 3). VOOT, which builds an MCTS tree on actions at each timestep, struggles on all environments; LaP3 can be viewed as an extension of MCTS that performs better on such long-horizon tasks. PPO also performs poorly, perhaps due to the sparse reward given only at the end of an episode, and the relatively small (for RL) number of episodes. In the most difﬁcult SelectObj task, LaP3 solves nearly half of environment seeds within 4,000 queries of the oracle, whereas most baselines—including the original LaMCTS—quickly reach the near goal but struggle to escape this local optimum.
+We also evaluate LaP3 when combined with a model-based approach, PETS [7], on FourRooms and SelectObj (omitting MazeS3 because the changing maze walls for each seed make it difﬁcult to learn a world model). Following PETS’ setting and due to difﬁculty in learning image-based world models [12, 14], we use 2D agent position as the state. As shown in Fig. 5, LaP3 substantially outperforms the authors’ original CEM implementation in the PETS framework, demonstrating that it is not reliant on access to the oracle model but can work with learned models as well.
+
+5.2 MiniGrid
+MiniGrid [6] is a popular sparse-reward symbolic environment for benchmarking RL algorithms. It contains tasks with discrete states and actions such as DoorKey (DK): pick up a key and open
+
+7
+
+the door connecting two rooms; MultiRoom (MR): traverse several rooms by opening doors; and KeyCorridor (KC), a combination of MR and DK: some doors are locked and require a key. As in MiniWorld, we add proximity to the goal to the ﬁnal sparse reward.
+In discrete action spaces, LaP3 optimizes the vector of all action probabilities over all timesteps, and takes the highest-probability action at each step. As in MiniWorld, we use periodic state snapshots featurized by a randomly initialized CNN as the partition space Φs. We compare LaP3 to the same baselines as in MiniWorld, except VOOT and iLQR which are designed for continuous tasks.
+Results. LaP3 is equal to or better than baselines on all six tasks (Table 1). Especially in the hardest tasks with the most rooms (MR-N4S5, MR-N6), LaP3 improves substantially over baselines.
+
+LaMCTS RS CEM CMA-ES LaP3
+
+DK-6
+
+DK-8
+
+KC-S3R3 KC-S3R4 MR-N4S5
+
+0.96±0.02 0.97±0.01 0.03±0.12 0.93±0.03 0.95±0.03
+
+0.09 ± 0.17 -2.63±0.09 0.34±0.13 -2.38±0.09 -3.34±0.34 -3.40±0.08 0.23±0.14 -2.46±0.09 0.46±0.13 -2.27±0.09
+
+-4.43±0.13 -4.27±0.12 -4.93±0.13 -4.44±0.12 -4.37±0.13
+
+-14.71±0.87 -18.16±0.80 -22.88±1.00 -14.31±0.78 -11.68±0.75
+
+MR-N6
+-118.70±4.68 -119.39±4.64 -131.32±5.24 -117.50±4.61 -113.53±4.49
+
+Table 1: Results for LaP3 in MiniGrid. LaP3 is equal or better on all tasks (higher is better).
+
+5.3 Analysis
+We run several ablations on LaP3 in MiniWorld to justify our methodological choices. See Appendix F for further analysis on hyperparameter sensitivity, UCB metric, and latent spaces.
+Region Selection in LaP3. We consider four alternative region selection methods. (1) LaP3-mean: using mean function value rather than max for UCB, as in LaMCTS [45]; (2) LaP3-nolatent: not using a latent space for partitioning; (3) LaP3-notree: directly selecting the leaf with the highest UCB score; and (4) LaP3-noUCB: only using node value rather than UCB. LaP3 greatly outperforms all variations in MiniWorld, justifying our design.
+
+100
+
+LaP3
+
+80
+
+LaP3-mean LaP3-nolatent
+
+60
+
+LaP3-notree LaP3-noUCB
+
+% Success
+
+40
+
+20
+
+0
+
+MazeS3
+
+FourRooms
+
+SelectObj
+
+Figure 6: MiniWorld success percentages with different region selection methods.
+
+MazeS3 FourRooms SelectObj
+
+Lk 87.5 ck 81.3
+
+100.0 93.8
+
+100.0 100.0
+
+Table 2: Percentage out of 32 environment seeds on MiniWorld environments where LaP3 yields a better estimated Lipschitz and ck compared to random partitioning on the same nodes.
+
+Data-driven space partition in LaP3 vs. random partitioning. We examine ck in Def. 1 and Lipschitz constant Lk in Corollary 1 to verify the theory. We conduct a preliminary analysis on LaP3’s tree after the full 2,000 queries (4,000 for SelectObj). At each intermediate node, we estimate Lk and ck of its children from the LaP3 partition, against a random partition that divides the node’s
+samples with the same ratio (see Appendix F.1 for estimation details). We then average the values for both LaP3 and random partitions over all nodes in the tree. We ﬁnd that LaP3 does yield lower
+average Lk and ck (Table 2), indicating that our data-driven space partition is effective.
+
+6 LaP3 on Real-World Applications
+
+6.1 Compiler Phase Ordering
+Compiler optimization applies a series of program transformations from a set of predeﬁned optimizations (e.g., loop invariant code motion, function inlining [30]) to improve code performance. Since these optimizations are not commutative, the order in which they are applied is extremely important. This problem, known as phase ordering, is a core challenge in the compiler community. Current
+
+8
+
+Normalized Speedup w.r.t. OpenTuner
+
+1.30 1.25 1.20 1.15 1.10 1.05 1.00 0.95
+adpcm
+
+aes
+
+blowfish
+
+dhrystone
+
+gsm
+
+mpeg2
+
+qsort
+
+PPO_4000 OpenTuner LaP3 LaMCTS CMA-ES PPO_50 sha
+
+Figure 7: Compiler phase ordering results, in terms of normalized execution cycles with respect to OpenTuner [1], a widely used method for program autotuning. LaP3 is consistently equal or better compared to baselines. We omitted the matmul task since it doesn’t ﬁt the scale with its 245% speedup over OpenTuner.
+
+solutions to this NP-hard problem rely heavily on heuristics: groups of optimizations are often packed into "optimization levels" (such as -O3 or -O0) hand-picked by developers [34, 42].
+We apply LaP3 to the standard CHStone benchmarks [17], and use periodic snapshots of states as Φs and the identity as Φh. See Appendix H.2 for full environment details.
+Results. LaP3 is 31% faster on average compared to OpenTuner, and 39% compared to -O3 (not shown in ﬁgure). Compared to a stronger PPO baseline using 50 samples (PPO_50) and to CMA-ES, we achieve up to 10% and 7% speedup respectively. Finally, compared to ﬁnal PPO results at convergence after 4000 samples (PPO_4000) as an oracle, LaP3 does similarly on most tasks, despite being much more sample efﬁcient (only 50 samples). Full results in Appendix E.
+
+6.2 Molecular Design
+
+Property Value Property Value Property Value Property Value
+
+1.00
+
+LaP3
+
+LaMCTS
+
+0.7 0.6
+
+RS
+
+CEM
+
+0.90
+
+CMA-ES
+
+0.5 0.4 0.3
+
+0.2
+
+0.1
+
+0.80 0
+
+200 #40F0unc E6v0a0ls 800 1000
+
+0.0 0
+
+1000 # Fu2n0c0E0vals 3000 4000
+
+(a) QED
+
+(b) DRD2
+
+0.6 0.5 0.4 0.3 0.2 0.1 0.0
+0
+
+1000 # Fu2n0c0E0vals 3000 4000
+(c) HIV
+
+0.6
+
+0.5
+
+0.4
+
+0.3
+
+0.2
+
+0.1
+
+0.0
+
+0
+
+1000 # Fu2n0c0E0vals 3000 4000
+
+(d) SARS
+
+Figure 8: Mean and standard deviation (128 trials), of max property value discovered in molecular design tasks. LaP3 signiﬁcantly outperforms all baselines on all properties.
+
+Finally, we evaluate LaP3 on molecular design. Given an oracle for a desired molecular property, the goal is to generate molecules with high property score after the fewest trials. This is critical to pharmaceutical drug development [44], as property evaluations require expensive wet-lab assays.
+Similar to [18], we ﬁx a query budget and optimize several properties: QED: a synthetic measure of drug-likeness, relatively simpler to optimize; DRD2: a measure of binding afﬁnity to a human dopamine receptor; HIV, the probability of inhibition potential for HIV; and SARS: the same probability for a variant of the SARS virus, related to the SARS-CoV-2 virus responsible for COVID19. All four properties have a range of [0, 1]; higher is better. For DRD2, HIV, and SARS, we evaluate using computational predictors from [33] (DRD2) and [51] (HIV, SARS) in lieu of wet-lab assays.
+To run LaP3 on molecular design, we view the molecular string representation (SMILES string [48]) as the action sequence, similar to how many generative models generate molecules autoregressively [11, 25, 8, 50]. Following the state-of-the-art HierG2G model from [19], we learn a latent representation from a subset of ChEMBL [29], a dataset of 1.8 million drug-like molecules, without using any of its property labels (e.g., effectiveness in binding to a particular receptor). During this unsupervised training, we only use the 500k molecules with the lowest property scores to ensure a good molecule is discovered by search rather than a simple retrieval from the dataset. Our setting differs from many existing methods for molecular design, which assume a large preexisting set of molecules with the desired property for training the generator [33, 20, 52, 50].
+
+9
+
+On this task only, the latent space is trained on additional unlabeled data, and is used as both the partition space Φs and sampling space Φh for LaP3. All baselines operate in the same space for fair comparison. Otherwise, all methods struggle to generate well-formed molecules of reasonable length.
+Results. Figure 8 shows the highest property score discovered by each method for each property. The absolute difference is small in the relatively simple synthetic QED task. However, LaP3 outperforms all baselines by a much greater margin—up to 0.4 in DRD2—in the more challenging and realistic DRD2, HIV, and SARS tasks, where CEM and CMA-ES quickly plateau but LaP3 continues to improve with more function evaluations.
+7 Conclusion
+We propose LaP3, a novel meta-algorithm for path planning that learns to partition the search space so that subsequent sampling focuses more on promising regions. We provide a formal regret analysis of region partitioning, motivating improvements that yield large empirical gains. LaP3 particularly excels in environments with many difﬁcult-to-escape local optima, substantially outperforming strong baselines on 2D navigation tasks as well as real-world compiler optimization and molecular design.
+Acknowledgments and Disclosure of Funding
+We thank the members of the Berkeley NLP group as well as our four anonymous reviewers for their helpful feedback. This work was supported by Berkeley AI Research, and the NSF through a fellowship to the ﬁrst author.
+References
+[1] Jason Ansel, Shoaib Kamil, Kalyan Veeramachaneni, Jonathan Ragan-Kelley, Jeffrey Bosboom, Una-May O’Reilly, and Saman Amarasinghe. Opentuner: An extensible framework for program autotuning. In Proceedings of the 23rd international conference on Parallel architectures and compilation, pages 303–316, 2014.
+[2] Zdravko I Botev, Dirk P Kroese, Reuven Y Rubinstein, and Pierre L’Ecuyer. The cross-entropy method for optimization. In Handbook of statistics, volume 31, pages 35–59. Elsevier, 2013.
+[3] Eric Brochu, Vlad M Cora, and Nando De Freitas. A tutorial on bayesian optimization of expensive cost functions, with application to active user modeling and hierarchical reinforcement learning. arXiv preprint arXiv:1012.2599, 2010.
+[4] Cameron B Browne, Edward Powley, Daniel Whitehouse, Simon M Lucas, Peter I Cowling, Philipp Rohlfshagen, Stephen Tavener, Diego Perez, Spyridon Samothrakis, and Simon Colton. A survey of monte carlo tree search methods. IEEE Transactions on Computational Intelligence and AI in games, 4(1):1–43, 2012.
+[5] Maxime Chevalier-Boisvert. gym-miniworld environment for openai gym. https://github. com/maximecb/gym-miniworld, 2018.
+[6] Maxime Chevalier-Boisvert and Lucas Willems. Minimalistic gridworld environment for openai gym. https://github.com/maximecb/gym-minigrid, 2018.
+[7] Kurtland Chua, Roberto Calandra, Rowan McAllister, and Sergey Levine. Deep reinforcement learning in a handful of trials using probabilistic dynamics models. NeurIPS, 2018.
+[8] Hanjun Dai, Yingtao Tian, Bo Dai, Steven Skiena, and Le Song. Syntax-directed variational autoencoder for structured data. arXiv preprint arXiv:1802.08786, 2018.
+[9] Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio. Density estimation using real nvp. arXiv preprint arXiv:1605.08803, 2016.
+[10] David Eriksson, Michael Pearce, Jacob R Gardner, Ryan Turner, and Matthias Poloczek. Scalable global optimization via local bayesian optimization. arXiv preprint arXiv:1910.01739, 2019.
+[11] Rafael Gómez-Bombarelli, Jennifer N Wei, David Duvenaud, José Miguel Hernández-Lobato, Benjamín Sánchez-Lengeling, Dennis Sheberla, Jorge Aguilera-Iparraguirre, Timothy D Hirzel,
+10
+
+Ryan P Adams, and Alán Aspuru-Guzik. Automatic chemical design using a data-driven continuous representation of molecules. ACS central science, 4(2):268–276, 2018.
+[12] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. arXiv preprint arXiv:1912.01603, 2019.
+[13] Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning, pages 2555–2565. PMLR, 2019.
+[14] Danijar Hafner, Timothy Lillicrap, Mohammad Norouzi, and Jimmy Ba. Mastering atari with discrete world models. arXiv preprint arXiv:2010.02193, 2020.
+[15] Ameer Haj-Ali, Qijing Jenny Huang, John Xiang, William Moses, Krste Asanovic, John Wawrzynek, and Ion Stoica. Autophase: Juggling hls phase orderings in random forests with deep reinforcement learning. Proceedings of Machine Learning and Systems, 2:70–81, 2020.
+[16] Nikolaus Hansen. The cma evolution strategy: A tutorial. arXiv preprint arXiv:1604.00772, 2016.
+[17] Yuko Hara, Hiroyuki Tomiyama, Shinya Honda, Hiroaki Takada, and Katsuya Ishii. Chstone: A benchmark program suite for practical c-based high-level synthesis. In 2008 IEEE International Symposium on Circuits and Systems, pages 1192–1195. IEEE, 2008.
+[18] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Junction tree variational autoencoder for molecular graph generation. In International Conference on Machine Learning, pages 2323–2332. PMLR, 2018.
+[19] Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Hierarchical generation of molecular graphs using structural motifs. In International Conference on Machine Learning, pages 4839–4848. PMLR, 2020.
+[20] Wengong Jin, Kevin Yang, Regina Barzilay, and Tommi Jaakkola. Learning multimodal graph-to-graph translation for molecular optimization. arXiv preprint arXiv:1812.01070, 2018.
+[21] Seiji Kajita, Tomoyuki Kinjo, and Tomoki Nishi. Autonomous molecular design by monte-carlo tree search and rapid evaluations using molecular dynamics simulations. Communications Physics, 3(1):1–11, 2020.
+[22] Beomjoon Kim, Kyungjae Lee, Sungbin Lim, Leslie Kaelbling, and Tomas Lozano-Perez. Monte carlo tree search in continuous spaces using voronoi optimistic optimization with regret bounds. Proceedings of the AAAI Conference on Artiﬁcial Intelligence, 34(06):9916–9924, Apr. 2020.
+[23] Taehyeon Kim, Jaeyeon Ahn, Nakyil Kim, and Seyoung Yun. Adaptive local bayesian optimization over multiple discrete variables. Workshop at NeurIPS 2020 Competition Track on Black-Box Optimization Challenge, 2020.
+[24] Christian Kroer and Tuomas Sandholm. Sequential planning for steering immune system adaptation. In IJCAI, pages 3177–3184, 2016.
+[25] Matt J Kusner, Brooks Paige, and José Miguel Hernández-Lobato. Grammar variational autoencoder. In International Conference on Machine Learning, pages 1945–1954. PMLR, 2017.
+[26] Weiwei Li and Emanuel Todorov. Iterative linear quadratic regulator design for nonlinear biological movement systems. In ICINCO (1), pages 222–229. Citeseer, 2004.
+[27] Thi Thoa Mac, Cosmin Copot, Duc Trung Tran, and Robin De Keyser. Heuristic approaches in robot path planning: A survey. Robotics and Autonomous Systems, 86:13–28, 2016.
+[28] Stefan Magureanu, Richard Combes, and Alexandre Proutiere. Lipschitz bandits: Regret lower bound and optimal algorithms. In Maria Florina Balcan, Vitaly Feldman, and Csaba Szepesvári, editors, Proceedings of The 27th Conference on Learning Theory, volume 35 of Proceedings of Machine Learning Research, pages 975–999, Barcelona, Spain, 13–15 Jun 2014. PMLR.
+[29] David Mendez, Anna Gaulton, A Patrícia Bento, Jon Chambers, Marleen De Veij, Eloy Félix, María Paula Magariños, Juan F Mosquera, Prudence Mutowo, Michał Nowotka, María GordilloMarañón, Fiona Hunter, Laura Junco, Grace Mugumbate, Milagros Rodriguez-Lopez, Francis Atkinson, Nicolas Bosc, Chris J Radoux, Aldo Segura-Cabrera, Anne Hersey, and Andrew R Leach. ChEMBL: towards direct deposition of bioassay data. Nucleic Acids Research, 47(D1):D930–D940, 11 2018.
+11
+
+[30] Steven Muchnick et al. Advanced compiler design implementation. Morgan kaufmann, 1997.
+[31] Rémi Munos. Optimistic optimization of a deterministic function without the knowledge of its smoothness. In Proceedings of the 24th International Conference on Neural Information Processing Systems, NIPS’11, page 783–791, Red Hook, NY, USA, 2011. Curran Associates Inc.
+[32] Rémi Munos. From bandits to monte-carlo tree search: The optimistic principle applied to optimization and planning. 2014.
+[33] Marcus Olivecrona, Thomas Blaschke, Ola Engkvist, and Hongming Chen. Molecular de-novo design through deep reinforcement learning. Journal of cheminformatics, 9(1):1–14, 2017.
+[34] Zhelong Pan and Rudolf Eigenmann. Fast and effective orchestration of compiler optimizations for automatic performance tuning. In International Symposium on Code Generation and Optimization (CGO’06), pages 12–pp. IEEE, 2006.
+[35] Nathan Ratliff, Matt Zucker, J Andrew Bagnell, and Siddhartha Srinivasa. Chomp: Gradient optimization techniques for efﬁcient motion planning. In 2009 IEEE International Conference on Robotics and Automation, pages 489–494. IEEE, 2009.
+[36] Arthur George Richards. Robust constrained model predictive control. PhD thesis, Massachusetts Institute of Technology, 2005.
+[37] Reuven Rubinstein. The cross-entropy method for combinatorial and continuous optimization. pages 127, 190, 1999.
+[38] Mikita Sazanovich, Anastasiya Nikolskaya, Yury Belousov, and Aleksei Shpilman. Solving black-box optimization challenge via learning search space partition for local bayesian optimization. workshop at NeurIPS 2020 Competition Track on Black-Box Optimization Challenge, 2020.
+[39] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[40] Marwin HS Segler, Mike Preuss, and Mark P Waller. Planning chemical syntheses with deep neural networks and symbolic ai. Nature, 555(7698):604–610, 2018.
+[41] Aleksandrs Slivkins. Introduction to multi-armed bandits. arXiv preprint arXiv:1904.07272, 2019.
+[42] Spyridon Triantafyllis, Manish Vachharajani, Neil Vachharajani, and David I August. Compiler optimization-space exploration. In International Symposium on Code Generation and Optimization, 2003. CGO 2003., pages 204–215. IEEE, 2003.
+[43] Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. Deep image prior. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 9446–9454, 2018.
+[44] Jessica Vamathevan, Dominic Clark, Paul Czodrowski, Ian Dunham, Edgardo Ferran, George Lee, Bin Li, Anant Madabhushi, Parantu Shah, Michaela Spitzer, et al. Applications of machine learning in drug discovery and development. Nature Reviews Drug Discovery, 18(6):463–477, 2019.
+[45] Linnan Wang, Rodrigo Fonseca, and Yuandong Tian. Learning search space partition for black-box optimization using monte carlo tree search. NeurIPS, 2020.
+[46] Linnan Wang, Saining Xie, Teng Li, Rodrigo Fonseca, and Yuandong Tian. Sample-efﬁcient neural architecture search by learning actions for monte carlo tree search. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2021.
+[47] Tingwu Wang and Jimmy Ba. Exploring model-based planning with policy networks. arXiv preprint arXiv:1906.08649, 2019.
+[48] David Weininger. Smiles, a chemical language and information system. 1. introduction to methodology and encoding rules. Journal of chemical information and computer sciences, 28(1):31–36, 1988.
+[49] Svante Wold, Kim Esbensen, and Paul Geladi. Principal component analysis. Chemometrics and intelligent laboratory systems, 2(1-3):37–52, 1987.
+[50] Kevin Yang, Wengong Jin, Kyle Swanson, Regina Barzilay, and Tommi Jaakkola. Improving molecular design by stochastic iterative target augmentation. In International Conference on Machine Learning, pages 10716–10726. PMLR, 2020.
+12
+
+[51] Kevin Yang, Kyle Swanson, Wengong Jin, Connor Coley, Philipp Eiden, Hua Gao, Angel Guzman-Perez, Timothy Hopper, Brian Kelley, Miriam Mathea, et al. Analyzing learned molecular representations for property prediction. Journal of chemical information and modeling, 59(8):3370–3388, 2019.
+[52] Jiaxuan You, Bowen Liu, Rex Ying, Vijay Pande, and Jure Leskovec. Graph convolutional policy network for goal-directed molecular graph generation. arXiv preprint arXiv:1806.02473, 2018.
+13
+
+Checklist
+1. For all authors... (a) Do the main claims made in the abstract and introduction accurately reﬂect the paper’s contributions and scope? [Yes] We claim to provide a theoretical explanation of region partitioning and empirical gains over baselines, which are presented in Sec. 3 and Secs. 5,6 respectively. (b) Did you describe the limitations of your work? [Yes] We have discussed limitations of our preliminary theory in Sec. 3.2. Our latent spaces also inherently depend on the details of the environments, as described in each individual experiment section. While LaP3 could be easily modiﬁed for black-box optimization in principle, we have made clear that we empirically verify only on path planning. (c) Did you discuss any potential negative societal impacts of your work? [No] We do not foresee any obvious negative societal impacts from our work, which contributes a general-purpose path planning algorithm. (d) Have you read the ethics review guidelines and ensured that your paper conforms to them? [Yes]
+2. If you are including theoretical results... (a) Did you state the full set of assumptions of all theoretical results? [Yes] In lemma/theorem statements in Sec. 3. (b) Did you include complete proofs of all theoretical results? [Yes] All proofs are in Appendix B.
+3. If you ran experiments... (a) Did you include the code, data, and instructions needed to reproduce the main experimental results (either in the supplemental material or as a URL)? [Yes] We upload code in the supplementary material. (b) Did you specify all the training details (e.g., data splits, hyperparameters, how they were chosen)? [Yes] We discuss all hyperparameter tuning details in Appendix G. (c) Did you report error bars (e.g., with respect to the random seed after running experiments multiple times)? [Yes] Included in all experiments in Secs. 5,6. (d) Did you include the total amount of compute and the type of resources used (e.g., type of GPUs, internal cluster, or cloud provider)? [No]
+4. If you are using existing assets (e.g., code, data, models) or curating/releasing new assets... (a) If your work uses existing assets, did you cite the creators? [Yes] (b) Did you mention the license of the assets? [No] (c) Did you include any new assets either in the supplemental material or as a URL? [N/A] Just code, which is in supplemental material. (d) Did you discuss whether and how consent was obtained from people whose data you’re using/curating? [No] We use publicly available datasets/tasks. (e) Did you discuss whether the data you are using/curating contains personally identiﬁable information or offensive content? [No] We don’t use data of this sort.
+5. If you used crowdsourcing or conducted research with human subjects... (a) Did you include the full text of instructions given to participants and screenshots, if applicable? [N/A] (b) Did you describe any potential participant risks, with links to Institutional Review Board (IRB) approvals, if applicable? [N/A] (c) Did you include the estimated hourly wage paid to participants and the total amount spent on participant compensation? [N/A]
+14
+

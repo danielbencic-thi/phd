@@ -1,0 +1,356 @@
+arXiv:1808.04560v1 [cs.CV] 14 Aug 2018
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+1
+
+Deep Retinex Decomposition for Low-Light Enhancement
+
+Chen Wei ∗ weichen582@pku.edu.cn Wenjing Wang ∗ daooshee@pku.edu.cn
+Wenhan Yang yangwenhan@pku.edu.cn Jiaying Liu † liujiaying@pku.edu.cn
+
+Institute of Computer Science and Technology Peking University Beijing, P.R. China
+
+Abstract
+Retinex model is an effective tool for low-light image enhancement. It assumes that observed images can be decomposed into the reﬂectance and illumination. Most existing Retinex-based methods have carefully designed hand-crafted constraints and parameters for this highly ill-posed decomposition, which may be limited by model capacity when applied in various scenes. In this paper, we collect a LOw-Light dataset (LOL) containing low/normal-light image pairs and propose a deep Retinex-Net learned on this dataset, including a Decom-Net for decomposition and an Enhance-Net for illumination adjustment. In the training process for Decom-Net, there is no ground truth of decomposed reﬂectance and illumination. The network is learned with only key constraints including the consistent reﬂectance shared by paired low/normal-light images, and the smoothness of illumination. Based on the decomposition, subsequent lightness enhancement is conducted on illumination by an enhancement network called Enhance-Net, and for joint denoising there is a denoising operation on reﬂectance. The Retinex-Net is end-to-end trainable, so that the learned decomposition is by nature good for lightness adjustment. Extensive experiments demonstrate that our method not only achieves visually pleasing quality for low-light enhancement but also provides a good representation of image decomposition.
+1 Introduction
+Insufﬁcient lighting in image capturing can signiﬁcantly degrade the visibility of images. The lost details and low contrast not only cause unpleasant subjective feelings, but also hurt the performance of many computer vision systems which are designed for normal-light images. There are a lot of causes for insufﬁcient lighting, such as low-light environment, limited performance of photography equipment, and inappropriate conﬁgurations for the equipment.
+* Indicates equal contributions. † Corresponding author. This work was supported by National Natural Science Foundation of China under contract No. 61772043. We also gratefully acknowledge the support of NVIDIA Corporation with the GPU for this research.
+c 2018. The copyright of this document resides with its authors. It may be distributed unchanged freely in print or electronic forms.
+
+2
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+To make the buried details visible, improve the subjective experience and usability of current computer vision systems, low-light image enhancement is demanded.
+In the past decades, many researchers have devoted their attention to solving the problem of low-light image enhancement. Many techniques have been developed to improve the subjective and objective quality of low-light images. Histogram equalization (HE) [20] and its variants restrain the histograms of the output images to meet some constraints. Dehazing based method [5] utilizes the inverse connection between the images with insufﬁcient illumination and those in hazy environments.
+Another category of low-light enhancement methods is built on Retinex theory [12], which assumes the observed color image can be decomposed into reﬂectance and illumination. Single-scale Retinex (SSR) [11] constrains the illumination map to be smooth by Gaussian ﬁlter as the early attempt. Multi-scale Retinex (MSRCR) [10] extends SSR with multi-scale Gaussian ﬁlters and color restoration. [23] proposes a method to preserve naturalness of illumination with lightness-order-error measure. Fu et al. [7] proposed to fuse multiple derivations of the initially illumination map. SRIE [7] estimates reﬂectance and illumination simultaneously using a weighted variational model. After manipulating the illumination, the target result can be restored. LIME [9], on the other hand, only estimates illumination with structure prior and uses reﬂection as the ﬁnal enhanced results. There are also Retinex-based methods for joint low-light enhancement and noise removal [14, 15].
+Although these methods may produce promising results in some cases, they still suffer from the limitation in model capacity of the decomposition for reﬂectance and illumination. It is difﬁcult to design well-working constraints for image decomposition that can be applied in various scenes. Besides, the manipulations on illumination map are also hand-crafted and the performance of these methods usually relies on careful parameter tuning.
+With the rapid development of deep neural network, CNN has been widely used in lowlevel image processing, including super-resolution [6, 24, 26, 27], rain removal [16, 21, 25] et al. Lore et al. [17] uses stacked sparse denoising auto-encoder for simultaneous low-light enhancement and noise reduction (LLNet), however the nature of low-light pictures is not taken into account.
+To overcome these difﬁculties, we propose a data-driven Retinex decomposition method. A deep network, called as Retinex-Net, that integrates image decomposition and the successive enhancement operations is built. First, a subnetwork, Decom-Net is used to split the observed image into lighting-independent reﬂectance and structure-aware smooth illumination. The Decom-Net is learned with two constraints. First, low/normal-light images share the same reﬂectance. Second, the illumination map should be smooth but retain main structures, which is obtained by a structure-aware total variation loss. Then, another Enhance-Net adjusts the illumination map to maintain consistency at large regions while tailor local distributions by multi-scale concatenation. Since noise is often louder in dark regions and even ampliﬁed by the enhancement process, denoising on reﬂectance is introduced. For training such a network, we build a dataset of low/normal-light image pairs from real photography and synthetic images from RAW datasets. Extensive experiments demonstrate that our method not only achieves pleasing visual quality in low-light enhancement but also provides a good representation of image decomposition. The contributions of our work are summarized as follows:
+• We build a large scale dataset with paired low/normal-light images captured in real scenes. As far as we know, it is the ﬁrst attempt in the low-light enhancement ﬁeld.
+• We construct a deep-learning image decomposition based on Retinex model. The de-
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+Conv Conv + ReLU Conv + ReLU
+Conv Sigmoid
+
+𝑆𝑛𝑜𝑟𝑚𝑎𝑙
+
+Decomposition Decom-Net
+…
+
+𝑅𝑛𝑜𝑟𝑚𝑎𝑙 𝐼𝑛𝑜𝑟𝑚𝑎𝑙
+
+Adjustment Denoising Operation
+Enhance-Net
+
+…
+
+Conv Conv + ReLU Conv + ReLU
+Conv Sigmoid
+
+…
+
+𝑅𝑙𝑜𝑤
+
+𝑆𝑙𝑜𝑤
+
+…
+
+Decom-Net
+
+𝐼𝑙𝑜𝑤
+
+Conv + ReLU Conv + ReLU Resize + Conv + ReLU Resize + Conv + ReLU
+Concat 1 x 1 Conv
+Conv
+
+3
+Reconstruction
+𝑅෠𝑙𝑜𝑤
+𝑆መ𝑙𝑜𝑤 𝐼መ𝑙𝑜𝑤
+Share weight Skip Connection
+
+Figure 1: The proposed framework for Retinex-Net. The enhancement process is divided into three steps: decomposition, adjustment and reconstruction. In the decomposition step, a subnetwork Decom-Net decomposes the input image into reﬂectance and illumination. In the following adjustment step, an encoder-decoder based Enhance-Net brightens up the illumination. Multi-scale concatenation is introduced to adjust the illumination from multi-scale perspectives. Noise on the reﬂectance is also removed at this step. Finally, we reconstruct the adjusted illumination and reﬂectance to get the enhanced result.
+
+composition network is end-to-end trained with the successive low-light enhancement network, thus the framework is by nature good at light condition adjustment.
+• We propose a structure-aware total variation constraint for deep image decomposition. By mitigating the effect of total variation at the places where gradients are strong, the constraint successfully smooths the illumination map and retains the main structures.
+
+2 Retinex-Net for Low-Light Enhancement
+
+The classic Retinex theory models the human color perception. It assumes that the observed images can be decomposed into two components, reﬂectance and illumination. Let S represent the source image, then it can be denoted by
+
+S = R◦I,
+
+(1)
+
+where R represents reﬂectance, I represents illumination and ◦ represents element-wise multiplication. Reﬂectance describes the intrinsic property of captured objects, which is considered to be consistent under any lightness conditions. The illumination represents the various lightness on objects. On low-light images, it usually suffers from darkness and unbalanced illumination distributions.
+Motivated by Retinex theory, we design a deep Retinex-Net to perform the reﬂectance /illumination decomposition and low-light enhancement jointly. The network consists of three steps: decomposition, adjustment, and reconstruction. At the decomposition step, Retinex-Net decomposes the input image into R and I by a Decom-Net. It takes in pairs of low/normal-light images at the training stage, while only low-light images as input at
+
+4
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+the testing stage. With the constraints that the low/normal-light images share the same reﬂectance and the smoothness of illumination, Decom-Net learns to extract the consistent R between variously illuminated images in a data-driven way. At the adjustment step, an Enhance-Net is used to brighten up the illumination map. The Enhance-Net takes an overall framework of encoder-decoder. A multi-scale concatenation is used to maintain the global consistency of illumination with context information in large regions while tuning the local distributions with focused attention. Furthermore, the ampliﬁed noise, which often occurs in low-light conditions, is removed from reﬂectance if needed. Then, we combine the adjusted illumination and reﬂectance by element-wise multiplication at the reconstruction stage.
+
+2.1 Data-Driven Image Decomposition
+
+One way to decompose the observed image is estimating reﬂectance and illumination directly on the low-light input image with elaborately hand-crafted constraints. Since Eq.(1) is highly ill-posed, it is not easy to design a proper constraint function adaptive to various scenes. Therefore, we try to address this problem in a data-driven way.
+During the training stage, Decom-Net takes in paired low/normal-light images each time and learns the decomposition for both low-light and its corresponding normal-light image under the guidance that the low-light image and normal-light image share the same reﬂectance. Note that although the decomposition is trained with paired data, it can decompose the lowlight input individually in the testing phase. During training, there is no need to provide the ground truth of the reﬂectance and illumination. Only requisite knowledge including the consistency of reﬂectance and the smoothness of illumination map is embedded into the network as loss functions. Thus, the decomposition of our network is automatically learned from paired low/normal-light images, and by nature suitable for depicting the light variation among the images under different light conditions.
+One thing to note is that although this problem may be similar to intrinsic image decomposition in form, they are different essentially. In our task, we do not need to obtain the actual intrinsic image accurately, but a good representation for light adjustment. Thus, we let the network learn to ﬁnd the consistent component between low-light image and its corresponding enhanced result.
+As illustrated in Fig. 1, Decom-Net takes the low-light image Slow and the normal-light one Snormal as input, then estimates the reﬂectance Rlow and the illumination Ilow for Slow, as well as Rnormal and Inormal for Snormal, respectively. It ﬁrst uses a 3 × 3 convolutional layer to extract features from the input image. Then, several 3 × 3 convolutional layers with Rectiﬁed Linear Unit (ReLU) as the activation function are followed to map the RGB image into reﬂectance and illumination. A 3 × 3 convolutional layer projects R and I from feature space, and sigmoid function is used to constrain both R and I in the range of [0, 1].
+The loss L consists of three terms: reconstruction loss Lrecon, invariable reﬂectance loss Lir, and illumination smoothness loss Lis:
+
+L = Lrecon + λirLir + λisLis,
+
+(2)
+
+where λir and λis denote the coefﬁcients to balance the consistency of reﬂectance and the smoothness of illumination.
+Based on the assumption that both Rlow and Rhigh can reconstruct the image with the corresponding illumination map, the reconstruction loss Lrecon is formulated as:
+
+∑ Lrecon =
+
+∑ λi j||Ri ◦ Ij − S j||1.
+
+(3)
+
+i=low,normal j=low,normal
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+5
+
+(a) Input
+
+(b) Reflectance
+
+(c) Illumination
+
+(d)
+
+(e)
+
+(f)
+
+(g)
+
+(h)
+
+Figure 2: Illustration for effectiveness of our reﬂectance gradient-weighted TV loss for illumination smoothness. The ﬁrst row displays the input image (a), reﬂectance (b) and illumination (c) with weighted TV loss from left to right. The second row displays a zoom-in region where (d) is for input image, (e) and (f) are for R and I with weighted TV loss, (g) and (h) are for R and I with original TV loss.
+
+Invariable reﬂectance loss Lir is introduced to constrain the consistency of reﬂectance:
+
+Lir = ||Rlow − Rnormal ||1.
+
+(4)
+
+Illumination smoothness loss Lis is described in detail in the following section.
+
+2.2 Structure-Aware Smoothness Loss
+
+One basic assumption for illumination map is the local consistency and the structure- awareness, as mentioned by [9]. In other words, a good solution for illumination map should be smooth in textural details while can still preserve the overall structure boundary.
+Total variation minimization (TV) [2], which minimizes the gradient of the whole image, is often used as smoothness prior for various image restoration tasks. However, directly using TV as loss function fails at regions where the image has strong structures or where lightness changes drastically. It is due to the uniform reduction for gradient of illumination map regardless of whether the region is of textual details or strong boundaries. In other words, TV loss is structure-blindness. The illumination is blurred and strong black edges are left on reﬂectance, as illustrated in Fig. 2.
+To make the loss aware of the image structure, the original TV function is weighted with the gradient of reﬂectance map. The ﬁnal Lis is formulated as:
+
+Lis = ∑ ||∇Ii ◦ exp(−λg∇Ri)||,
+
+(5)
+
+i=low,normal
+
+where ∇ denotes the gradient including ∇h (horizontal) and ∇v (vertical), and λg denotes the coefﬁcient balancing the strength of structure-awareness. With the weight exp(−λg∇Ri), Lis loosens the constraint for smoothness where the gradient of reﬂectance is steep, in other words, where image structures locate and where the illumination should be discontinuous.
+
+6
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+Although LIME [9] also considers to keep image structures in illumination map with weighted TV constraint, we argue that the two methods are different. For LIME, the total variation constraint is weighted by an initial illumination map, which is the maximum intensity of each pixel in R, G and B channels. Our structure-aware smoothness loss instead is weighted by reﬂectance. The static initial estimation used in LIME may not depict the image structure as well as reﬂectance does, since reﬂectance is assumed as the physical property of an image. Since our Decom-Net is trained off-line with large-scale of data, the illumination and weight (the reﬂectance) can be updated simultaneously in training phase.
+
+2.3 Multi-Scale Illumination Adjustment
+
+The illumination enhancement network takes an overall framework of an encoder-decoder architecture. To adjust the illumination from hierarchical perspectives, we introduce a multiscale concatenation, as shown in Fig. 1.
+An encoder-decoder architecture obtains context information in large regions. The input image is successively down-sampled to a small scale, at which the network can have a perspective of the large-scale illumination distribution. This brings network the ability of adaptive adjustment. With large-scale illumination information, up-sampling blocks reconstruct local illumination distribution. Skip connections are introduced from a down-sampling block to its corresponding mirrored up-sampling block by element-wise summation, which enforces the network to learn residuals.
+To adjust the illumination hierarchically, which means to maintain the consistency of global illumination while tailor the diverse local illumination distribution, a multi-scale concatenation is introduced. If there are M progressively up-sampling blocks, each of which extracts a C channel feature map, we resize these features at different scales by nearestneighbor interpolation to the ﬁnal scale and concatenate them to a C × M channel feature map. Then, by a 1 × 1 convolutional layer, the concatenated features are reduced to C channels. A 3 × 3 convolutional layer is followed to reconstruct the illumination map I˜.
+A down-sampling block consists of a convolutional layer with stride 2 and a ReLU. In the up-sampling block, a resize-convolutional layer is used. As demonstrated in [19], it can avoid checkerboard pattern of artifacts. Resize-convolutional layer consists of a nearest-neighbor interpolation operation, a convolutional layer with stride 1, and a ReLU.
+The loss function L for Enhance-Net consists of the reconstruction loss Lrecon and the illumination smoothness loss Lis. Lrecon means to produce a normal-light Sˆ, which is
+
+Lrecon = ||Rlow ◦ Iˆ− Snormal ||1.
+
+(6)
+
+Lis is the same as Eq.(5) except that Iˆ is weighted by gradient map of Rlow.
+
+2.4 Denoising on Reﬂectance
+In the decomposition step, several constraints are imposed to the network, one of which is the structure-aware smoothness of illumination map. When the estimated illumination map is smooth, details are all retained on the reﬂectance, including boosted noise. Therefore, we can operate denoising method on reﬂectance before reconstructing the output image with illumination map. Given that noise in dark regions is ampliﬁed according to the lightness intensity during the decomposition, we should use illumination-related denoising method. Our implementation is described in Sec. 4.
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+7
+
+Normal Low
+
+Figure 3: Several examples for low/normal-light image pairs in LOL dataset. Objects and scenes captured in this dataset are diverse.
+3 Dataset
+Although the low-light enhancement problem has been studied for decades, to the best of our knowledge, current publicly available datasets provide no paired low/normal-light images captured in real scenes. Several low-light enhancement works use datasets of High Dynamic Range (HDR) as an alternative, such as MEF dataset [18]. However, these datasets are in small scale and contain limited scenes. Thus, they cannot be used to train a deep network. To make it tractable to learn a low-light enhancement network from a large-scale dataset, we construct a new one consisting of two categories: real photography pairs and synthetic pairs from raw images. The ﬁrst one captures the degradation features and properties in real cases. The second plays a role in data augmentation, diversifying scenes and objects.
+3.1 Dataset Captured in Real Scenes
+Our dataset, named LOw Light paired dataset (LOL), contains 500 low/normal-light image pairs. To the best of our knowledge, LOL is the ﬁrst dataset containing image pairs taken from real scenes for low-light enhancement.
+Most low-light images are collected by changing exposure time and ISO, while other conﬁgurations of the cameras are ﬁxed. We capture images from a variety of scenes, e.g., houses, campuses, clubs, streets. Fig. 3 shows a subset of the scenes.
+Since camera shaking, object movement, and lightness changing may cause misalignment between the image pairs, inspired by [1], a three-step method is used to eliminate such misalignments between the image pairs in our dataset. The implementation details can be found in the supplementary ﬁle. These raw images are resized to 400 × 600 and converted to Portable Network Graphics format. The dataset will be available publicly.
+3.2 Synthetic Image Pairs from Raw Images
+To make synthetic images match the property of real dark photography, we analyze the illumination distribution of low-light images. We collect 270 low-light images from public MEF [18], NPE [23], LIME [9], DICM [13], VV 1, and Fusion [3] dataset, transform the images into YCbCr channel and calculate the histogram of Y channel. We also collect 1000 raw images from RAISE [4] as normal-light images and calculate the histogram of Y channel in YCbCr. Fig. 4 shows the result.
+1https://sites.google.com/site/vonikakis/datasets
+
+Frequency
+
+8
+0.100 0.010 0.001
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+Normal-light
+
+Low-light
+
+Synthetic Low-light
+
+0
+
+51
+
+102
+
+153
+
+204
+
+255
+
+Pixel Value
+
+Figure 4: Fitting results based on the histogram of Y channel in YCbCr. For clarity, the histogram in depicted in the form of curve graphs and the vertical axis is scaled in logarithmic domain. The horizontal axis represents the pixel value, noticing that Y channel ranges from 16 to 240.
+
+Low
+
+Normal
+
+(a) Input
+
+(b) R by LIME
+
+(c) I by LIME (d) R by Retinex-Net (e) I by Retinex-Net
+
+Figure 5: The decomposition results using our Decom-Net and LIME on Bookshelf in LOL dataset. In our results, the reﬂectance of the low-light image resembles the reﬂectance of the normal-light image except for the ampliﬁed noise in dark regions occurred in real scenes.
+
+Raw images contain more information than the converted results. When operating on raw images, all calculations used to generate pixel values are performed in one step on the base data, making the result more accurate. 1000 raw images in RAISE [4] are used to synthesize low-light images. Interface provided by Adobe Lightroom is used and we try different kinds of parameters to make the histogram of Y channel ﬁt the result in low-light images. Final parameter conﬁguration can be found in the supplementary material. As shown in Fig. 4, the illumination distribution of synthetic images matches that of low-light images. Finally we resize these raw images to 400 × 600 and convert them to Portable Network Graphics format.
+
+4 Experiments
+4.1 Implementation Details
+Our LOL dataset mentioned in Sec. 3 with 500 image pairs is divided into 485 pairs for training and another 15 ones for evaluation. So the net-work is trained on 485 real-case image pairs as well as 1000 synthetic ones. The whole network is light-weighted since we empirically ﬁnd it already enough for our purpose. The Decom-Net takes 5 convolutional layers with a ReLU activation between 2 conv-layers without ReLU. The Enhance-Net consists of 3 down-sampling blocks and 3 up-sampling ones. We ﬁrst train the Decom-Net and the Enhance-Net, then ﬁne-tune the network end-to-end using stochastic gradient descent
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+9
+
+(a) Input
+
+(b) SRIE
+
+(c)_NPE
+
+(d) LIME
+
+(e) DeHz (f) Retinex-Net
+
+Figure 6: The results using different methods on natural images: (top-to-bottom) Street from LIME dataset, Still lives from LIME dataset, and Room from MEF dataset.
+
+(SGD) with back-propagation. Batch size is set to be 16 and patch-size to be 96 × 96. λir, λis and λg are set to 0.001, 0.1 and 10 respectively. When i = j, λi j is set to 0.001, and when i = j, λi j is set to 1.
+4.2 Decomposition Results
+In Fig. 5 we illustrate a low/normal-light image pairs in the evaluation set of our LOL dataset, as well as the reﬂectance and illumination map decomposed by Decom-Net and LIME. More examples are provided in the supplementary ﬁle. It is shown that our Decom-Net can extract underlying consistent reﬂectance from a pair of images under quite different light conditions in both textual and smooth regions. The reﬂectance of the low-light image resembles the reﬂectance of the normal-light image except for the ampliﬁed noise in dark regions occurred in real scenes. The illumination maps, on the other hand, portray the lightness and shadow on the image. Compared with our result, LIME has much illumination information left on the reﬂectance (see the shadow on the shelf).
+4.3 Evaluation
+We evaluate our approach on real-scene images from public LIME [9], MEF [18], and DICM [13] dataset. LIME contains 10 testing images. MEF contains 17 image sequences
+
+10
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+(a) LIME
+
+(b) JED
+
+(c) Retinex-Net
+
+Figure 7: The joint denoising results using different methods on Wardrobe in LOL Dataset.
+
+with multiple exposure levels. DICM collected 69 images with commercial digital cameras. We compare our Retinex-Net with four state-of-the-art methods, including de-hazing based method (DeHz) [5], naturalness preserved enhancement algorithm (NPE) [23], simultaneous reﬂectance and illumination estimation algorithm (SRIE) [8], and illumination map estimation based (LIME) [9].
+Fig. 6 shows visual comparison on three natural images. More results can be found in the supplementary ﬁle. As shown in every red rectangle, our method brightens up the objects buried in dark lightness enough without overexposure, which beneﬁts from the learningbased image decomposition method and the multi-scale tailored illumination map. Compared with LIME, our results are not partially over-exposed (see the leaves in Still lives and the outside leaves in Room). The objects have no dark edges, compared with DeHz, which beneﬁts from the weighted TV loss term (see edges on the houses in Street).
+4.4 Joint Low-Light Enhancement and Denoising
+Considering the comprehensive performance, BM3D [3] is used as the denoising operation in Retinex-Net. As noise is unevenly ampliﬁed on reﬂectance, we use a illumination relative strategy (see supplementary material). We compare our joint-denoising Retinex-Net with two methods, one is LIME with denoising post-processing, the other is JED [22], a recent joint low-light enhancement and denoising method. As shown in Fig. 7, details are better preserved by Retinex-Net while LIME and JED blur the edges.
+
+5 Conclusion
+In this paper, a deep Retinex decomposition method is proposed, which can learn to decompose the observed image into reﬂectance and illumination in a data-driven way without the ground truth of decomposed reﬂectance and illumination. Subsequent light enhancement on illumination and denoising operations on reﬂectance are introduced. The decomposition network and low-light enhancement network are trained end-to-end. Experimental results show that our method produces visually pleasing enhancement results as well as a good representation of image decomposition.
+
+References
+[1] Josue Anaya and Adrian Barbu. Renoir ´lc a dataset for real low-light image noise reduction a˛î. Journal of Visual Communication & Image Representation, 51:144–154, 2017.
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+11
+
+[2] Stanley H. Chan, Ramsin Khoshabeh, Kristofor B. Gibson, Philip E. Gill, and Truong Q. Nguyen. An augmented lagrangian method for total variation video restoration. IEEE Trans Image Process, 20(11):3097–3111, 2011.
+
+[3] Kostadin Dabov, Alessandro Foi, and Karen Egiazarian. Image denoising with blockmatching and 3d ﬁltering. Proceedings of SPIE - The International Society for Optical Engineering, 6064:354–365, 2006.
+
+[4] Duc Tien Dang-Nguyen, Cecilia Pasquini, Valentina Conotter, and Giulia Boato. Raise: a raw images dataset for digital image forensics. In ACM Multimedia Systems Conference, pages 219–224, 2015.
+
+[5] Xuan Dong, Guan Wang, Yi Pang, Weixin Li, Jiangtao Wen, Wei Meng, and Yao Lu. Fast efﬁcient algorithm for enhancement of low lighting video. In IEEE International Conference on Multimedia and Expo, pages 1–6, 2011.
+
+[6] Yuming Fang, Chi Zhang, Wenhan Yang, Jiaying Liu, and Zongming Guo. Blind visual quality assessment for image super-resolution by convolutional neural network. Multimedia Tools and Applications, pages 1–18, 2018.
+
+[7] Xueyang Fu, Delu Zeng, Yue Huang, Yinghao Liao, Xinghao Ding, and John Paisley. A fusion-based enhancing method for weakly illuminated images. Signal Processing, 129(C):82–96, 2016.
+
+[8] Xueyang Fu, Delu Zeng, Yue Huang, Xiao Ping Zhang, and Xinghao Ding. A weighted variational model for simultaneous reﬂectance and illumination estimation. In Computer Vision and Pattern Recognition, pages 2782–2790, 2016.
+
+[9] Xiaojie Guo, Yu Li, and Haibin Ling. Lime: Low-light image enhancement via illumination map estimation. IEEE Transactions on Image Processing, 26(2):982–993, 2017.
+
+[10] Daniel J. Jobson, Zia-ur. Rahman, and Glenn A. Woodell. A multiscale retinex for bridging the gap between color images and the human observation of scenes. IEEE Transactions on Image Processing, 6(7):965–76, 1997.
+
+[11] Daniel J. Jobson, Zia-ur. Rahman, and Glenn A. Woodell. Properties and performance of a center/surround retinex. IEEE Transactions on Image Processing, 6(3):451–462, 1997.
+
+[12] Edwin. H. Land. The retinex theory of color vision. Scientiﬁc American, 237(6):108, 1977.
+
+[13] Chulwoo Lee, Chul Lee, and Chang Su Kim. Contrast enhancement based on layered difference representation. In IEEE International Conference on Image Processing, pages 965–968, 2013.
+
+[14] Mading Li, Jiaying Liu, Wenhan Yang, and Zongming Guo. Joint denoising and enhancement for low-light images via retinex model. In International Forum on Digital TV and Wireless Multimedia Communications, pages 91–99. Springer, 2017.
+
+12
+
+WEI, WANG, YANG, LIU: DEEP RETINEX DECOMPOSITION
+
+[15] Mading Li, Jiaying Liu, Wenhan Yang, and Zongming Guo. Structure-revealing lowlight image enhancement via robust retinex model. IEEE Transactions on Image Processing, 27(6):2828–2841, 2018.
+
+[16] Jiaying Liu, Wenhan Yang, Shuai Yang, and Zongming Guo. Erase or ﬁll? deep joint recurrent rain removal and reconstruction in videos. In IEEE Conference on Computer Vision and Pattern Recognition, June 2018.
+
+[17] Kin Gwn Lore, Adedotun Akintayo, and Soumik Sarkar. Llnet: A deep autoencoder approach to natural low-light image enhancement. Pattern Recognition, 61:650–662, 2017.
+
+[18] Keda. Ma, Kai. Zeng, and Zhou. Wang. Perceptual quality assessment for multiexposure image fusion. IEEE Transactions on Image Processing, 24(11):3345, 2015.
+
+[19] Augustus Odena, Vincent Dumoulin, and Chris Olah. Deconvolution and checkerboard artifacts. Distill, 2016. URL http://distill.pub/2016/ deconv-checkerboard/.
+
+[20] Stephen M. Pizer, E. Philip Amburn, John D. Austin, Robert Cromartie, Ari Geselowitz, Trey Greer, Bart Ter Haar Romeny, John B. Zimmerman, and Karel Zuiderveld. Adaptive histogram equalization and its variations. Computer Vision Graphics & Image Processing, 39(3):355–368, 1987.
+
+[21] Rui Qian, Robby T. Tan, Wenhan Yang, Jiajun Su, and Jiaying Liu. Attentive generative adversarial network for raindrop removal from a single image. In IEEE Conference on Computer Vision and Pattern Recognition, June 2018.
+
+[22] Xutong Ren, Mading Li, Wen-Huang Cheng, and Jiaying Liu. Joint enhancement and denoising method via sequential decomposition. In Circuits and Systems (ISCAS), 2018 IEEE International Symposium on, pages 1–5. IEEE, 2018.
+
+[23] Shuhang Wang, Jin Zheng, Hai Miao Hu, and Bo Li. Naturalness preserved enhancement algorithm for non-uniform illumination images. IEEE Transactions on Image Processing, 22(9):3538–48, 2013.
+
+[24] Wenhan Yang, Jiashi Feng, Jianchao Yang, Fang Zhao, Jiaying Liu, Zongming Guo, and Shuicheng Yan. Deep edge guided recurrent residual learning for image superresolution. IEEE Transactions on Image Processing, 26(12):5895–5907, 2017.
+
+[25] Wenhan Yang, Robby T Tan, Jiashi Feng, Jiaying Liu, Zongming Guo, and Shuicheng Yan. Deep joint rain detection and removal from a single image. In IEEE Conference on Computer Vision and Pattern Recognition, pages 1357–1366, 2017.
+
+[26] Wenhan Yang, Jiashi Feng, Guosen Xie, Jiaying Liu, Zongming Guo, and Shuicheng Yan. Video super-resolution based on spatial-temporal recurrent residual networks. Computer Vision and Image Understanding, 168:79–92, 2018.
+
+[27] Wenhan Yang, Sifeng Xia, Jiaying Liu, and Zongming Guo. Reference guided deep super-resolution via manifold localized external compensation. IEEE Transactions on Circuits and Systems for Video Technology, 2018.
+

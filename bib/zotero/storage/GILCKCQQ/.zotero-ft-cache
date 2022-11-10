@@ -1,0 +1,1024 @@
+Minimax Regret for Stochastic Shortest Path
+
+Alon Cohen Tel-Aviv University and Google Research, Tel Aviv
+aloncohen@google.com
+
+Yonathan Efroni Microsoft Research, New York jonathan.efroni@gmail.com
+
+Yishay Mansour Tel-Aviv University and Google Research, Tel Aviv
+mansour@tau.ac.il
+
+Aviv Rosenberg Tel-Aviv University avivros007@gmail.com
+
+Abstract
+We study the Stochastic Shortest Path (SSP) problem in which an agent has to reach a goal state in minimum total expected cost. In the learning formulation of the problem, the agent has no prior knowledge about the costs and dynamics of the model. She repeatedly interacts with the model for K episodes, and has to minimize her regret. In this work we show that the minimax regret for this setting is O( (B2 + B )|S||A|K) where B is a bound on the expected cost of the optimal policy from any state, S is the state space, and A is the action space. This matches the Ω( B2 |S||A|K) lower bound of √Rosenberg et al. [2020] for B ≥ 1, and improves their reg√ret bound by a factor of |S|. For B < 1 we prove a matching lower bound of Ω( B |S||A|K). Our algorithm is based on a novel reduction from SSP to ﬁnite-horizon MDPs. To that end, we provide an algorithm for the ﬁnitehorizon setting whose leading term in the regret depends polynomially on the expected cost of the optimal policy and only logarithmically on the horizon.
+1 Introduction
+We study the stochastic shortest path (SSP) problem in which an agent aims to reach a predeﬁned goal state while minimizing her total expected cost. This is one of the most basic models of reinforcement learning (RL) that includes both ﬁnite-horizon and discounted Markov Decision Processes (MDPs) as special cases. In addition, SSP captures a wide variety of realistic scenarios such as car navigation, game playing and drone ﬂying.
+We study an online version of SSP in which both the immediate costs and transition distributions of the model are initially unknown to the agent. The agent interacts with the model for K episodes, in each of which she attempts to reach the goal state with minimal cumulative cost. A main challenge in the online model is found when instantaneous costs are small. For example, any learning algorithm that attempts to myopically minimize the accumulated costs might get caught in a cycle with zero cost and never reach the goal state. Nonetheless, even if the costs are not zero, only very small, the agent must be able to trade off the need to minimize costs with that of reaching the goal quickly.
+The online setting was originally suggested by Tarbouriech et al. [2020] who gave an algorithm with O(K2/3) reg√ret guarantee. In a follow-up work, Rosenberg et al. [2020] improved the previous bound to O(B |S| |A|K), where S is the state space, A is the action space, and B is an upper bound on the total expected cost of the optim√al policy when initialized a√t any state. Rosenberg et al. [2020] also provide a lower bound of Ω(B |S||A|K) – leaving a gap of |S| between the upper and lower bounds. In this work, unlike the previously mentioned works that assume the cost function is deterministic
+35th Conference on Neural Information Processing Systems (NeurIPS 2021).
+
+and known, we consider the case where the costs are i.i.d. and initially unknown. We prove upper and lower bounds for this case, proving that the optimal regret is of order Θ( (B2 + B )|S||A|K).
+The algorithms of both Tarbouriech et al. [2020], Rosenberg et al. [2020] were based on a direct application of the “Optimism in the Face of Uncertainty” principle to the SSP model, following the ideas behind the UCRL2 algorithm [Jaksch et al., 2010] for average-reward MDPs. In this work we take a different approach. We propose a novel black-box reduction to ﬁnite-horizon MDPs, showing that the SSP problem is not harder than the ﬁnite-horizon setting assuming prior knowledge on the expected time it takes for the optimal policy to reach the goal state. While the reduction itself is simple, the analysis is highly nontrivial as one has to show that the goal state is indeed reached in every episode without incurring excessive costs in the process.
+The idea of reducing SSP to ﬁnite-horizon was previously used by Chen et al. [2020], Chen and Luo [2021] for SSP with adversarially changing costs. However, they run one ﬁnite-horizon episode in every SSP episode and then simply try to reach the goal as fast as possible, while we restart a new ﬁnite-horizon episode every H steps. This modiﬁcation is what enables us to obtain the optimal and improved dependence in the number of states.
+In addition, we provide a new algorithm for regret minimization in ﬁnite-horizon MDPs called ULCVI. We show that (for large enough number of episodes) its regret depends polynomially on the expected cost of the optimal policy B , and only logarithmically on the horizon length H. This implies that the correct measure for the regret is the expected cost of the optimal policy and not the length of the horizon. We note that regret with logarithmic dependence in the horizon H was also obtained by Zhang et al. [2020], yet they make a much stronger assumption: that the cumulative cost of every trajectory is bounded by 1. In contrast, we only assume that the expected cost of the optimal policy is bounded by some constant B , while other policies may suffer a cost of H.
+Our reduction, when combined with our ﬁnite-horizon algorithm ULCVI, guarantees SSP regret of O( (B2 + B )|S||A|K). This matches the lower bound of Rosenberg et al. [2020] for B ≥ 1 up to logarithmic factors. However, their lower bound does not hold for B < 1 su√ggesting that this is not the correct rate in this case. Indeed, we prove a tighter lower bound of Ω( B |S||A|K) for B < 1, showing that our regret guarantees are minimax optimal in all cases.
+As a ﬁnal remark we note that, following our work, Tarbouriech et al. [2021] were able to obtain a comparable regret bound for SSP without prior knowledge of the optimal policy’s expected time to reach the goal state.
+1.1 Additional related work
+Planning for stochastic shortest path. Early work by Bertsekas and Tsitsiklis [1991] studied planning in SSPs, i.e., computing the optimal strategy efﬁciently when parameters are known. Under certain assumptions, they established that the optimal strategy is a deterministic stationary policy and can be computed efﬁciently using standard planning algorithms, e.g., Value Iteration and LP.
+Adversarial stochastic shortest path. Rosenberg and Mansour [2020] presented stochastic shortest path with adversarially changing costs. Their regret bounds were improved by Chen et al. [2020], Chen and Luo [2021] using a reduction to online loop-free SSP (see nex√t paragraph). As mentioned before, our reduction is different and therefore able to remove the extra |S| factor in the regret.
+Regret minimization in MDPs. There is a vast literature on regret minimization in RL that mostly builds on the optimism principle. Most literature focuses on the tabular setting [Jaksch et al., 2010, Azar et al., 2017, Jin et al., 2018, Fruit et al., 2018, Zanette and Brunskill, 2019, Efroni et al., 2019, Simchowitz and Jamieson, 2019], but recently it was extended to function approximation under various assumptions [Yang and Wang, 2019, Jin et al., 2020b, Zanette et al., 2020a,b].
+Online loop-free SSP. A different line of work considers ﬁnite-horizon MDPs with adversarially changing costs [Neu et al., 2010, 2012, Zimin and Neu, 2013, Rosenberg and Mansour, 2019b,a, Jin et al., 2020a, Cai et al., 2020, Shani et al., 2020, Lancewicki et al., 2020, Lee et al., 2020, Jin and Luo, 2020]. They refer to ﬁnite-horizon adversarial MDPs as online loop-free SSP. This is not to be confused with our setting in which the interaction between the agent and the environment ends only when (and if) the goal state is reached, and not after a ﬁxed number of steps H. See Rosenberg and Mansour [2020], Chen et al. [2020] for a discussion on the differences between the models.
+2
+
+2 Preliminaries and main results
+
+An instance of the SSP problem is deﬁned by an MDP M = (S, A, P, c, sinit, g) where S is a ﬁnite state space and A is a ﬁnite action space. The agent begins at an initial state sinit ∈ S, and ends her interaction with M by arriving at the goal state g (where g ∈ S). Whenever she plays action a in state s, she pays a cost C ∈ [0, 1] drawn i.i.d. from a distribution with expectation c(s, a) ∈ [0, 1] and the next state s ∈ S ∪ {g} is chosen with probability P(s | s, a). Note that the transition function P satisﬁes s ∈S∪{g} P(s | s, a) = 1 for every (s, a) ∈ S × A.
+Proper policies. A stationary and deterministic policy π : S → A is a mapping that selects action π(s) whenever the agent is at state s. A policy π is called proper if playing according to π ensures that the goal state is reached with probability 1 when starting from any state (otherwise it is improper). In SSP, the agent has two goals: (a) reach the goal state; (b) minimize the total expected cost. To facilitate the ﬁrst goal, we make the basic assumption that there exists at least one proper policy. In particular, the goal state is reachable from every state, which is clearly a necessary assumption.
+
+Any policy π induces a cost-to-go function Jπ : S → [0, ∞]. The cost-to-go at state s is deﬁned
+
+by Jπ(s) = limT→∞ Eπ
+
+T t=1
+
+c(st, at)
+
+|
+
+sinit
+
+=
+
+s
+
+,
+
+where
+
+the
+
+expectation
+
+is
+
+taken
+
+w.r.t
+
+the
+
+random
+
+sequence of states generated by playing according to π when the initial state is s. For a proper policy
+
+π, it follows that Jπ(s) is ﬁnite for all s ∈ S. However, note that Jπ(s) may be ﬁnite even if π is
+
+improper. We additionally denote by Tπ(s) the expected time it takes for π to reach g starting at state
+
+s; in particular, if π is proper then Tπ(s) is ﬁnite for all s ∈ S, and if π is improper there must exist
+
+some state s such that Tπ(s) = ∞.
+
+Learning formulation. Here, the agent does not have any prior knowledge of the cost function c or
+transition function P. She interacts with the model in episodes: each episode starts at the ﬁxed initial state sinit,1 and ends when the agent reaches the goal state g (note that she might never reach the goal state). Success is measured by the agent’s regret over K such episodes, that is the difference between
+her total cost over the K episodes and the total expected cost of the optimal proper policy:
+
+K Ik
+
+RK =
+
+k=1
+
+i=1
+
+Cik
+
+–K
+
+· min Jπ(sinit),
+π∈Πproper
+
+where Ik is the time it takes the agent to complete episode k (which may be inﬁnite), Cik is the cost suffered in the i-th step of episode k when the agent visited state-action pair (ski , aki ), and Πproper is the set of all stationary, deterministic and proper policies (that is not empty by assumption). In the case that Ik is inﬁnite for some k, we deﬁne RK = ∞.
+
+We denote the optimal proper policy by π , Jπ (sinit) = arg minπ∈Πproper Jπ(sinit). Moreover, let B > 0
+be an upper bound on the values of Jπ and let T > 0 be an upper bound on the times Tπ , i.e.,
+B ≥ maxs∈S Jπ (s) and T ≥ maxs∈S Tπ (s). Finally, let D = maxs∈S minπ∈Πproper Tπ(s) be the SSP-diameter, and note that B ≤ D ≤ T .
+
+2.1 Summary of our results
+
+In Section 3√we present a novel black-box reduction from SSP to ﬁnite-horizon MDPs (Algorithm 1), that yields K regret bounds when combined with a certain class of optimistic algorithms for regret minimization in ﬁnite-horizon MDPs that we call admissible (Deﬁnition 1). The regret analysis for the reduction is described in Section 4, and in Section 5 we present an admissible algorithm for regret minimization in ﬁnite-horizon MDPs called ULCVI. We show that it guarantees the following optimal regret in the ﬁnite-horizon setting (stated formally in Theorem 5.1). Note that (for large enough number of episodes) this bound depends only on the expected cost of the optimal policy and not on the horizon H.
+
+Theorem 2.1. Running ULCVI (Algorithm 2 in Section 5) in a ﬁnite-horizon MDP guarantees, with probability at least 1 – δ, a regret bound of
+
+O
+
+(B2
+
++B
+
+MH|S||A| )|S||A|M log
+
++ H4B–1|S|2|A| log3/2
+
+MH|S||A|
+
+,
+
+δ
+
+δ
+
+1The initial state is ﬁxed for simplicity of presentation, but it can be chosen adversarially at the beginning of every episode. Without any change to the algorithm or analysis, the same guarantees hold.
+
+3
+
+for any number of episodes M ≥ 1 simultaneously.
+
+Combining ULCVI with our reduction yields the following minimax optimal regret bound for SSP.
+Theorem 2.2. Running the reduction in Algorithm 1 with the ﬁnite-horizon regret minimization algorithm ULCVI ensures, with probability at least 1 – δ,
+
+RK = O
+
+(B2 + B )|S||A|K log KT |S||A| + T5B–2|S|2|A| log6 KT |S||A| .
+
+δ
+
+δ
+
+Remark 1. An important observation is that this regret bound is meaningful even for small K. Unlike ﬁnite-horizon MDPs, where linear regret is trivial, in SSP ensuring ﬁnite regret is not easy. Our regret bound also implies that if we play for only one episode, i.e., we are only interested in the time it takes to reach the goal state, then it will take us at most O(T5B–2|S|2|A|) time steps to do so.
+Remark 2. Note that our algorithm needs to know an upper bound on T in advance. However, if all costs are strictly positive (i.e., at least cmin > 0), then there is a trivial upper bound of B /cmin. In this case, our algorithm keeps an optimal regret bound for large enough K, since the bound on T only appears in the additive factor. Some previous work used a perturbation argument to generalize their results from the cmin case to general costs [Tarbouriech et al., 2020, Rosenberg et al., 2020, Rosenberg and Mansour, 2020]. In our case, it will not work since the dependence on 1/cmin in the additive term is too large. This may be an inherent shortcoming of using ﬁnite-horizon reduction to solve SSPs, as it also appears in the works of Chen et al. [2020], Chen and Luo [2021] for the adversarial setting.
+Remark 3. In practice, one can think of T as a parameter of the algorithm that controls computational complexity and the number of steps to complete K episodes. By choosing the parameter T = x for example, we can guarantee that the regret bound of Theorem 2.2 holds against the best proper policy with expected time to the goal of at most x (assuming there exists one), and we can also guarantee
+that the total computational complexity of the algorithm is O(x log K) (see Remark 5). Furthermore,
+the algorithm will take at most O(xK + poly(x, |S|, |A|)) steps to complete K episodes.
+Remark 4. While the additive term in our regret bound is standard for most cases, it becomes large when B is extremely small because of the dependence in B–1. This was not an issue in previous work [Tarbouriech et al., 2020, Rosenberg et al., 2020] since they assumed that the costs are deterministic and known. We believe that this dependence is an artifact of our analysis that may be avoided with a more careful deﬁnition of ωA (see Deﬁnition 1) that depends on the actual cost in each state-action pair and not just B . Nevertheless, the main focus of this paper is on establishing that the minimax
+optimal regret for SSP is Θ( (B2 + B )|S||A|K), and not on optimizing lower order terms. By that we also show that this is the minimax optimal regret for ﬁnite-horizon which is independent of the horizon H (up to logarithmic factors). Tightening the additive term and eliminating its dependence in B–1 is left as an interesting future direction.
+
+In Ap√pendix D we prove that our regret bound is indeed minimax optimal. To complement the Ω(B |S||A|K) lower bound of Rosenberg et al. [2020] that assumes B ≥ 1, we provide the following tighter lower bound for the case that B < 1.
+
+Theorem 2.3. Let B
+
+≤
+
+1 2
+
+.
+
+There
+
+exists
+
+an
+
+SSP
+
+problem
+
+instance
+
+M
+
+=
+
+(S, A, P, c, sinit, g)
+
+in
+
+which
+
+Jπ (s) ≤ B for all s ∈ S, |S| ≥ 2, |A| ≥ 2, K ≥ B |S||A|, such the expected regret of any learner after
+
+K episodes satisﬁes
+
+1 E[RK] ≥ 32 B |S||A|K.
+
+3 A black-box reduction from SSP to ﬁnite-horizon
+
+Our algorithm takes as input an algorithm A for regret minimization in ﬁnite-horizon MDPs, and uses it to perform a black-box reduction. The algorithm is depicted below as Algorithm 1.
+The algorithm breaks the individual time steps that comprise each of the K episodes into intervals of H time steps. If the agent reaches the goal state before H time steps, we simply assume that she stays in g until H time steps are elapsed. We see each interval as one episode of a ﬁnite-horizon model M = (S, A, P, H, ˆc, ˆcf ), where S = S ∪ {g} and ˆcf : S → R is a set of terminal costs deﬁned by
+
+4
+
+ˆcf (s) = 8B I{s = g}, where I{s = g} is the indicator function that equals 1 if s = g and 0 otherwise. Moreover, P, ˆc are the natural extensions of P, c to the goal state. That is, ˆc(s, a) = c(s, a)I{s = g} and
+
+P(s | s, a),  P(s | s, a) = 1,
+
+s = g; s = g, s = g;
+
+0,
+
+s = g, s = g.
+
+The horizon H (which we will set to be roughly T ) is chosen such that the optimal SSP policy will reach the goal state in H time steps with high probability (recall that the expected hitting time of the optimal policy is bounded by T ). The additional terminal cost is there to encourage the agent to reach the goal state within H steps, which otherwise is not necessarily optimal with respect to the planning horizon.
+
+Algorithm 1 REDUCTION FROM SSP TO FINITE-HORIZON MDP
+
+1: input: state sapce S, action space A, initial state sinit, goal state g, conﬁdence parameter δ, number of episodes K, bound on the expected cost of the optimal policy B , bound on the expected time of the optimal policy T and algorithm A for regret minimization in ﬁnite-horizon MDPs.
+
+2: initialize A with state space S = S ∪ {g}, action space A, horizon H = 8T log(8K), conﬁdence
+
+parameter δ/4, terminal costs ˆcf (s) = 8B I{s = g} and bound on the expected cost of the optimal
+
+policy 9B .
+
+3: initialize intervals counter m ← 0 and time steps counter t ← 1.
+
+4: for k = 1, . . . , K do
+
+5: set st ← sinit.
+
+6: while st = g do
+
+7:
+
+set m ← m + 1, feed initial state st to A and obtain policy πm = {πhm : S → A}Hh=1.
+
+8: for h = 1, . . . , H do
+
+9:
+
+play action at = πhm(st), suffer cost Ct ∼ c(st, at), and set smh = st, amh = at, Chm = Ct.
+
+10:
+
+observe next state st+1 ∼ P(· | st, at) and set t ← t + 1.
+
+11:
+
+if st = g then
+
+12:
+
+pad trajectory to be of length H and BREAK.
+
+13:
+
+end if
+
+14:
+
+end for
+
+15: 16:
+
+set smH+1 = st. feed trajectory
+
+Um
+
+=
+
+(sm1 ,
+
+am1 ,
+
+.
+
+..
+
+,
+
+smH ,
+
+amH ,
+
+smH+1)
+
+and
+
+costs
+
+{Chm}Hh=1
+
+to
+
+A.
+
+17: end while
+
+18: end for
+
+The algorithm A is initialized with the state and action spaces as in the original SSP instance, the horizon length H, a conﬁdence parameter δ/4, a set of terminal costs ˆcf and a bound on the expected cost of the optimal policy in the ﬁnite-horizon model 9B . At the beginning of each interval, it takes as input an initial state and outputs a policy to be used throughout the interval. In the end of the interval it receives the trajectory and costs observed through the interval.
+Note that while Algorithm 1 may run any ﬁnite-horizon regret minimization algorithm, in the analysis we require that A possesses some properties (that most optimistic algorithms already have) in order to establish our regret bound. We speciﬁcally require A to be an admissible algorithm—a model-based optimistic algorithm for regret minimization in ﬁnite-horizon MDPs, e.g., UCBVI [Azar et al., 2017] and EULER [Zanette and Brunskill, 2019]. Admissible algorithms are deﬁned formally as follows. Deﬁnition 1. A model-based algorithm A for regret minimization in ﬁnite-horizon MDPs is called admissible if, when running A with conﬁdence parameter δ, there is a good event that holds with probability at least 1 – δ, under which the following hold:
+(i) A provides anytime regret guarantees without prior knowledge of the number of episodes, and when the initial state of each episode is arbitrary. The regret bound that A guarantees for M episodes is denoted by RA(M), for some non-decreasing function RA.
+(ii) The policy πm that A picks in episode m is greedy with respect to an estimate of the optimal policy’s Q-function.
+(iii) The algorithm’s estimate Jm of J (the cost-to-go function associated with the optimal ﬁnite-horizon policy) is optimistic, i.e., Jmh (s) ≤ Jh (s) for every s ∈ S and h = 1, . . . , H + 1.
+5
+
+(iv) A computes Jm using estimates ˜cm, Pm of the cost function ˆc and the transition function
+
+P, respectively. There exists ωA which is a function of H, |S|, |A| such that: if state-action
+
+pair
+
+(s, a)
+
+was
+
+visited
+
+at
+
+least
+
+ωA log
+
+MH|S||A| δ
+
+times,
+
+then
+
+|˜cmh (s, a) – ˆc(s, a)|
+
+≤
+
+B
+
+/H
+
+and
+
+Pm(· | s, a) – P(· | s, a) 1 ≤ 1/(9H).
+
+Using an admissible algorithm in Algorithm 1 enables us to bound the total number of intervals, thus ensuring that the agent reaches the goal state in almost every interval. This is because, as A is optimistic, it will try to avoid the terminal cost (which is suffered in all states except for g) by reaching the goal state. In addition, A will succeed in doing so once it has a good enough estimation of the transition function. Armed with the notion of admissibility, in the sequel we prove the following regret bound for any admissible algorithm A. The proof of Theorem 2.2 is now given by combining Theorem 3.1 with the regret bound of ULCVI in Theorem 2.1.
+Theorem 3.1. Let A be an admissible algorithm for regret minimization in ﬁnite-horizon MDPs and
+denote its regret in M episodes by RA(M). Then, running Algorithm 1 with A ensures that, with probability at least 1 – δ,
+
+RK ≤ RA
+
+4K
+
++ 4 · 104|S||A|ωA log
+
+KT
+
+|S||A|ωA δ
+
++O
+
+(B2
+
++B
+
+KT )K log
+
+|S||A|ωA δ
+
++T
+
+ωA|S||A| log2
+
+KT
+
+|S||A|ωA δ
+
+,
+
+where ωA is a quantity that depends on the algorithm A and on |S|, |A|, H.
+
+Remark 5 (Computational complexity). Our reduction directly inherits the computational complexity
+
+of the ﬁnite-horizon algorithm A in M episodes, where M ≈ K + poly(|S|, |A|, T ) by Lemma 4.3.
+
+The computational complexity of ULCVI is O(H|S|3|A|2 log(MH)), and therefore our optimal regret
+
+for
+
+SSP
+
+is
+
+achieved
+
+in
+
+total
+
+computational
+
+complexity
+
+of
+
+O
+
+T
+
+|S|3|A|2 log2
+
+KT |S||A| δ
+
+which is only
+
+logarithmic in the number of episodes.
+
+3.1 Unknown expected optimal cost B
+Inspired by techniques for estimation of the SSP-diameter in the adversarial SSP literature [Rosenberg and Mansour, 2020, Chen and Luo, 2021], in Appendix C we show that our reduction does not need to know B in advance, but can instead estimate it on the ﬂy.
+We can obtain a reasonable estimate (up to a constant multiplicative factor) of the cost-to-go from state s by running the Bernstein-SSP algorithm of Rosenberg et al. [2020] for regret minimization in SSPs (that does not need to know B ) with initial state s for roughly T2|S|2|A| episodes. Thus, we can apply our reduction while utilizing our ﬁrst visits to each state in order to estimate its cost-to-go.
+We operate in phases where each phase ends when some state is visited at least T2|S|2|A| times, and all states that were not visited enough are treated as the goal state. Once we reach a poorly visited state, we simply run an episode of the corresponding Bernstein-SSP algorithm. Notice that this comes at a computational cost that is independent of the number of episodes K (since we use Bernstein-SSP for a small number of episodes), and in Appendix C we show that it achieves similar regret bounds with only an additional additive factor of O(T3|S|3|A|).
+
+4 Regret analysis
+In this section we prove Theorem 3.1. Below we give a high-level overview of the proofs and defer the details to Appendix A. We start the analysis with a regret decomposition that states that the SSP regret can be bounded by the sum of two terms: the expected regret of the ﬁnite-horizon algorithm, and the deviation of the actual cost in each interval from its expected value. To that end, we use the notations: M for the total number of intervals, Um = (sm1 , am1 , . . . , smh , amh , smH+1) for the trajectory visited in interval m, Chm for the cost suffered in step h of interval m, πm for the policy chosen by A for interval m, and Jhπ(s) for the expected ﬁnite-horizon cost when playing policy π starting from state s in time step h.
+
+6
+
+Lemma 4.1. For H = 8T log(8K), we have the following bound on the regret of Algorithm 1:
+
+MH
+
+RK ≤ RA(M) +
+
+Chm + ˆcf (smH+1) – J1πm (sm1 ) + B .
+
+(1)
+
+m=1 h=1
+
+The bound in Eq. (1) is comprised of two summands and an additional constant. The ﬁrst summand is an upper bound on the expected ﬁnite-horizon regret which we acquire by the admissibility of A (Deﬁnition 1). Note that this bound is in terms of the number of intervals M (i.e., the number of ﬁnite-horizon episodes) which is a random variable and not necessarily bounded. In what follows we show that, using the admissibility of A, we can actually bound M by the number of SSP episodes K plus a constant that depends on ωA, |S|, |A|, T (but not on K). The second summand in Eq. (1) relates to the deviation of the total ﬁnite-horizon cost from its expected value.
+
+The proof of Lemma 4.1 builds on two key ideas. The ﬁrst is that, by setting H to be O(T log K), we ensure that the expected cost of the optimal policy in the SSP model M is close to that in the
+ﬁnite-horizon model M. The second idea is that if the agent does not reach the goal state in a certain interval, then she must suffer the terminal cost in the ﬁnite-horizon model. Therefore, although in a single episode there may be many intervals in which the agent does not reach the goal state, we can
+upper bound the cost in these extra intervals in M by the corresponding terminal costs in M.
+
+Next, we bound the deviation of the actual cost in each interval from its expected value which appears as the second summand in Eq. (1). The bound is due to the following lemma.
+Lemma 4.2. Assume that the reduction is performed using an admissible algorithm A. Then, the following holds with probability at least 1 – 3δ/8,
+
+MH
+Chm + ˆcf (smH+1) – J1πm (sm1 ) = O
+m=1 h=1
+
+(B2
+
++B
+
+)M log
+
+M δ
+
++ HωA|S||A| log
+
+MKT |S||A| δ
+
+.
+
+The key observation here relies on the notion of unknown state-action pairs – pairs that were not visited at least ωA times. After ωA visits to some state-action pair s, a, we have a reasonable estimate of the next-state distribution P(· | s, a) therefore we can show that the expected accumulated cost in an interval until reaching an unknown state-action pair or the goal state is of order B . Moreover, the second moment of this cost is of order B2 + B . Thus, using Freedman inequality, we bound the
+deviation by O( (B2 + B )M), plus a cost of O(H) for each “bad” interval in which we do not reach an unknown state-action pair or the goal state (there are roughly ωA|S||A| such intervals).
+Lastly, we need to bound the number of intervals M to obtain a regret bound in terms of K and not M (notice that M is a random variable that is not bounded a-priori).
+Lemma 4.3. Assume that the reduction is performed using an admissible algorithm A. Then, with probability at least 1 – 3δ/8, M ≤ 4K + 4 · 104|S||A|ωA log(KT |S||A|ωA/δ).
+
+The proof shows that in every interval there is a constant probability to reach either the goal state or an unknown state-action pair. Leveraging this observation with a concentration inequality, we can bound the number of intervals by O(K + ωA|S||A|H).
+We can now prove a bound on the regret of Algorithm 1 using any admissible algorithm A.
+
+Proof of Theorem 3.1. The regret bound of A, Lemmas 4.2 and 4.3 all hold with probability at least 1 – δ, via a union bound. Using Lemmas 4.1 and 4.2 we can write
+
+RK ≤ RA(M) + O
+
+(B2
+
++B
+
+)M log
+
+M δ
+
++ HωA|S||A| log
+
+MKT |S||A| δ
+
++B .
+
+Finally, we use Lemma 4.3 to bound M by 4K + 4 · 104|S||A|ωA log(KT |S||A|ωA/δ).
+
+5 ULCVI: an admissible algorithm for ﬁnite-horizon MDPs
+
+In this section we present the Upper Lower Conﬁdence Value Iteration algorithm (ULCVI; Algorithm 2) for regret minimization in ﬁnite-horizon MDPs. This result holds independently of our SSP
+
+7
+
+Algorithm 2 UPPER LOWER CONFIDENCE VALUE ITERATION (ULCVI)
+
+1: input: state space S, action space A, horizon H, conﬁdence parameter δ, terminal costs ˆcf and
+
+upper bound on the expected cost of the optimal policy B .
+
+2: initialize: n0(s, a) = 0, n0(s, a, s ) = 0, N0(s, a) = 0, N0(s, a, s ) = 0 ∀(s, a, s ) ∈ S × A × S. 3: initialize: C0(s, a) = 0, ¯c0(s, a) = 0, P¯0(s |s, a) = I{s = s} ∀(s, a, s ) ∈ S × A × S.
+
+4: initialize: PlanningTrigger = true.
+
+5: for m = 1, 2, . . . do
+
+6: observe initial state sm1 . 7: if PlanningTrigger = true then
+
+8:
+
+set nm–1(s, a) ← Nm–1(s, a), nm–1(s, a, s ) ← Nm–1(s, a, s ) ∀(s, a, s ).
+
+9:
+
+set
+
+P¯m–1(s
+
+|s, a)
+
+←
+
+nm–1(s,a,s ) max{1,nm–1 (s,a)}
+
+,
+
+¯cm–1
+
+(s,
+
+a)
+
+←
+
+Cm–1 (s,a) max{1,nm–1 (s,a)}
+
+∀(s, a, s
+
+).
+
+10:
+
+compute {πhm(s)}s,h via OPTIMISTIC-PESSIMISTIC VALUE ITERATION (Algorithm 3).
+
+11: set PlanningTrigger ← false.
+
+12: else
+
+13:
+
+set nm–1(s, a) ← nm–2(s, a), nm–1(s, a, s ) ← nm–2(s, a, s ) ∀(s, a, s )
+
+14:
+
+set P¯m–1(s |s, a) ← P¯m–2(s |s, a), ¯cm–1(s, a) ← ¯cm–2(s, a) ∀(s, a, s ).
+
+15:
+
+set πhm(s) ← πhm–1(s) for all s ∈ S and h = 1, . . . , H.
+
+16: end if
+
+17: set Nm(s, a) ← Nm–1(s, a), Nm(s, a, s ) ← Nm–1(s, a, s ), Cm(s, a) ← Cm–1(s, a) ∀(s, a, s ).
+
+18: for h = 1, . . . , H do
+
+19:
+
+pick action amh = πhm(smh ).
+
+20:
+
+suffer cost Chm ∼ ˆc(smh , amh ) and observe next state smh+1 ∼ P(· | smh , amh ).
+
+21: 22:
+
+update update
+
+visits counters nm(smh , amh ) ← accumulated cost Cm(smh , amh )
+
+nm(smh , amh ) ← Cm(smh ,
+
++ 1, nm(smh , amh ) + Chm.
+
+amh ,
+
+smh+1)
+
+←
+
+nm(smh ,
+
+amh ,
+
+smh+1)
+
++
+
+1.
+
+23:
+
+if Nm(smh , amh ) ≥ 2nm–1(smh , amh ) then
+
+24:
+
+set PlanningTrigger ← true.
+
+25:
+
+end if
+
+26: end for
+
+27: Suffer terminal cost ˆcf (smH+1). 28: end for
+
+algorithm. Since the algorithm is similar to previous optimistic algorithms for the ﬁnite-horizon setting, e.g., UCBVI [Azar et al., 2017] and ORLC [Dann et al., 2019], we defer the analysis to Appendix B and focus on our technical novelty – bounding the regret in terms of the optimal value function and not the horizon.
+
+In each episode m, the ULCVI algorithm maintains upper bound ¯Jhm(s) on the cost-to-go function of
+
+an optimistic lower the optimal policy
+
+bound Jh (s),
+
+J
+
+m h
+
+(s)
+
+and
+
+a
+
+pessimistic
+
+and acts greedily with
+
+respect to the optimistic estimates. These optimistic and pessimistic estimates are computed based
+
+on the empirical transition function P¯m–1(s | s, a) and the empirical cost function ¯cm–1(s, a) to which
+
+we add an exploration bonus bmc (s, a) + bmp (s, a), where bmp handles the approximation error in the transitions and bmc handles the approximation error in the costs. The bonuses are deﬁned as follows,
+
+bmc (s, a) = bmp (s, a) =
+
+2Varms,a–1(C)Lm max{1, nm–1(s, a)}
+
++
+
+5Lm max{1, nm–1(s, a)}
+
+(2)
+
+2VarP¯m–1
+
+(·|s,a)
+
+(J
+
+m h+1
+
+)Lm
+
+max{1, nm–1(s, a)}
+
++
+
+62H3B–1|S|Lm max{1, nm–1(s, a)}
+
++
+
+B 16H2
+
+EP¯m–1
+
+(·|s,a)
+
+[¯Jhm+1
+
+(s
+
+)
+
+–
+
+Jmh+1(s
+
+)],
+
+where Lm = 3 log(3|S||A|Hm/δ) is a logarithmic factor and nm–1(s, a) is the number of visits to
+
+(s, a) in the ﬁrst m – 1 episodes. Furthermore, Varms,a–1(C) is the empirical variance of the observed
+
+costs in (s, a) in the next state value Jmh+1
+
+ﬁrst m – 1 episodes.2 from state-action pair
+
+Lastly, the term (s, a), calculated
+
+VarP¯m–1
+
+(·|s,a)
+
+(J
+
+m h+1
+
+)
+
+via the empirical
+
+is the variance of transition model,
+
+the i.e.,
+
+VarP¯m–1
+
+(·|s,a)
+
+(J
+
+m h+1
+
+)
+
+=
+
+EP¯m–1
+
+(·|s,a)
+
+[J
+
+m h+1
+
+(s
+
+)2]
+
+–
+
+EP¯m–1
+
+(·|s,a)
+
+[J
+
+m h+1
+
+(s
+
+)]2.
+
+2The
+
+empirical
+
+variance
+
+of
+
+n
+
+numbers
+
+a1, . . . , an
+
+is
+
+deﬁned
+
+by
+
+1 n
+
+n i=1
+
+ai –
+
+1 n
+
+n j=1
+
+aj
+
+2.
+
+8
+
+Algorithm 3 OPTIMISTIC-PESSIMISTIC VALUE ITERATION
+
+1: input: nm–1, P¯m–1, ¯cm–1, ˆcf , B .
+
+2:
+
+initialize
+
+J
+
+m H+1
+
+(s)
+
+=
+
+¯JHm+1(s)
+
+=
+
+ˆcf
+
+(s)
+
+for
+
+all
+
+s
+
+∈
+
+S.
+
+3: for h = H, H – 1, . . . , 1 do
+
+4: for s ∈ S do
+
+5: for a ∈ A do
+
+6:
+
+set the bonus bmh (s, a) = bmc (s, a) + bmp (s, a) deﬁned in Eq. (2).
+
+7:
+
+compute optimistic and pessimistic Q-functions:
+
+Qmh (s,
+
+a)
+
+=
+
+¯cm–1(s,
+
+a)
+
+–
+
+bmh (s,
+
+a)
+
++
+
+EP¯m–1
+
+(·|s,a)
+
+[J
+
+m h+1
+
+(s
+
+)]
+
+Q¯ mh (s, a) = ¯cm–1(s, a) + bmh (s, a) + EP¯m–1(·|s,a)[¯Jhm+1(s )].
+
+8: end for
+
+9:
+
+πhm(s)
+
+∈
+
+arg
+
+mina∈A
+
+Qm(s,
+h
+
+a).
+
+10:
+
+Jmh (s) = max
+
+Qm
+h
+
+(s,
+
+πhm(s)),
+
+0
+
+, ¯Jhm(s) = min
+
+Q¯ mh (s, πhm(s)), H
+
+.
+
+11: end for
+
+12: end for
+
+For improved computational complexity, we compute the optimistic policy only in episodes in which
+the number of visits to some state-action pair was doubled. This ensures that the number of optimistic
+policy computations grows only logarithmically with the number of episodes, i.e., it is bounded by 3|S||A| log(MH). Since each optimal policy computation costs O(H|S|2|A|) in the ﬁnite-horizon MDP model, our algorithm enjoys a total computational complexity of O(H|S|3|A|2 log(MH)).
+
+For clarity, we keep the notation of the ﬁnite-horizon MDP as M = (S, A, P, H, ˆc, ˆcf ), and let B = maxs,h Jh (s) where Jπ is the value function of policy π (in the case of our SSP reduction this parameter is simply 9B by Lemma A.1). This implies that ˆcf (s) ≤ B for every s, and for simplicity, we assume that B ≤ H. Thus, the maximal total cost in an episode is bounded by H + B ≤ 2H. In Appendix B we prove the following high probability regret bound.
+Theorem 5.1. ULCVI (Algorithm 2) is admissible with the following guarantees:
+
+(i) With probability at least 1 – δ, the regret bound of ULCVI is
+
+RULCVI(M) = O
+
+(B2 + B )|S||A|M log MH|S||A| + H4B–1|S|2|A| log3/2 MH|S||A|
+
+δ
+
+δ
+
+for any number of episodes M ≥ 1. (ii) ωULCVI = O(H4B–2|S|).
+
+Our analysis resembles the one in Efroni et al. [2021], and is adapted to the stationary MDP setting (i.e., the transition function does not depend on the time step h), and to the setting where we have costs instead of rewards, and terminal costs (which do not appear in previous work). By the deﬁnition of the algorithm and the regret bound in Theorem 5.1, it is clear that properties (i)-(iii) in Deﬁnition 1 of admissible algorithms hold. For property (iv), we use standard concentration inequalities and the deﬁnition of the bonuses in Eq. (2) in order to show it holds for ωULCVI = O(H4B–2|S|).
+To obtain a regret bound whose leading term depends on B and not H, we start with a standard regret analysis for optimistic algorithms that establishes the regret scales with the square-root of the variance of the value functions of the agent’s policies, i.e.,
+
+RULCVI(M)
+
+√ |S||A|
+
+MH
+VarP(·|smh ,amh )(Jhπ+m1) + H4B–1|S|2|A|,
+m=1 h=1
+
+up to logarithmic factors and lower order terms. This can be further bounded by the second moment of the cumulative cost in each episode as follows,
+
+RULCVI(M)
+
+√ |S||A|
+
+
+M
+E
+m=1
+
+H
+
+2
+
+Chm + ˆcf (smH+1) U¯ m + H4B–1|S|2|A|,
+
+h=1
+
+9
+
+where U¯ m is the sequence of state-action pairs observed up to episode m. Leveraging our techniques
+
+for the SSP reduction (but independently), we show that the second moment of the cumulative cost
+
+until an unknown state-action pair is reached can be bounded by O(B2 + B ). Therefore, we have at
+
+most O(H4B–2|S|2|A|) episodes in which we bound the second moment trivially by O(H2), and in the
+
+rest of the episodes we can bound it by O(B2 + B ). Together this yields the theorem as follows,
+
+√ RULCVI(M) |S||A| (B2 + B )M + H2 · H4B–2|S|2|A|
+
+(B2 + B )|S||A|M + H4B–1|S|2|A|.
+
+Acknowledgements
+
+This project has received funding from the European Research Council (ERC) under the European Union’sHorizon 2020 research and innovation program (grant agreement No. 882396), by the Israel Science Foundation(grant number 993/17), Tel Aviv University Center for AI and Data Science (TAD), and the Yandex Initiative for Machine Learning at Tel Aviv University
+
+References
+Peter Auer, Nicolo Cesa-Bianchi, Yoav Freund, and Robert E Schapire. The nonstochastic multiarmed bandit problem. SIAM journal on computing, 32(1):48–77, 2002.
+Mohammad Gheshlaghi Azar, Ian Osband, and Rémi Munos. Minimax regret bounds for reinforcement learning. In Proceedings of the 34th International Conference on Machine Learning-Volume 70, pages 263–272. JMLR. org, 2017.
+Dimitri P Bertsekas and John N Tsitsiklis. An analysis of stochastic shortest path problems. Mathematics of Operations Research, 16(3):580–595, 1991.
+Qi Cai, Zhuoran Yang, Chi Jin, and Zhaoran Wang. Provably efﬁcient exploration in policy optimization. In International Conference on Machine Learning, pages 1283–1294. PMLR, 2020.
+Liyu Chen and Haipeng Luo. Finding the stochastic shortest path with low regret: The adversarial cost and unknown transition case. arXiv preprint arXiv:2102.05284, 2021.
+Liyu Chen, Haipeng Luo, and Chen-Yu Wei. Minimax regret for stochastic shortest path with adversarial costs and known transition. arXiv preprint arXiv:2012.04053, 2020.
+Christoph Dann, Lihong Li, Wei Wei, and Emma Brunskill. Policy certiﬁcates: Towards accountable reinforcement learning. In International Conference on Machine Learning, pages 1507–1516. PMLR, 2019.
+Yonathan Efroni, Nadav Merlis, Mohammad Ghavamzadeh, and Shie Mannor. Tight regret bounds for model-based reinforcement learning with greedy policies. In Hanna M. Wallach, Hugo Larochelle, Alina Beygelzimer, Florence d’Alché-Buc, Emily B. Fox, and Roman Garnett, editors, Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS 2019, 8-14 December 2019, Vancouver, BC, Canada, pages 12203–12213, 2019.
+Yonathan Efroni, Nadav Merlis, and Shie Mannor. Reinforcement learning with trajectory feedback. arXiv preprint arXiv:2008.06036, 2020.
+Yonathan Efroni, Nadav Merlis, Aadirupa Saha, and Shie Mannor. Conﬁdence-budget matching for sequential budgeted learning. arXiv preprint arXiv:2102.03400, 2021.
+Ronan Fruit, Matteo Pirotta, Alessandro Lazaric, and Ronald Ortner. Efﬁcient bias-span-constrained exploration-exploitation in reinforcement learning. arXiv preprint arXiv:1802.04020, 2018.
+Thomas Jaksch, Ronald Ortner, and Peter Auer. Near-optimal regret bounds for reinforcement learning. Journal of Machine Learning Research, 11(4), 2010.
+Chi Jin, Zeyuan Allen-Zhu, Sebastien Bubeck, and Michael I Jordan. Is q-learning provably efﬁcient? In Advances in Neural Information Processing Systems, pages 4863–4873, 2018.
+
+10
+
+Chi Jin, Tiancheng Jin, Haipeng Luo, Suvrit Sra, and Tiancheng Yu. Learning adversarial markov decision processes with bandit feedback and unknown transition. In International Conference on Machine Learning, pages 4860–4869. PMLR, 2020a.
+Chi Jin, Zhuoran Yang, Zhaoran Wang, and Michael I Jordan. Provably efﬁcient reinforcement learning with linear function approximation. In Conference on Learning Theory, pages 2137–2143, 2020b.
+Tiancheng Jin and Haipeng Luo. Simultaneously learning stochastic and adversarial episodic mdps with known transition. Advances in neural information processing systems, 2020.
+Tal Lancewicki, Aviv Rosenberg, and Yishay Mansour. Learning adversarial markov decision processes with delayed feedback. arXiv preprint arXiv:2012.14843, 2020.
+Chung-Wei Lee, Haipeng Luo, Chen-Yu Wei, and Mengxiao Zhang. Bias no more: high-probability data-dependent regret bounds for adversarial bandits and mdps. Advances in neural information processing systems, 2020.
+Gergely Neu, András György, and Csaba Szepesvári. The online loop-free stochastic shortest-path problem. In COLT 2010 - The 23rd Conference on Learning Theory, Haifa, Israel, June 27-29, 2010, pages 231–243, 2010.
+Gergely Neu, Andras Gyorgy, and Csaba Szepesvári. The adversarial stochastic shortest path problem with unknown transition probabilities. In Artiﬁcial Intelligence and Statistics, pages 805–813, 2012.
+Aviv Rosenberg and Yishay Mansour. Online stochastic shortest path with bandit feedback and unknown transition function. In Advances in Neural Information Processing Systems, pages 2209–2218, 2019a.
+Aviv Rosenberg and Yishay Mansour. Online convex optimization in adversarial markov decision processes. In International Conference on Machine Learning, pages 5478–5486, 2019b.
+Aviv Rosenberg and Yishay Mansour. Stochastic shortest path with adversarially changing costs, 2020.
+Aviv Rosenberg, Alon Cohen, Yishay Mansour, and Haim Kaplan. Near-optimal regret bounds for stochastic shortest path. In International Conference on Machine Learning, pages 8210–8219. PMLR, 2020.
+Lior Shani, Yonathan Efroni, Aviv Rosenberg, and Shie Mannor. Optimistic policy optimization with bandit feedback. In International Conference on Machine Learning, pages 8604–8613. PMLR, 2020.
+Max Simchowitz and Kevin G Jamieson. Non-asymptotic gap-dependent regret bounds for tabular mdps. In Advances in Neural Information Processing Systems, pages 1153–1162, 2019.
+Jean Tarbouriech, Evrard Garcelon, Michal Valko, Matteo Pirotta, and Alessandro Lazaric. No-regret exploration in goal-oriented reinforcement learning. In International Conference on Machine Learning, 2020.
+Jean Tarbouriech, Runlong Zhou, Simon S Du, Matteo Pirotta, Michal Valko, and Alessandro Lazaric. Stochastic shortest path: Minimax, parameter-free and towards horizon-free regret. arXiv preprint arXiv:2104.11186, 2021.
+Lin F Yang and Mengdi Wang. Sample-optimal parametric q-learning using linearly additive features. arXiv preprint arXiv:1902.04779, 2019.
+Andrea Zanette and Emma Brunskill. Tighter problem-dependent regret bounds in reinforcement learning without domain knowledge using value function bounds. In International Conference on Machine Learning, pages 7304–7312, 2019.
+Andrea Zanette, David Brandfonbrener, Emma Brunskill, Matteo Pirotta, and Alessandro Lazaric. Frequentist regret bounds for randomized least-squares value iteration. In International Conference on Artiﬁcial Intelligence and Statistics, pages 1954–1964, 2020a.
+11
+
+Andrea Zanette, Alessandro Lazaric, Mykel Kochenderfer, and Emma Brunskill. Learning near optimal policies with low inherent bellman error. arXiv preprint arXiv:2003.00153, 2020b.
+Zihan Zhang, Xiangyang Ji, and Simon S Du. Is reinforcement learning more difﬁcult than bandits? a near-optimal algorithm escaping the curse of horizon. arXiv preprint arXiv:2009.13503, 2020.
+Alexander Zimin and Gergely Neu. Online learning in episodic markovian decision processes by relative entropy policy search. In Advances in Neural Information Processing Systems 26: 27th Annual Conference on Neural Information Processing Systems 2013. Proceedings of a meeting held December 5-8, 2013, Lake Tahoe, Nevada, United States, pages 1583–1591, 2013.
+12
+

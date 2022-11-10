@@ -1,0 +1,496 @@
+2021 IEEE International Conference on Robotics and Automation (ICRA 2021) May 31 - June 4, 2021, Xi'an, China
+
+2021 IEEE International Conference on Robotics and Automation (ICRA) | 978-1-7281-9077-8/21/$31.00 ©2021 IEEE | DOI: 10.1109/ICRA48506.2021.9561460
+
+Mapless-Planner: A Robust and Fast Planning Framework for Aggressive Autonomous Flight without Map Fusion
+Jialin Ji*1,2,3, Zhepei Wang*1,2,3, Yingjian Wang1,2,3, Chao Xu1,2 and, Fei Gao1,2
+
+Abstract— Maintaining a map online is resource-consuming while a robust navigation system usually needs environment abstraction via a well-fused map. In this paper, we propose a mapless local planner which directly conducts such abstraction on the unfused sensor data. A limited-memory data structure with a reliable proximity query algorithm is proposed for maintaining raw historical information. A sampling-based scheme is designed to extract the free-space skeleton. A smart waypoint selection strategy enables to generate high-quality trajectories within the resultant ﬂight corridors. Our planner differs from other mapless ones in that it can abstract and exploit the environment information more efﬁciently. The online replan consistency and success rate are both signiﬁcantly improved against conventional mapless methods.
+
+I. INTRODUCTION
+The autonomous navigation of quadrotors develops rapidly as it plays an important role in real-world applications. For a robust navigation framework, it is essential to build a well-fused map for back-end modules [1]–[4]. Maintaining a consistent map online requires reliable localization and sufﬁcient computation power. Such requirements can make limited onboard resources inadequate for high-level missions other than navigation. It is attractive if robust navigation can also be achieved by a lightweight mapless planner.
+Although there are many computationally efﬁcient mapless planners [5]–[7], most of them are trajectory-oriented. In other words, they focus on choosing a better feasible trajectory to accomplish collision avoidance. These planners do not extract the structure of the environment due to the lack of an informative map. Consequently, short-sighted planning occasionally occurs, thus easily leading the quadrotor to a dead end. Such planners are also sensitive to data noise, which can cause inconsistent replans. In comparison, the weaknesses are largely overcome in map-based planners such as [2] and [8] because the map fusion already accomplishes a large part of the environment abstraction. To get over these weaknesses, it is important to incorporate such a mechanism into a mapless planner without fusing the sensor data.
+
+* Equal contributors.
+
+This work was supported by National Natrual Science Foundation of
+
+China under Grant 62003299.
+
+1The State Key Laboratory of Industrial Control Technology, College of
+
+Control Science and Engineering, Zhejiang University, Hangzhou 310027,
+
+China.
+
+2Huzhou Institute, Zhejiang University, Huzhou 313000, China.
+
+3National Engineering Research Center for Industrial Automation
+
+(Ningbo Institute), Ningbo 315000, China.
+
+Email:
+
+{jlji, wangzhepei, yj wang, cxu,
+
+fgaoaa}@zju.edu.cn
+
+b
+d c
+a
+Fig. 1. A framework of mapless planning for autonomous quadrotors. (a) An onboard intensity image, (b) Forward spanning tree, (c) Ball-shaped ﬂight corridor, (d) Trajectory generated via smart waypoint selection.
+In this paper, we design a framework based on the above idea. Firstly, a limited-memory data structure is adopted for storing historical sensor information, following the basic idea of NanoMap. We further improve the reliability of query results and the compactness of un-fused data by redesigning a query algorithm. Secondly, a novel sampling-based scheme is utilized to accomplish the environment abstraction. It is able to extract the free-space skeleton and generate ﬂight corridors simultaneously. Thirdly, a smart waypoint selection strategy is designed where our previous algorithm [9] serves as a submodule. The scheme smartly inserts intermediate waypoint to suppress a trajectory into a corridor while maintaining its dynamic performance. It generates high-quality local trajectories in a computationally efﬁcient way. Our framework abstracts and exploits the environment information in a relative cheap way.
+Summarizing our contributions as follows:
+1) We propose PicoMap, a limited-memory data structure to maintain historical sensor information. Adaptive downsampling and redesigned query interfaces are proposed for compact storage and accurate query.
+2) We propose Forward Spanning Tree, a sampling-based algorithm to extract free-space skeletons and generate safe ﬂight corridors. All information in proximity query is exploited for the environment abstraction.
+3) We propose a lightweight yet effective trajectory generator which smartly selects waypoints to suppress a trajectory into a corridor. High-quality feasible trajectories are available with appropriate time allocation.
+
+978-1-7281-9077-8/21/$31.00 ©2021 IEEE
+
+6315
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+II. RELATED WORK
+A. Data Structures for Mapless Planners
+For mapless planners, the sensor data is not fused into a prior map in an inertial frame such as the occupancy map. Instead, two commonly-used data structures in mapless methods are k-d Tree and Safe Flight Corridor (SFC) for environment abstraction. K-d tree enables proximity queries in surrounding environments. Directly building a k-d tree from recently received depth data is proposed in both [5] and [6] for mapless motion planning. On the contrary, SFC describes the free region in conﬁguration space through combinations of geometric primitives. Bucki et al. [7] propose pyramid-shape free corridors directly generated from depth data such that motion primitives can be efﬁciently checked and conducted. Gao et al. [10] propose a ball-shaped SFC directly generated from point clouds of LiDAR [11].
+RAPPIDS [7] is a novel memoryless method that partitions the free space with pyramids given a single depth image. Although the generation of pyramids and collision checks can be quickly carried out, it is still prone to fail in complex environments, just like other memoryless methods due to their inherent limitation. NanoMap [6] directly builds a k-d tree for each depth image. The history of k-d trees and their relative poses is utilized for proximity querying. It should be noted that the pose uncertainty is considered for queries in multiple k-d trees. However, its handling for occupied space and unknown space is not well designed, leading to inaccurate query results for corner cases. Moreover, the distance and direction information are not well utilized in the query results of k-d trees.
+B. Trajectory Generation for Mapless Planners
+Many mapless planners use motion primitives along with efﬁcient feasibility checkers such as [12] and [13]. One main reason is that choosing feasible primitives only needs simple binary query results. Such kind of query has less restrictions on environment representation. Optimization-based planners enjoy high-quality trajectories while they require more abstraction on environments. SFC provides such abstraction so that convex formulations such as QP or QCQP are usually used in polynomial trajectory generation within SFC [1, 10, 14]–[17]. However, such methods cost more computation resources since the safety, dynamic limits, and smoothness should all be considered. For local trajectory generation, it is also not worthwhile to conduct trajectory optimization within an SFC with too many geometric primitives. Our previous work [9] provides an efﬁcient way to optimize a trajectory with prescribed waypoints while maintaining its feasibility. The way it handles waypoints and safety constraints lacks ﬂexibility, which needs to be further improved.
+III. METHODOLOGY
+A. PicoMap
+PicoMap gives further improvements over NanoMap [6]. It builds the 3D local data structure from each pair of the depth and intensity images. A proximity query algorithm is also designed for more reliable results.
+
+Algorithm 1: PicoMap query algorithm
+Function safeRadiusQuery (xquery) Input: xquery, query point in world frame Output: rsafe, safe radius
+xobstacle, nearest obstacle foreach kdTreei and TFi in Lmaps do
+if IsInFov(xquery) then Σi ← EstimateStandardDeviation(TFi) dedge ← MinEdgeDistance(xquery) di, xi ← NnSearch(xquery) if dobstacle < dedge then return (di − Σi), xobstacle
+else if di − Σi < rsafe then rsafe ← di − Σi xobstacle ← xi
+if never seen in FOV then rsafe, xobstacle ← NnSearch(xquery)
+return rsafe, xobstacle
+
+AABB of 1-𝜎
+
+false 𝑑𝑜𝑏𝑠𝑡𝑎𝑐𝑙𝑒 real 𝑑𝑜𝑏𝑠𝑡𝑎𝑐𝑙𝑒
+
+𝑑𝑒𝑑𝑔𝑒
+
+𝑑𝑒𝑑𝑔𝑒
+
+AABB of 1-𝜎
+
+𝑑𝑜𝑏𝑠𝑡𝑎𝑐𝑙𝑒
+
+(a)
+
+(b)
+
+Fig. 2. The safe radius rsafe of the query point at the edge of FOV may be overestimated by NanoMap. (a) dobstacle > dedge rsafe = dobstacle, (b) dobstacle < dedge ⇒ rsaf e = dobstacle
+
+1) Building Algorithm: There is no fusion procedure in the building stage. A ﬁnite-length list Lmaps is maintained in memory. The list consists of a series of kdTreei for all keyframes and transforms TFi for all pairs of consecutive keyframes. There are two key ideas in this stage:
+• Lmaps is updated with a new keyframe only if a relative pose or relative time exceeds corresponding thresholds. This balances the coverage and the memory size of the limited historical sensor data.
+• Adaptive down-sampling of the depth image is performed to build a compact k-d tree. More depth pixels are preserved if the corresponding region contains more textures in the intensity image.
+2) Querying Algorithm: Following NanoMap [6], we also iteratively check whether the query point is in the FOV (IsInFov()) and estimate uncertainty of the query (EstimateStandardDeviation()) until we ﬁnd it, as is shown in Algorithm 1. Then, the nearest obstacle xobstacle is queried through k-d tree (NnSearch()).
+For a query point near the boundary of FOV, NanoMap [6]
+
+6316
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+𝜶
+
+bad branch
+
+Goal
+
+good branch
+
+𝜶
+
+(a)
+
+(b)
+
+Fig. 3. (a) A branch falling into a dead end. (b) Score the leaf nodes according to the angle α between spanning direction and the nearest obstacle.
+
+00 0
+
+0
+
+1
+
+1
+
+4
+
+1 1
+2 1
+
+00 1
+
+0
+0.5 0.25 1
+
+1 1
+1
+
+0 5
+
+1
+
+0 1
+
+0.5
+
+(a)
+
+(b)
+
+Fig. 4. Score (a) and prune (b) the forward spanning tree.
+
+Algorithm 2: Build and prune forward spanning tree
+Input: Proot, position of root node Ssample, batch sampling data
+Output: FST, forward spanning tree insert Proot as the root node of FST Ssample ← Sort(Ssample) d-KdTree ← BuildDynamicKdTree(FST) foreach Pi in Ssample do
+dist ← safeRadiusQuery (Pi) if dist < rinflate then
+Sknn ← Knn(Pi) foreach Ni in Sknn do
+Costi ← Ni.cost +||Ni - Pi||2
+p ← arg min(Costi) append child Pi to Np Pi.cost ← Np.cost +||Np - Pi||2 rebuild d-KdTree
+begin node Ni for post-order traversal of FST if Ni is leaf node then Ni.score ← Score(Ni) else Ni.parent.score ← Ni.parent.score + Ni.score
+begin node Ni for breadth-ﬁrst traversal of FST M ← max score of siblings of Ni w ← Ni.score / M if w < prunef actor then cut off branch of Ni
+return FST
+
+checks the AABB of the 1-σ of the query point distribution. However, one circumstance in Fig. 2(a) may occur that the AABB lies in FOV but dobstacle > dedge. Then, dobstacle is overestimated considering the unseen xobstacle. Under such circumstance we should continue iteratively checking whether there is a more appropriate view (dobstacle < dedge) in Lmaps as Fig. 2(b) for instance. If the query point is never seen in any FOV, we regard xobstacle queried in the ﬁrst frame as the nearest obstacle optimistically, avoiding problems from being occluded by very close objects.
+B. Forward Spanning Tree
+Due to the limited sensing range, a quadrotor seldom turns around in a single local replan if its intermediate goal is appropriately selected. We make such an assumption that a local trajectory is always inside-out, i.e., ﬂying away from the current position. According this assumption, we propose an efﬁcient sampling-based method to extract the skeleton of free spaces using SFCs.
+1) Building Algorithm: Inspired by fast marching tree (FMT) [18], a batch of free samples is ﬁrst generated using PicoMap. According to our assumption, all samples are ﬁrstly sorted by the distance from the root node (Sort() in Algorithm 2) and then inserted to the forward spanning tree (FST) one by one. The cost of each inserted node is calculated by the sum of the cost of its parent and the
+
+distance of the node from its parent. For each inserted node, in order to choose a reasonable parent node, a dynamic k-d tree [19] is maintained to provide the Knn() function. Among the n nearest neighbors which are able to be connected to the inserted data without collision, the node whose cost is lowest (Np) should be chosen as the parent of the inserted data. It should be noted that the time-consuming rewire operation is avoided by using Sort() based on our assumption.
+2) Pruning Algorithm: As is shown in Fig.3(a), the resultant tree contains redundant information on the environment, from which we wish to extract useful SFCs. We propose a two-stage scheme. In the scoring stage, we ﬁrst score each leaf node based on its angle α between the spanning direction and the nearest obstacle. If an α is smaller than a prescribed threshold, the corresponding leaf is spanning forward to the obstacle. We set its score to 0. Otherwise, the leaf in Fig.3(b), whose α is larger than the threshold, is spanning along the skeleton of the fee space. We set the score of such a leaf to 1. The score of any non-leaf node is deﬁned as the sum of its children’s. Following this rule, scoring the entire tree can be carried out by post-order traversal of FST as is given in Fig.4(a). In the pruning stage, the pruning weight w for each node is deﬁned by its score divided by the max score of its siblings M . A branch is pruned from the tree if the weight of its root is lower than a prescribed prune factor. The pruning
+
+6317
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+𝑅𝑅𝑖𝑖 𝐶𝐶𝑖𝑖
+
+Goal
+
+(a)
+
+(b)
+
+Fig. 5. (a) Generation of the ball-shaped SFC, (b) Intersection of the surfaces of adjacent two balls
+procedure can be carried out by the breadth-ﬁrst traversal of FST, as is shown in Fig.4(b). As a result, the remaining branches are all spanning forward to free space.
+3) Ball-shaped SFC Generation: Provided with a goal, the nearest leaf node along its path from the root is generated from the pruned FST, which is the red line in Fig.5(a). Then, a ball-shaped SFC is generated along this path. Any ball is centered at the intersection of its predecessor and the path. All radii of these balls are obtained through safeRadiusQuery().
+4) Dynamic Resampling: In order to improve the consistency of two consecutive replans, we sample from a normalized weighted sum of Gaussian distributions generated from previous results. The weight, center, and covariance of each Gaussian distribution are determined by the volume, position, and radius of the free ball of a point in the previous frame. Such kind of dynamic resampling also improves the sampling rate.
+
+C. Trajectory Generation
+
+We denote by F the resultant SFC which consists of M
+
+sequentially connected balls Bi, i.e., F =
+
+M i=1
+
+Bi.
+
+We
+
+wish
+
+to generate an energy-time optimal trajectory p(t) : [0, T ] →
+
+R3 conﬁned by F :
+
+T
+
+min
+
+p(3)(t) 2dt + ρT ,
+
+(1)
+
+p(t) 0
+
+s.t. p(0) = po, p(1)(0) = vo, p(2)(0) = ao,
+
+(2)
+
+p(T ) = pf , p(1)(T ) = vf , p(2)(T ) = af ,
+
+(3)
+
+p(1)(t) ≤ vm, p(2)(t) ≤ am, ∀t ∈ [0, T ], (4)
+
+p(t) ∈ F, ∀t ∈ [0, T ],
+
+(5)
+
+where p(t) is a polynomial spline over [0, T ], ρ the weight for time regularization, vm and am the dynamic limits. Solving such a problem is quite difﬁcult and not worthwhile for local trajectories. Therefore, we design a heuristic procedure to approximate the optimal trajectory of the above problem.
+To retain both efﬁciency and quality, we propose a smart waypoint selection strategy for trajectory generation within an SFC. The alternating minimization scheme in our previous work [9] is served as a sub-module of this scheme. Once all waypoints are given, this sub-module can generate a p(t) with appropriate time allocation and guaranteed feasibility. Our waypoint selection strategy borrows an idea from the
+
+Fig. 6. A trajectory generated based on our waypoint selection strategy.
+Douglas-Peucker algorithm [20]. Intuitively, the maximal safety violation of a trajectory is taken as the highest priority, thus it is suppressed by a newly-added waypoint.
+Firstly, each circle is generated by intersecting a pair of two adjacent balls. As is shown in Fig.5(b), we denote by Ci its center and by Ri its radius, as is shown in Fig.5(b). The initial trajectory is a one-piece 5-order polynomial calculated from the boundary condition. As is shown in Fig.6, the initial trajectory should be a straight line in a rest-to-rest case. The following iterations are conducted for safety constraints:
+• Step 1: Calculate each distance di from the i-th circle to the trajectory. If the trajectory crosses the circle, set the di to zero.
+• Step 2: Find the circle with the maximal di. Add the closest point on the circle as a new waypoint of the trajectory.
+• Step 3: For the given boundary condition and waypoints, use the algorithm proposed in [9] to calculate the whole trajectory.
+• Step 4: Repeat Step 2 and Step 3 if there still exists a positive di. Otherwise, the whole trajectory is already within the SFC.
+During the ﬂight, a newly generated trajectory is committed to the tracking controller if its distance to goal is smaller than the currently tracked one.
+IV. EXPERIMENTS AND BENCHMARKS
+A. Simulation in Cluttered Environment
+To validate the robustness of the proposed method, we conduct several simulations in randomly generated cluttered environments. The environments consist of 300 pillar-shaped obstacles and 120 ring-shaped obstacles in a 30m×30m×5m ﬁeld. In such scenes, RAPPIDS [7] cannot generate pyramids that describe the free space exactly. In comparison, our pruned FST precisely captures the skeleton of the free region as is shown in Fig. 7(a). Based on the preferred path, an SFC
+
+6318
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+Flight corridor
+
+Goal
+
+Trajectory
+
+FST
+
+4
+
+Depth image
+
+3 2
+
+𝑛𝑛 𝒏𝒏𝒕𝒕𝒕𝒕 Goal
+
+1
+
+Executed trajectory Trajectory direction
+
+(a)
+
+(b)
+
+Fig. 7. (a) Simulation in a cluttered environment. (b) The drone generates a consistent trajectory when the goal changes while ﬂying.
+
+Trajectory executed
+
+Obstacle avoided
+
+Flight corridor
+Drone FST
+
+2
+
+4
+
+5
+
+1
+
+3
+
+1
+
+2
+
+3
+
+4
+
+5
+
+Fig. 8. An outdoor experiment in a dense forest. The drone avoid the obstacles one by one rapidly with expected speed of 3m/s.
+
+is generated for subsequent trajectory optimization. Each ball in the SFC expanses as large as possible, showing the accurate query result of our PicoMap. In Fig. 7(b), consistent trajectories are generated when the goal is changed online.
+B. Real-world Experiments
+To validate the practical performance of our method, we deploy it on a compact quadrotor platform whose conﬁguration is detailed in [21]. The real-world experiment is conducted in a dense forest shown in Fig. 8. A ﬁlter-based visual-inertial odometery [22] is utilized as the feedback for the trajectory tracking controller. The drone avoids the obstacles one by one rapidly with an expected speed of 3m/s, showing its aggressiveness and robustness. In Fig. 8, the pruned FST bypass all the trees, guiding the SFC into large free regions. The generated trajectory is also conﬁned
+
+by the SFC with a few of waypoints inserted, which validates the smartness of our waypoint selection strategy.
+C. Modular Tests of the Framework
+In order to quantify the performance of each part of the framework, we set three different tests:
+(1) For the generation of SFCs and trajectories, we record the distribution of the numbers of both balls and waypoints inserted to generate a feasible trajectory for 1272 tests, shown in Fig. 9(a). Most of the ﬂight corridors are of size 10 but only 7% of the number of waypoints inserted to the trajectories are larger than 3. Moreover, 80% of the trajectories are feasible by inserting no more than one additional waypoint. These statistics indicate the suitability of our trajectory generation method.
+(2) For the FST, we test the performance of different
+
+6319
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+sampling numbers in random 20m×40m×5m environments for 100 times, as is shown in Fig. 9(b). The arrival time decreases as we increase the size of batch sampling. When sampling size exceeds 200, the shortening of arrival time becomes insensitive. Thus the sampling size of 200 samples sufﬁces for planning in such kinds of environments.
+(3) We also record the average computation time of building a k-d tree from a depth image, obtaining a pruned FST and generating a trajectory by averaging over 2259 times on Intel i7-6700 CPU. Speciﬁcally, the resolution of depth and intensity image is 640 × 480. The sampling number of FST is 200. The average computation time of each part is 3.24ms, 0.98ms and 0.26ms, respectively. It is worth noting that over half of the time is spent on image pixel accessing.
+
+Distribution of both Arrival time (s)
+
+# waypoints 23
+
+# balls
+
+22
+
+21
+
+20
+
+19
+
+18
+
+1 4 7 10 13 16 19 22 25
+
+25
+
+(a)
+
+#Pillars #Rings
+
+210 120
+
+140 80
+
+70
+
+40
+
+100 400 1600 (b)
+
+Fig. 9. (a) Distribution of the number of balls and waypoints inserted. (b) Arrival time of different sampling data for FST in different environments.
+
+D. Benchmark
+We evaluate the overall planner performance of our algorithm in terms of safety and aggressiveness. The benchmark is conducted using our method and some other state-of-theart mapless approaches, i.e., RAPPIDS and NanoMap, as is shown in Fig. 10.
+
+randomly generated environments under different difﬁculty. The difﬁculty is quantiﬁed by the expected maximum ﬂight velocity Vmax and the obstacle density Iobs. These two parameters are chosen as Vmax = {2, 3, 4} m/s and Iobs = {30, 60, 90} obstacles, for a total of 3 × 3 × 100 × 3 = 2700 simulation trials. The distance between the initial position and goal is 18m. In each case, a timer is started when the quadrotor takes off and is stopped when a collision occurs or the goal is reached. One ﬂight mission is considered to be successful only if the target is reached in a limited time.
+The key metric for our comparison of these three methods is the collision-free success rate of trials and the average time to reach the goal in successful ﬂights, which are presented in Fig.11 and Fig.12. The results for RAPPIDS show its limitations on handling cluttered environments. For NanoMap, the average time is longer than our method by approximately 19%. As is mentioned in Section III, NanoMap may falsely evaluate dobstacle ignoring the blind spot. Such a ﬂaw tends to be unsafe and leads a relatively low success rate. These results demonstrate the robustness and aggressiveness of our mapless planner in cluttered environments.
+
+0
+
+Success rate
+
+RAPPIDS
+
+NanoMap
+
+100 Ours
+
+30 92 94 92 94 86 90 97 95 87
+
+Number of Obstacles
+
+60 75 81 79 87 83 86 95 94 94
+
+90 53 32 22
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+92 94 78
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+96 95 90
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+Fig. 11. Comparison of number of successful collision-free ﬂights for the different methods tested in our simulated quadrotor race.
+
+0
+
+Arrival time
+
+100
+
+RAPPIDS
+
+NanoMap
+
+Ours
+
+30 10.5 8.3 6.1 12.2 9.7 7.4 10.1 8.3 6
+
+Number of Obstacles
+
+60 10.8 9.1 6.2 12.4 9.8 7.4 10.3 8.3 6.2
+
+90 13.1 9.9 6.5
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+12.4 9.8 7.5
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+10.3 8.4 6.4
+
+2
+
+3
+
+4
+
+Speed (m/s)
+
+Fig. 10. A random 20m×40m enviroment for benchmark that consists of randomly placed pillars and circular rings. Compared to that RAPPIDS and NanoMap can only choose some open space to pass through, Ours can get to goal faster by ﬂying through some narrow spaces aggressively.
+Speciﬁcally, the onboard depth sensor provides depth and intensity images at 640 × 480 resolution, which is the same as is used in real-world experiments. The ﬁeld of view (FOV) is set to 78 degrees horizontally and 64 degrees vertically. The real-time poses and images of the camera are provided by the simulator. Both sensors are simulated at 30Hz. The experiments are repeated for 100 times in
+
+Fig. 12. Comparison of the average time to goal for successful ﬂights.
+V. CONCLUSION AND FUTURE WORK In this paper, we propose a robust and fast mapless planning framework for aggressive autonomous ﬂight without map fusion, which is able to abstract and exploit the environment information efﬁciently for generating highquality trajectories. Benchmark comparisons and real-world experiments validate that it is lightweight, robust, and highly efﬁcient. In the future, we will improve our framework to ﬁt it in smaller quadrotors with coarse localization.
+
+6320
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] J. Tordesillas, B. T. Lopez, and J. P. How, “Faster: Fast and safe trajectory planner for ﬂights in unknown environments,” in Proc. of the IEEE/RSJ Intl. Conf. on Intell. Robots and Syst. Macau, China: IEEE, 2019, pp. 1934–1940.
+[2] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019.
+[3] H. Oleynikova, C. Lanegger, Z. Taylor, M. Pantic, A. Millane, R. Siegwart, and J. Nieto, “An open-source system for vision-based microaerial vehicle mapping, planning, and ﬂight in cluttered environments,” Journal of Field Robotics, vol. 37, no. 4, pp. 642–666, 2020.
+[4] X. Zhou, Z. Wang, C. Xu, and F. Gao, “Ego-planner: An esdffree gradient-based local planner for quadrotors,” arXiv preprint arXiv:2008.08835, 2020.
+[5] B. T. Lopez and J. P. How, “Aggressive 3-d collision avoidance for high-speed navigation,” in 2017 IEEE International Conference on Robotics and Automation (ICRA), 2017, pp. 5759–5765.
+[6] P. R. Florence, J. Carter, J. Ware, and R. Tedrake, “Nanomap: Fast, uncertainty-aware proximity queries with lazy search over local 3d data,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 7631–7638.
+[7] N. Bucki, J. Lee, and M. W. Mueller, “Rectangular pyramid partitioning using integrated depth sensors (rappids): A fast planner for multicopter navigation,” IEEE Robotics and Automation Letters, vol. 5, no. 3, pp. 4626–4633, 2020.
+[8] F. Gao, Y. Lin, and S. Shen, “Gradient-based online safe trajectory generation for quadrotor ﬂight in complex environments,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2017, pp. 3681–3688.
+[9] Z. Wang, X. Zhou, C. Xu, J. Chu, and F. Gao, “Alternating minimization based trajectory generation for quadrotor aggressive ﬂight,” IEEE Robotics and Automation Letters, vol. 5, no. 3, pp. 4836–4843, 2020.
+[10] F. Gao, W. Wu, W. Gao, and S. Shen, “Flying on point clouds: Online trajectory generation and autonomous navigation for quadrotors in cluttered environments,” Journal of Field Robotics, vol. 36, no. 4, pp. 710–733, 2019.
+[11] “Velodyne VLP-16 product description,” http://velodynelidar.com/ vlp-16.html.
+[12] J. Zhang, C. Hu, R. G. Chadha, and S. Singh, “Maximum likelihood path planning for fast aerial maneuvers and collision avoidance,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2019, pp. 2805–2812.
+[13] V. K. Viswanathan, E. Dexheimer, G. Li, G. Loianno, M. Kaess, and S. Scherer, “Efﬁcient trajectory library ﬁltering for quadrotor ﬂight in unknown environments.”
+[14] F. Gao, L. Wang, B. Zhou, X. Zhou, J. Pan, and S. Shen, “Teachrepeat-replan: A complete and robust system for aggressive ﬂight in complex environments,” IEEE Transactions on Robotics, 2020.
+[15] S. Tang and V. Kumar, “Safe and complete trajectory generation for robot teams with higher-order dynamics,” in 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2016, pp. 1894–1901.
+[16] S. Liu, M. Watterson, K. Mohta, K. Sun, S. Bhattacharya, C. J. Taylor, and V. Kumar, “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-d complex environments,” IEEE Robotics and Automation Letters, 2017.
+[17] F. Gao, W. Wu, Y. Lin, and S. Shen, “Online safe trajectory generation for quadrotors using fast marching method and bernstein basis polynomial,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 344–351.
+[18] L. Janson, E. Schmerling, A. Clark, and M. Pavone, “Fast marching tree: A fast marching sampling-based method for optimal motion planning in many dimensions,” The International journal of robotics research, vol. 34, no. 7, pp. 883–921, 2015.
+[19] J. L. Bentley and J. B. Saxe, “Decomposable searching problems i. static-to-dynamic transformation,” Journal of Algorithms, vol. 1, no. 4, pp. 301–358, 1980.
+[20] D. H. Douglas and T. K. Peucker, “Algorithms for the reduction of the number of points required to represent a digitized line or its caricature,” Cartographica: the international journal for geographic information and geovisualization, vol. 10, no. 2, pp. 112–122, 1973.
+[21] J. Ji, X. Zhou, C. Xu, and F. Gao, “Cmpcc: Corridor-based model predictive contouring control for aggressive drone ﬂight,” arXiv preprint arXiv:2007.03271, 2020.
+
+[22] K. Sun, K. Mohta, B. Pfrommer, M. Watterson, S. Liu, Y. Mulgaonkar, C. J. Taylor, and V. Kumar, “Robust stereo visual inertial odometry for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 3, no. 2, pp. 965–972, 2018.
+
+6321
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:05:25 UTC from IEEE Xplore. Restrictions apply.
+

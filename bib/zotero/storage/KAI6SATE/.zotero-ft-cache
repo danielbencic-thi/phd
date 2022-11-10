@@ -1,0 +1,401 @@
+The Thirty-Fourth AAAI Conference on Artiﬁcial Intelligence (AAAI-20)
+
+Monte Carlo Tree Search in Continuous Spaces Using Voronoi Optimistic Optimization with Regret Bounds
+Beomjoon Kim,1 Kyungjae Lee,2 Sungbin Lim,3 Leslie Pack Kaelbling,1 Toma´s Lozano-Pe´rez1
+1MIT Computer Science and Artiﬁcial Intelligence Laboratory {beomjoon, lpk, tlp}@mit.edu 2Seoul National University kyungjae.lee@cpslab.snu.ac.kr 3Kakao Brain sungbin.lim@kakaobrain.com
+
+Abstract
+Many important applications, including robotics, data-center management, and process control, require planning action sequences in domains with continuous state and action spaces and discontinuous objective functions. Monte Carlo tree search (MCTS) is an effective strategy for planning in discrete action spaces. We provide a novel MCTS algorithm (VOOT) for deterministic environments with continuous action spaces, which, in turn, is based on a novel black-box function-optimization algorithm (VOO) to efﬁciently sample actions. The VOO algorithm uses Voronoi partitioning to guide sampling, and is particularly efﬁcient in highdimensional spaces. The VOOT algorithm has an instance of VOO at each node in the tree. We provide regret bounds for both algorithms and demonstrate their empirical effectiveness in several high-dimensional problems including two difﬁcult robotics planning problems.
+Introduction
+We are interested in ﬁnite-horizon deterministic planning problems with high-dimensional continuous action spaces, with possibly a discontinuous objective function. For example, consider the sequential robot mobile-manipulation planning problem shown in Figure 1 (left). In this domain, the objective function is deﬁned to be the number of objects that the robot packs into the storage room while satisfying feasibility conditions, such as collision-free motions, and minimizing the total length of its trajectory. Another example is shown in Figure 1 (right), where the task is to clear obstacles from a region, and the objective is a function of the number of obstacles cleared and trajectory length. In both cases, the robot’s action space is high dimensional, consisting of multiple pick or placement conﬁgurations of the robot.
+More generally, such discontinuous objective functions are the sum of a ﬁnite set of step functions in a highdimensional state-action space, where each step corresponds to the occurrence of an important event, such as placing an object. For classes of functions of this kind, standard gradient-based optimization techniques are not directly applicable, and even if we smooth the objective function, the solution is prone to local optima.
+Copyright c 2020, Association for the Advancement of Artiﬁcial Intelligence (www.aaai.org). All rights reserved.
+
+Figure 1: Packing domain: the task is to pack as many objects coming from a conveyor belt into the room (left). Object-clearing domain: obstacles must be cleared from the swept-volume of a path to the sink (right). In both domains, the robot needs to minimize the overall trajectory length.
+Recently, several gradient-free approaches to continuousspace planning problems have been proposed (Bus¸oniu et al. 2011; Munos 2014; Weinstein and Littman 2012; Mansley, Weinstein, and Littman 2011), some of which have been proven to asymptotically ﬁnd a globally optimal solution. These approaches either frame the problem as simultaneously optimizing a whole action sequence (Bus¸oniu et al. 2011; Weinstein and Littman 2012) or treat the action space in each node of a tree search (Mansley, Weinstein, and Littman 2011) as the search space for a budgeted-black-box function optimization (BBFO) algorithm, and use hierarchical-partitioning-based optimization algorithms (Munos 2011; Bubeck et al. 2011) to approximately ﬁnd the globally optimal solution.
+While these hierarchical-partitioning algorithms handle a richer class of objective functions than traditional methods (Pinte´r 1996), their main drawback is poor scalability to high-dimensional search spaces: to optimize efﬁciently, these algorithms sequentially construct partitions of the search space where, at each iteration, they create a ﬁnerresolution partition inside the most promising cell of the current partition. The problem is that constructing a partition requires deciding the optimal dimension to cut, which is a difﬁcult combinatorial problem especially in a highdimensional space. Figure 2 (left) illustrates this issue with one of the algorithms, DOO (Munos 2011).
+
+9916
+
+We propose a new BBFO algorithm called Voronoi Optimistic Optimization (VOO) which, unlike the previous approaches, only implicitly constructs partitions, and so scales to high-dimensional search spaces more effectively. Speciﬁcally, partitions in VOO are Voronoi partitions whose cells are implicitly deﬁned as the set of all the points that are closer to the generator than to any other evaluated point. Figure 2 (right) shows an example.
+Given as inputs a semi-metric, a bounded search space, and an exploration probability ω, VOO operates similarly to the previous partition-based methods: at each iteration, it selects (implicitly) a Voronoi cell based on a simple exploration-exploitation scheme, samples a point from the cell, and (implicitly) makes ﬁner-resolution cells inside the selected cell based on the sampled point. The selection of a Voronoi cell is based on the given exploration probability: with probability ω, it explores by selecting a cell with probability proportional to the volume of the cell; with probability 1 − ω, it exploits by selecting the cell that contains the current best point. Unlike the previous methods, however, VOO never explicitly constructs the partitions: by using the deﬁnition of Voronoi partition and the given semi-metric, sampling from the best cell is implemented simply using rejection sampling. Sampling a point based on the volumes of the cells, which is also known as the Voronoi bias (Kuffner and LaValle 2000), is also simply implemented by sampling uniformly at random from the search space. Figure 2 (right) demonstrates this point. We prove the regret bound of VOO which shows that under some mild assumptions, the regret goes to zero.
+Using VOO, we propose a novel continuous state-actionspace Monte Carlo tree search (MCTS) algorithm, Voronoi optimistic optimization applied to trees (VOOT) that uses VOO at each node of the search tree to select the optimal action, in a similar fashion to HOOT (Mansley, Weinstein, and Littman 2011). HOOT, however, does not come with performance guarantees; we are able to prove a performance guarantee for VOOT, which is derived from a bound on the regret of VOO. The key challenge in showing this result is that, when VOO is used to optimize the state-action value function of a node in the tree, the value function is nonstationary, so that even when the environment is deterministic, its value changes as the policy at the sub-tree below the action changes. We address this problem by using the regret of VOO at the leaf nodes, whose value function is stationary, and computing how many re-evaluations at each depth is required to maintain the same regret at the root node as at the leaf node. We show this regret can be made arbitrarily small.
+We compare VOO to several algorithms on a set of standard functions for evaluating black-box function optimization algorithms in which the number of dimensions of the search space is as high as 20, and show that VOO signiﬁcantly outperforms the benchmarks, especially in high dimensions. To evaluate VOOT, we compare it to other continuous-space MCTS algorithms in the two sequential robot mobile-manipulation problems shown in Figure 1, and show that VOO computes signiﬁcantly better quality plans than the benchmarks, within a much smaller number of iterations.
+
+Figure 2: Left: Illustrations of a partition made by DOO when ﬁve points are evaluated to optimize a 2D Shekel function. Each solid line shows the partitions made by the point that is on it. Numbers indicate the order of evaluations. The dotted lines indicate the two possible partitions that can be made by the ﬁfth point, and depending on this choice, the performance differs. Right: Illustration of the Voronoi partition implicitly constructed by VOO. We can sample from the best Voronoi cell (deﬁned by the black point) by randomsampling points, and rejecting them until we obtain one that is closer to the black point than the other points. We can sample a point with Voronoi bias by uniformly sampling from the entire search space; the cell deﬁned by the white point is most likely to be selected.
+Related work
+There are several planning methods that use black-box function optimization algorithms in continuous-space problems. We ﬁrst give an overview of the BBFO algorithms, and then describe planning algorithms that use them. We then give an overview of progressive-widening approaches, which are continuous-space MCTS algorithms that do not use blackbox function optimization methods. Global optimization of black-box functions with budget
+Several partition-based algorithms have been proposed (Munos 2011; Bubeck et al. 2011; Munos 2014). In (Munos 2011), two algorithms are proposed. The ﬁrst algorithm is DOO, which requires as inputs a semi-metric and the Lipschitz constant for the objective function. It sequentially constructs partitions of the search space, where a cell in the partition has a representative point, on which the objective function is evaluated. Using the local-smoothness assumption, it builds an upper-bound on the un-evaluated points in each cell using the distance from the representative point. It chooses the cell with the highest-upper bound, and creates a ﬁner-resolution cell inside of it, and repeats. The second algorithm proposed in (Munos 2011) is SOO, which does not require a Lipschitz constant, and evaluates all cells that might contain the global optimum. In (Bubeck et al. 2011), Hierarchical Optimistic Optimization (HOO) is proposed. Unlike SOO and DOO, HOO can be applied to optimize a noisy function, and can be seen as the stochastic counterpart of DOO. So far, these algorithms have been applied to problems with low-dimensional search spaces, because solving for the optimal sequence of dimensions to cut at each iteration is difﬁcult. VOO gets around this problem by not explicitly building the partitions.
+Alternatively, we may use Bayesian optimization (BO) algorithms, such as GP-UCB (Srinivas et al. 2010). A typical
+
+9917
+
+BO algorithm takes as inputs a kernel function, and an exploration parameter, and assumes that the objective function is a sample from a Gaussian Process (GP). It builds an acquisition function, such as upper-conﬁdence-bound function in GP-UCB (Srinivas et al. 2010), and it chooses to evaluate, at every iteration, the point that has the highest acquisition function value, updates the parameters of the GP, and repeats. The trouble with these approaches is that at every iteration, they require ﬁnding the global optimum of the acquisition function, which is expensive in high dimensions. In contrast, VOO does not require an auxiliary optimization step.
+There have been several attempts to extend BO to highdimensional search spaces (Wang et al. 2013; Kandasamy, Schneider, and Poczos 2015). However, they make a rather strong assumption on the objective function, such as that it lies on a low-dimensional manifold, or that it can be represented by a linear combination of functions of subdimensions, which are unlikely to hold in domains such as robotics, where all of the action dimensions contribute to its value. Also, these methods require extra hyperparameters that deﬁne the lower-dimensional search space that are tricky to tune. VOO requires neither the assumption or the hyperparameters for deﬁning the low-dimensional search space.
+There are also methods that try to combine BO and hierarchical partitioning methods, such as (Wang et al. 2014; Kawaguchi, Kaelbling, and Lozano-Pe´rez 2015). The idea is to use hierarchical partitioning methods to optimize the acquisition function of BO; unfortunately, for the same reason as hierarchical partitioning methods, they tend to perform poorly in higher dimensional spaces.
+Optimal planning in continuous spaces using BBFO There are two approaches to continuous-space planning problems that use black-box function-optimization (BBFO) algorithms. In the ﬁrst group of approaches, the entire sequence of actions is treated as a single search space for optimization. In (Weinstein and Littman 2012), the authors propose hierarchical open-loop optimistic planning (HOLOP), which uses HOO for ﬁnding ﬁnite-horizon plans in stochastic environments with continuous action space. In (Bus¸oniu et al. 2011), the authors propose an algorithm called simultaneous optimistic optimization for planning (SOOP), that uses SOO to ﬁnd a plan when the environment is deterministic. These methods become very expensive as the length of the action sequence increases.
+The second group of approaches, where our method belongs, performs a sample-based tree search with a form of continuous-space optimizer at each node. Our work most closely resembles hierarchical optimistic optimization applied to trees (HOOT) (Mansley, Weinstein, and Littman 2011), which applies hierarchical optimistic optimization (HOO) at every node in MCTS for the action-optimization problem, but does not provide any performance guarantees. These algorithms have been limited to problems with low-dimensional action space, such as the inverted pendulum. Our experiments demonstrate VOOT can solve problems with higher-dimensional action spaces much more efﬁciently than these algorithms.
+
+Widening techniques for MCTS in continuous action spaces There are progressive-widening (PW) algorithms that extend MCTS to continuous action spaces (Coue¨toux et al. 2011; Auger, Coue¨toux, and Teytaud 2013), but unlike the approaches above, their main concern is deciding when to sample a new action, instead of which action to sample. The action-sampler in these PW algorithms is assumed to be an external function that has a non-zero probability of sampling a near-optimal action, such as a uniform-random sampler.
+Typically, a PW technique (Coue¨toux et al. 2011) ensures that the ratio between the number of sampled actions in a node to the number of visits to the node is above a given threshold. In (Auger, Coue¨toux, and Teytaud 2013), the authors show that a form of PW can guarantee that each state’s estimated value approaches the optimal value asymptotically. However, this analysis does not take into consideration the regret of the action sampler, and assumes that the probability of sampling a near-optimal action is the same in every visit to the node. So, if an efﬁcient action-sampler, whose regret reduces quickly at each visit, is used, their error bound would be very loose. Our analysis shows how the regret of VOO affects the planning performance.
+
+Monte Carlo planning in continuous state-action spaces
+
+We have a continuous state space S, a continuous action
+
+space U , a deterministic transition model of the environ-
+
+ment, T : S × U → S, a deterministic reward function
+
+R : S × U → R, and a discount factor γ ∈ [0, 1). Our
+
+objective is to ﬁnd a sequence of actions with planning hori-
+
+zon H that maximizes the sum of the discounted rewards
+
+maxu0,··· ,uH−1
+
+H −1 t=0
+
+γtr(st, ut)
+
+where
+
+st+1
+
+=
+
+T (st, ut).
+
+Our approach to this problem is to use MCTS with an action-
+
+optimization agent, which is an instance of a black-box
+
+function-optimization algorithm, at each node in the tree.
+
+We now describe the general MCTS algorithm for con-
+
+tinuous state-action spaces, which is given in Algorithm 1.
+
+The algorithm takes as inputs an initial state s0, an actionoptimization algorithm A, the total number of iterations
+
+Niter, the re-evaluation parameter Nr ∈ [0, Niter], and its decaying factor κr ∈ [0, 1]. It begins by initializing the nec-
+essary data in the root node. U denotes the set of actions that have been tried at the initial node, Qˆ denotes the estimated
+
+state-action value of the sampled actions, and nr denotes the number of times we re-evaluated the last-sampled action. It
+
+then performs Niter Monte Carlo simulations, after which it returns the apparently best action, the one with the highest
+
+estimated state-action value. This action is executed, and we
+
+re-plan in the resulting state.
+
+Procedure SIMULATE is shown in Algorithm 2. It is a re-
+
+cursive function whose termination condition is either en-
+
+countering an infeasible state or reaching a depth limit. At
+
+the current node T (s), it either selects the action that was
+
+most recently sampled, if it has not yet been evaluated Nr times and we are not in the last layer of the tree, or it samples
+
+a new action. To sample a new action, it calls A with estimated Q-values of the previously sampled actions, T (s).Qˆ.
+
+9918
+
+Algorithm 1 MCTS(s0, A, Niter, Nr, κr, H, γ)
+1: global variables: T, R, H, γ, A, Niter, κr, H, γ 2: T (s0) = {U = ∅, Qˆ(s0, ·) = −∞, nr = 0} 3: for i = 1 → Niter 4: SIMULATE(s0, 0, Nr) 5: return argmaxu∈T (s0).U T (s0).Qˆ(s0, u)
+Algorithm 2 SIMULATE(s, h, Nr)
+1: global variables: T, R, H, γ, A, Niter, κr, H, γ 2: if s == infeasible or h == H 3: return 0 4: if (|T (s).U | > 0) ∧ (T (s).nr < Nr) ∧ (h = H − 1) 5: // re-evaluate the last added action 6: u = T .U.get last added element() 7: T (s).nr = T (s).nr + 1 8: else 9: // Perform action optimization 10: u ∼ A(T (s).Qˆ) 11: T (s).U = T (s).U ∪ {u} 12: T (s).nr = 1 13: s = T (s, u) 14: r = R(s, u) 15: Qˆnew = r + γ · SIMULATE(s , h + 1, Nr · κr) 16: if Qˆnew > T (s).Qˆ(s, u) 17: T (s).Qˆ(s, u) = Qˆnew 18: return T (s).Qˆ(s, u)
+A transition is simulated based on the selected action, and the process repeats until a leaf is reached; Q-value updates are performed on a backward pass up the tree if a new solution with higher value has been found (note that, because the transition model is deterministic, the update only requires maximization.)
+The purpose of the re-evaluations is to mitigate the problem of non-stationarity: an optimization algorithm A assumes it is given evaluations of a stationary underlying function, but it is actually given Qˆ(s, at), whose value changes as more actions are explored in the child sub-tree. This problem is also noted in (Mansley, Weinstein, and Littman 2011). So, we make sure that Qˆ(s, at) ≈ Q∗(s, at) before adding an action at+1 in state s by sampling more actions at the sub-tree associated with at. Since at the leaf node Q∗(s, at) = R(s, at), we do not need to re-evaluate actions in leaf nodes. In section 5, we analyze the impact of the estimation error in Qˆ on the performance at the root node.
+One may wonder if it is worth it to evaluate the sampled actions same number of times, instead of more sophisticated methods such as Upper Conﬁdence Bound (UCB), for the purpose of using an action-optimization algorithm A. Typical continuous-action tree search methods perform progressive widening (PW) (Coue¨toux et al. 2011; Auger, Coue¨toux, and Teytaud 2013), in which they sample new actions from the action space uniformly at random, but use UCB-like strategies for selecting which of the previously-
+
+sampled actions to explore further. In this case, the objective for allocating trials is to ﬁnd the highest-value action among a discrete set, not to obtain accurate estimates of the values of all the actions.
+VOOT operates in continuous action spaces but performs much more sophisticated value-driven sampling of the continuous actions than PW methods. To do this, it needs accurate estimates of the values of the actions it has already sampled, and so we have to allocate trials even to actions that may currently “seem” suboptimal. Our empirical results show that this trade-off is worth making, especially in highdimensional action spaces.
+
+Voronoi optimistic optimization
+Given a bounded search space X , a deterministic objective function f : X → R and a numerical function evaluation budget n, our goal is to devise an exploration strategy over X that, after n evaluations, minimizes the simple regret deﬁned as f (x ) − maxt∈[n] f (xt), where f (x ) = maxx∈X f (x), xt is a point evaluated at iteration t, and [n] is shorthand for {1, · · · n}. Since our algorithm is probabilistic, we will analyze its expected behavior. We deﬁne the simple regret of a probabilistic optimization algorithm A as
+
+Rn = f (x ) − Ex1:t∼A
+
+max f (xt)
+t∈[n]
+
+Our algorithm, VOO (Algorithm 3), operates by implicitly
+constructing a Voronoi partition of the search space X at each iteration: with probability ω, it samples from the entire search space, to sample from a Voronoi cell with probability proportional to its volume; with probability 1−ω, it samples from the best Voronoi cell, which is the one induced by the current best point, x∗t = arg maxi∈[t] f (xi).
+
+Algorithm 3 VOO(X , ω, d(·, ·), n)
+
+1: for t = 0 → n − 1
+
+2: Sample ν ∼ U nif [0, 1]
+
+3: if ν ≤ ω or t == 0
+
+4:
+
+xt+1 =UNIFSAMPLE(X )
+
+5: else
+
+6:
+
+xt+1 =SAMPLEBESTVCELL(d(·, ·))
+
+7: Evaluate ft+1 = f (xt+1) 8: return arg maxt∈{0,...,n−1} ft
+
+It takes as inputs the bounded search space X , the exploration probability ω, a semi-metric d(·, ·), and the budget n. The algorithm has two sub-procedures. The ﬁrst one is UNIFSAMPLE, which samples a point from X uniformly at random, and SAMPLEBESTVCELL, which samples from the
+best Voronoi cell uniformly at random. The former imple-
+ments exploration using the Voronoi bias, and the latter im-
+plements exploitation of the current knowledge of the func-
+tion. Procedure SAMPLEBESTVCELL can be implemented
+using a form of rejection sampling, where we sample a point x at random from X and reject samples until d(x, x∗t ) is the minimum among all the distances to the evaluated points.
+Efﬁciency can be increased by sampling from a Gaussian
+
+9919
+
+centered at x∗t , which we found to be effective in our experiments.
+To use VOO as an action optimizer in Algorithm 2, we
+simply let U be the search space, and use the semi-metric d(·, ·). f (·) is now the value function Q∗(s, ·) at each node of the tree, whose estimation is Qˆ(s, ·). The consequence of having access only to Qˆ instead of the true optimal stateaction value function Q∗ will be analyzed in the next section.
+
+Analysis of VOO and VOOT
+
+We begin with deﬁnitions. We denote the set of all global
+optima as X , the Voronoi cell generated by a point x as C(x). We deﬁne the diameter of C(x) as supy∈C(x) d(x, y) where d(·, ·) is the semi-metric on X .
+
+Suppose that we have a Voronoi cell generated by
+x, C0(x). When we randomly sample a point z from C0(x), this will create two new cells, one generated by x, which we denote with C1(x), and the other generated by z, denoted C1(z). The diameters of these new cells would be random variables, because z was sampled ran-
+
+domly. Now suppose that we have sampled a sequence
+
+of n0 points from the sequence of Voronoi cells generated by x, {C0(x), C1(x), C2(x), · · · , Cn0 (x)}. Then, we deﬁne the expected diameter of a Voronoi cell generated by
+
+x as the expected value of the diameter of the last cell,
+
+E[supy∈Cn0 (x) d(x, y)].
+
+We write δmax for the largest distance between two points
+
+in X , Br(x) to denote a ball with radius r centered at point
+
+x,
+
+and
+
+μ¯B (r)
+
+=
+
+μ(Br (·)) μ(X )
+
+where μ(·)
+
+is
+
+a
+
+Borel
+
+measure
+
+de-
+
+ﬁned on X . We make the following assumptions:
+
+A 1. (Translation-invariant semi-metric) d : X × X → R+ is such that ∀x, y, z ∈ X , d(x, y) = d(y, x), d(x, y) = 0 if and only if x = y, and d(x + z, y + z) = d(x, y).
+
+A 2. (Local smoothness of f ) There exists at least one global optimum x ∈ X of f such that ∀x ∈ X , f (x ) − f (x) ≤ L · d(x, x ) for some L > 0.
+
+A 3. (Shrinkage ratio of the Voronoi cells) Consider any point y inside the Voronoi cell C generated by the point x0, and denote d0 = d(y, x0). If we randomly sample a point x1 from C, we have E[min(d0, d(y, x1))] ≤ λd0 for λ ∈ (0, 1).
+A 4. (Well-shaped Voronoi cells) There exists η > 0 such that for any Voronoi cell generated by x with expected diameter d0 contains a ball of radius ηd0 centered at x.
+A 5. (Local symmetry near optimum) X consists of ﬁnite number of disjoint and connected components {X ( )}k=1, k < ∞. For each component, there exists an open ball Bν (x( )) for some x( ) ∈ X ( ) such that d(x, x( )) ≤ d(y, x( )) implies f (x) ≥ f (y) for any x, y ∈ Bν (x( )).
+
+We now describe the relationship between these assumptions and those used in the previous literature. A1 and A2 are assumptions also made in (Munos 2011). These make the weaker version of the Lipschitz assumption applied only to the global optima, instead of every pair of points in X . A3 and A4 are also very similar to the assumptions made in (Munos 2011). In (Munos 2011), the author assumes that
+
+cells decrease in diameter as more points are evaluated inside of them and that each shell is well-shaped, in that it always contains a ball. Our assumption is similar, except that in our case, A3 and A4 are stated in terms of expectation, because VOO is a probabilistic algorithm.
+A5 is an additional assumption that previous literature has not made. It assumes the existence of a ball inside of which, as you get closer to an optimum, the function values increase. It is possible to drastically relax this assumption to the existence of a sequence of open sets, instead of a ball, whose values increase as you get closer to an optimum. In our proof, we prove the regret of VOO in this general case, and Theorem 1 holds as the special case when A5 is assumed. We present this particular version for the purpose of brevity and comprehensibility, at the expense of generality.
+Deﬁne νmin = min ∈[k] ν . We have the following regret bound for VOO. All the proofs are in the appendix.
+
+Theorem 1. Let n be the total number of evaluations. If
+
+1−λ1/k μ¯B (νmin)+1−μ¯B (η·λδmax)
+
+<
+
+ω, we have
+
+Rn ≤LδmaxC1 λ1/k + ω(1 − μ¯B(η · λnδmax)) n
+
++ LδmaxC2[(1 − ωkμ¯B(νmin)) · (1 + λ1/k)]n
+
+where C1 and C2 are constants as follows
+
+1 C1 := 1 − ρ(λ1/k + 1 − [1 − ω + ωμ¯B(η · λδmax)])−1 ,
+
+ρ := 1 − ωμ¯B(νmin),
+
+and
+
+C2
+
+:=
+
+(λ−1/k
+
++
+
+λ−1/k + 1 1) − (1 − ωμ¯B(νmin))−1
+
+Some remarks are in order. Deﬁne an optimal cell as the
+the cell that contains a global optimum. Intuitively speak-
+ing, when our best cell is an optimal cell, the regret should
+reduce quickly because when we sample from the best cell with probability 1 − ω, we always sample from the optimal cell, and we can reduce our expected distance to an optimum by λ. And because of A5, the best cell is an optimal cell if we have a sample inside one of Bν (x ).
+Our regret bound veriﬁes this intuition: the ﬁrst term decreases quickly if λ is close to 0, meaning that if we sample from an optimal cell, then we can get close to the optimum very quickly. The second term says that, if μ¯B(νmin), the minimum probability that the best cell is an optimal cell, is
+large, then the regret reduces quickly. We now have the fol-
+lowing corollary showing that VOO is no-regret under certain conditions on λ and μ¯B(νmin).
+
+Corollary 1.
+
+If
+
+λ1/k (1+λ1/k)kμ¯B (νmin)
+
+<
+
+ω
+
+<
+
+1 − λ1/k and
+
+λ1/k 1−λ2/k
+
+< kμ¯B(νmin), then limn→∞ Rn
+
+= 0.
+
+The regret bound of VOOT makes use of the regret bound of VOO. We have the following theorem.
+
+Theorem 2. Deﬁne Cmax = max{C1, C2}. Given a decreasing sequence η(h) with respect to h, η(h) > 0, h ∈
+{0 · · · H − 1} and the range of ω as in Theorem 1, if
+
+9920
+
+Niter =
+
+H −1 h=0
+
+Nr (h)
+
+is
+
+used,
+
+where
+
+Nr(h) ≥ log
+
+η(h) − γη(h + 1) 2LδmaxCmax
+
+· min(Gλ,ω, Kν,ω,λ)
+
+Gλ,ω = (log λ1/k + ω )−1, and Kν,ω,λ = (log([(1 − ωμ¯B(νmin))(1 + λ1/k)]))−1 , then for any state s traversed in the search tree we have
+
+V (h)(s) − VˆN(hr)(h)(s) ≤ η(h) ∀h ∈ {0, · · · , H − 1}
+
+This theorem states that if we wish to guarantee a regret of η(h) at each height of the search tree, then we should use Niter number of iterations, with Nr(h) number of iterations at each node of height h.
+To get an intuitive understanding of this, we can view the
+action optimization problem at each node as a BBFO prob-
+lem that takes account of the regret of the next state. To see this more concretely, suppose that H = 2. First consider a leaf node, where the problem reduces to a BBFO problem
+because there is no next state, and the regret of the node is
+equivalent to the regret of VOO. We can verify that by substituting Nr(H − 1) to the bound in Theorem 1 the regret of η(H − 1) is guaranteed. Now suppose that we are at the root node at height H − 2. There are two factors that contribute to the regret at this node: the regret at the next state in height H − 1, and the regret that stems from sampling non-optimal actions in this node, which is the regret of VOO. Because all nodes at height H −1 have a regret of η(H −1), to obtain the regret of η(H − 2), the regret of VOO at the node at height H − 2 must be η(H − 2) − γNr(H − 1). Again, by substituting Nr(H − 2) to the bound in Theorem 1, we can verify that that it would yield the regret of η(H − 2) − γNr(H − 1) as desired.
+Now, we have the following remark that relates the de-
+sired constant regret at each node and the total number of
+iterations.
+Remark 1. If we set η(h) = η, ∀h ∈ {0 · · · H − 1}, and Niter = (Nr)H where
+
+Nr = log
+
+η(1 − γ) 2LδmaxCmax
+
+· min(Gλ,ω, Kν,ω,λ)
+
+then, for any state s traversed in the search tree we have
+
+V (h)(s) − VˆN(hr)(h)(s) ≤ η ∀h ∈ {0, · · · , H − 1}
+
+We draw a connection to the case of discrete action space with b number of actions. In this case, we can guarantee zero-regret at the root node if we explore all bH number of possible paths from the root node to leaf nodes. In the
+continuous case, with assumptions A1-A5, it would require
+sampling inﬁnite number of actions at a leaf node to guaran-
+tee zero-regret, rendering achieving zero-regret in problems with H > 0 impossible. So, this remark considers a positive expected regret of η. It show that to guarantee this, we need to explore at least (Nr)H paths from the root to leaf nodes, where Nr is determined by the regret-bound of our action-optimization algorithm VOO. Alternatively, if some
+other action-optimization algorithm such as DOO, SOO, or
+
+Figure 3: Griewank, Rastrigin, and Shekel functions (top to bottom) in 3, 10, and 20 dimensions (left to right)
+GP-UCB is used, then its regret bound can be readily used by computing the respective Nr(h) values in Theorem 1, and its own Nr value in Remark 1. It is possible to prove a similar remark in an undiscounted case. Please see Remark 2 in our appendix.
+Experiments
+We designed a set of experiments with two goals: (1) test the performance of VOO on high-dimensional functions in comparison to other black-box function optimizers and (2) test the performance of VOOT on deterministic planning problems with high-dimensional action spaces in comparison to other continuous-space MCTS algorithms. All plots show mean and 95% conﬁdence intervals (CIs) resulting from multiple executions with different random seeds.
+Budgeted-black-box function optimization We evaluate VOO on three commonly studied objective functions from the DEAP (Fortin et al. 2012) library: Griewank, Rastrigin, and Shekel. They are highly non-linear, with many local optima, and can extend to high-dimensional spaces. The true optimum of the Shekel function is not known; to gauge the optimality of our solutions, we attempted to ﬁnd the optimum for our instances by using a genetic algorithm (GA) (Qin and Suganthan 2005) with a very large budget of function evaluations.
+We compare VOO to GP-UCB, DOO, SOO, CMA-ES, an evolutionary algorithm (Beyer and Schwefel 2002), REMBO, the BO algorithm for high-dimensional space that works by projecting the function into a lower-dimensional manifold (Wang et al. 2013), and BAMSOO, which combines BO and hierarchical partitioning (Wang et al. 2014). All algorithms evaluate the same initial point. We ran each of them with 20 different random seeds. We omit the comparison to HOO, which reduces to DOO on deterministic functions. We also omit testing REMBO in problems with 3-dimensional
+
+9921
+
+search spaces. Detailed descriptions of the implementations and extensive parameter choice studies are in the appendix.
+Results are shown in Figure 3. In the 3-dimensional cases, most algorithms work fairly well with VOO and DOO performing similarly. But, as the number of dimensions increases, VOO is signiﬁcantly better than all other methods. Purely hierarchical partitioning methods, DOO and SOO suffers because it is difﬁcult to make the optimal partition, and SOOsuffers more than DOO because it does not take advantage of the semi-metric; the mixed approach of BO and hierarchical partitioning, BAMSOO, tends to do better than SOO, but still is inefﬁcient in high dimensions for the same reason as SOO. GP-UCB suffers because in higher dimensions it becomes difﬁcult to globally optimize the acquisition function. REMBO assumes that the objective function varies mostly in a lower-dimensional manifold, and there are negligible changes in the remaining dimensions, but these assumptions are not satisﬁed in our test functions, and VOO, which doesn’t make this assumption, outperforms it. CMAES performs a large number of function evaluations to sustain its population, making it less suitable for budgetedoptimization problems where function evaluations are expensive.
+This trend is more pronounced in the Shekel function, which is ﬂat over most of its domain, but does increase near the optimum (see the 2D version in Figure 2). DOO, SOO, and BAMSOO perform poorly because they allocate samples to large ﬂat regions. GP-UCB performs poorly because in addition to the difﬁculty of optimizing the acquisition function, the function is not well modeled by a GP with a typical kernel, and the same goes for REMBO. VOO has neither of these problems; as soon as VOO gets a sample that has a slightly better value, it can concentrate its sampling to that region, which drives it more quickly to the optimum. We do note that CMA-ES is the only method besides VOO to perform at all well in high-dimensions.
+Sequential mobile manipulation planning problems We now study two realistic robotic planning problems. We compare VOOT to DOOT, which respectively use VOO and DOO and as its action-optimizer in Algorithm 2, and a single-progressive-widening algorithm that uses UCT (PWUCT) (Coue¨toux et al. 2011). But to make DOOT work in these problems, we consider a randomized variant called RAND-DOOT which samples an action uniformly in the cell to be evaluated next, instead of always selecting the midpoint, which could not solve any of these problems.
+The objective of comparing to PW-UCT is to verify our claim that using an efﬁcient action-optimizer, at the expense of uniform re-evaluations of the sampled actions, is better evaluating sampled actions with UCB at the expense of sampling new actions uniformly. The objective of comparing to RAND-DOOT is to verify our claim that VOOT can scale to higher dimensional problems for which RAND-DOOT does not.
+In addition to the state-of-the-art continuous MCTS methods, we compare VOO to the representative policy search methods typically used for continuous-action space prob-
+
+Figure 4: (Top-left) max sum of rewards vs. Niter for the object clearing domain (Bottom-left) that for the packing domain. (Top-right) minus the number of remaining objects that need to be moved vs. Niter in the object clearing domain (Bottom-right) that for the packing domain.
+lems, PPO (Schulman et al. 2017) and DDPG (Lillicrap et al. 2016). We train the stochastic policy using the same amount of simulated experience that the tree-search algorithms use to ﬁnd a solution, and report the performance of the best trajectory obtained.
+The action-space dimensions are 6 and 9 in the objectclearing and packing domains, respectively. The detailed action-space and reward function deﬁnitions, and extensive hyper-parameter value studies are given in the appendix. The plots in this section are obtained with 20 and 50 random seeds for object-clearing and packing problems, respectively.
+We ﬁrst consider the object-clearing problem (s0 is shown in Figure 1 (right)). Roughly, the reward function penalizes infeasible actions and actions that move an obstacle but do not clear it from the path; it rewards actions that clear an object, but with value inversely proportional to the length of the clearing motion. The challenging aspect of this problem is that, to the right of the kitchen area, there are two large rooms that are unreachable by the robot; object placements in those rooms will be infeasible. So, the robot must clear obstacles within the relatively tight space of the kitchen.
+Figure 4 (Top-left) shows the results. In this case, PW-UCT samples from the whole space, concentrating far too many of them in the unreachable empty rooms. RAND-DOOT also spends time partitioning the big unreachable regions, due to its large exploration bonus; however it performs better than PW-UCT because once the cells it makes in the unreachable region get small enough, it starts concentrating in the kitchen region. However, it performs worse than VOOT for similar reasons as in the Shekel problems: as soon as VOOT ﬁnds the ﬁrst placement inside the kitchen (i.e. ﬁrst positive reward), it immediately focuses its sampling effort near this area with probability 1−ω. This phenomenon is illustrated in Figure 5, which shows the values of placements. We can also observe
+
+9922
+
+from Figure 4 (Top-right) that VOOT clears obstacles much faster than the other methods; it clears almost all of them with 750 simulations, while others require more than 1700, which is about a factor of 2.3 speed-up.
+The reinforcement learning algorithms, PPO and DDPG, perform poorly compared to the tree-search methods. We can see that within the ﬁrst 250 simulations, their rewards grow just as quickly as for the search algorithms, but they seem to get stuck at local optima, clearing only one or two obstacles. This is because the problem has two challenging characteristics: large future delayed rewards and sparse rewards.
+The problem has sparse rewards because most of the actions are unreachable placements, or kinematically infeasible picks. It has large delayed rewards because the reward function is inversely proportional to the length of the clearing motion, but the ﬁrst few objects need to be moved far away from their initial locations to make the subsequent objects accessible. Unfortunately, the RL methods come with an ineffective exploration strategy for long-horizon planning problems: Gaussian random actions1. This strategy could not discover the delayed future rewards, and the policies fell into a local optima in which they try to clear the ﬁrst two objects with the least possible cost, but blocking the way to the subsequent objects.
+We now consider the conveyor belt problem (s0 shown in Figure 1 (left)). The challenge is the signiﬁcant interdependence among the actions at different time steps: the ﬁrst two boxes are too big to go through the door that leads to the bigger rooms, so the robot must place them in the small ﬁrst room, so that there is still room to move the rest of the objects into the bigger rooms. Figure 4 (Bottom-left) shows the results. VOOT achieves the reward of a little more than 3 with 1000 simulations, while other methods achieve below 1 ; even with 3000 simulations, their rewards are below 2, whereas that of VOOT goes up to approximately 4. Figure 4 (Bottom-right) shows that VOOT ﬁnds a way to place as many as 15 objects within 1000 simulations, whereas the alternative methods have only found plans for placing 12 or 13 objects after 3000 simulations. We view each actionoptimization problem (line 10 of Alg. 2) as a BBFO problem, since we only have access to the values of the actions that have been simulated, and the number of simulations is limited to Niter. The RL approaches suffer in this problem as well, packing at most 8 boxes, while the worst searchbased method packs 13 boxes. Again, the reason is the same as in the previous domain: sparse and delayed long-term rewards.
+Future work and conclusions
+We proposed a continuous MCTS algorithm in deterministic environments that scales to higher-dimensional spaces, which is based on a novel and efﬁcient BBFO VOO. We proved a bound on the regret for VOO, and used it to de-
+1In order to get the RL methods to perform at all well, we had to tailor the exploration strategy to compensate for the fact that many of the action choices are completely infeasible. Details are in the appendix.
+
+Figure 5: Qˆ(s, a) of PW-UCT, RAND-DOOT, and VOOT (left to right) after 50 visits to the place node for the ﬁrst object. Blue and purple bars indicate values of infeasible and feasible placements, respectively. Solid robot indicates the current state of the robot, and the transparent robots indicate the placements sampled. Notice VOOT has far fewer samples in infeasible regions.
+rive a performance guarantee on VOOT. The tree performance guarantee is the ﬁrst of its kind for search methods with BBFO-type algorithms at the nodes. We demonstrated that both VOO and VOOT signiﬁcantly outperform previous methods within a small number of iterations in challenging higher-dimensional synthetic BBFO and practical robotics problems.
+We believe there is a strong potential for combining learning and VOOT to tackle more challenging tasks in continuous domains, much like combining learning and Polynomial UCT has done in the game of Go (Silver et al. 2016). We can learn from previous planning experience a policy πθ, which assigns high probabilities to promising actions, using a reinforcement-learning algorithm. We can then use VOO with πθ, instead of uniform sampling.
+Acknowledgement
+We gratefully acknowledge support from NSF grants 1523767 and 1723381; from AFOSR grant FA9550-17-10165; from ONR grant N00014-18-1-2847; from Honda Research; and from the MIT-Sensetime Alliance on AI. Any opinions, ﬁndings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reﬂect the views of our sponsors.
+References
+Auger, D.; Coue¨toux, A.; and Teytaud, O. 2013. Continuous Upper Conﬁdence Trees with polynomial exploration - consistency. Joint European Conference on Machine Learning and Knowledge Discovery in Databases.
+Beyer, H.-G., and Schwefel, H.-P. 2002. Evolution strategies – a comprehensive introduction. Natural Computing.
+Bubeck, S.; Munos, R.; Stoltz, G.; and Szepesva´ri, C. 2011. X-armed bandits. Journal of Machine Learning Research.
+Bus¸oniu; Daniels, A.; Munos, R.; and Babus˘ka, R. 2011. Optimistic planning for continuous-action deterministic systems. IEEE Symposium on Adaptive Dynamic Programming and Reinforcement Learning.
+Coue¨toux, A.; Hoock, J.-B.; Sokolovska, N.; Teytaud, O.; and Bonnard, N. 2011. Continuous upper conﬁdence trees.
+
+9923
+
+International Conference on Learning and Intelligent Optimization.
+Fortin, F.-A.; De Rainville, F.-M.; Gardner, M.-A.; Parizeau, M.; and Gagne´, C. 2012. DEAP: Evolutionary algorithms made easy. Journal of Machine Learning Research.
+Kandasamy, K.; Schneider, J.; and Poczos, B. 2015. High dimensional bayesian optimisation and bandits via additive models. International Conference on Machine Learning.
+Kawaguchi, K.; Kaelbling, L.; and Lozano-Pe´rez, T. 2015. Bayesian optimization with exponential convergence. In Advances in Neural Information Processing Systems.
+Kuffner, J., and LaValle, S. 2000. RRT-connect: An efﬁcient approach to single-query path planning. In International Conference on Robotics and Automation.
+Lillicrap, T. P.; J. J. Hunt, A. P.; Heess, N.; Erez, T.; Tassa, Y.; Silver, D.; and Wierstra, D. 2016. Continuous control with deep reinforcement learning. International Conference on Learning Representations.
+Mansley; Weinstein, A.; and Littman, M. 2011. Samplebased planning for continuous action Markov Decision Processes. International Conference on Automated Planning and Scheduling.
+Munos, R. 2011. Optimistic optimization of a deterministic function without the knowledge of its smoothness. Advances in Neural Information Processing Systems.
+Munos, R. 2014. From bandits to Monte-Carlo Tree Search: the optimistic principle applied to optimization and planning. Foundations and Trends in Machine Learning.
+Pinte´r, J. 1996. Global Optimization in Action (Continuous and Lipschitz Optimization: Algorithms, Implementations and Applications). Springer US.
+Qin, A., and Suganthan, P. 2005. Self-adaptive differential evolution algorithm for numerical optimization. IEEE Congress on Evolutionary Computation.
+Schulman, J.; Wolski, F.; Dhariwal, P.; Radford, A.; and Klimov, O. 2017. Proximal policy optimization algorithms. arXiv.
+Silver, D.; Huang, A.; Maddison, C.; Guez, A.; Sifre, L.; van den Driessche, G.; Schrittwieser, J.; Antonoglou, I.; Panneershelvam, V.; Lanctot, M.; Dieleman, S.; Grewe, D.; Nham, J.; Kalchbrenner, N.; Sutskever, I.; Lillicrap, T.; Leach, M.; Kavukcuoglu, K.; Graepel, T.; and Hassabis, D. 2016. Mastering the game of Go with deep neural networks and tree search. Nature.
+Srinivas, N.; Krause, A.; Kakade, S.; and Seeger, M. 2010. Gaussian Process optimization in the bandit setting: no regret and experimental design. International Conference on Machine Learning.
+Wang, Z.; Zoghi, M.; Hutter, F.; Matheson, D.; and Freitas, N. 2013. Bayesian optimization in high dimensions via random embeddings ziyu. International Conference on Artiﬁcial Intelligence and Statistics.
+Wang, Z.; Shakibi, B.; Jin, L.; and Freitas, N. 2014. Bayesian multi-scale optimistic optimization. International Conference on Artiﬁcial Intelligence and Statistics.
+
+Weinstein, A., and Littman, M. 2012. Bandit-based planning and learning in continuous-action markov decision proceses. International Conference on Automated Planning and Scheduling.
+
+9924
+

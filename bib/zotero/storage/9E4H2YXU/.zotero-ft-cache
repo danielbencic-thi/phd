@@ -1,0 +1,301 @@
+2013 IEEE International Conference on Robotics and Automation (ICRA) Karlsruhe, Germany, May 6-10, 2013
+
+Incremental Micro-UAV Motion Replanning for Exploring Unknown Environments
+Mihail Pivtoraiko, Daniel Mellinger and Vijay Kumar
+
+Abstract— This paper describes an approach to motion generation for quadrotor micro-UAV’s navigating cluttered and partially known environments. We pursue a graph search method that, despite the high dimensionality of the problem, the complex dynamics of the system and the continuously changing environment model is capable of generating dynamically feasible motions in real-time. This is enabled by leveraging the differential ﬂatness property of the system and by developing a structured search space based on state lattice motion primitives. We suggest a greedy algorithm to generate these primitives off-line automatically, given the robot’s motion model. The process samples the reachability of the system and reduces it to a set of representative, canonical motions that are compatible with the state lattice structure, which guarantees that any incremental replanning algorithm is able to produce smooth dynamically feasible motion plans while reusing previous computation between replans. Simulated and physical experimental results demonstrate real-time replanning due to the inevitable and frequent world model updates during micro-UAV motion in partially known environments.
+I. INTRODUCTION
+Recent advances in micro-UAV technology, including quadrotors, are enabling the application of these vehicles to a number of relevant areas, such as exploration of unmapped structures in search, rescue and surveillance applications. One of the pre-requisites of such capability is efﬁcient generation of ﬂight trajectories in partially known, cluttered environments. We propose a novel approach to motion generation in this setting and describe attractive properties that it offers, in particular pre-computing motion primitives that encapsulate the dynamics of micro-UAV motion and efﬁcient replanning by reusing previous computation between replans. At the cost of certain representation losses – inevitable in any continuum sampling process – the approach features real-time autonomous micro-UAV motion replanning, a key capability requried for navigating partially known cluttered environments.
+A. Motivation
+The problem of motion replanning in this domain is a difﬁcult one for at least three reasons: complex dynamics of ﬂight systems, high dimensionality of the search space that is needed in order to effectively represent system reachability, and limited computational capacity that is available onboard such vehicles. Although there is extensive literature on motion planning for systems with complex differential constraints, none of it is directly applicable to this domain, as further described in the following section.
+The authors are with the School of Engineering and Applied Mechanics, University of Pennsylvania, Philadelphia, PA USA {mihailp, dmel, kumar}@seas.upenn.edu
+
+Fig. 1. Motion plan example. This paper studies micro-UAV maneuver generation in previously unknown, vast and cluttered spaces. In our experimental evaluation, we model urban scenes similar to the one pictured here. Search, rescue and surveillance in such scenarios are some of the applications of this work. Here, a quadrotor micro-UAV maneuver to ﬂy into a building and localize a structure inside it was generated in real-time (216 ms runtime). This trajectory is guaranteed to be dynamically feasible and is directly executable on a quadrotor micro-UAV.
+In many applications featuring physical robots, it is beneﬁcial to perform incremental replanning: once a plan is computed, it is incrementally updated, by reusing previous computation, should new information about the environment invalidate it [15]. This capacity enables the planner to react quickly to the changes of the world model, including those due the to uncertainty and noise of the perception, localization and other systems – a frequent and inevitable phenomenon in robotics. Incremental replanning is a typical component of many ﬁelded robotics systems, since plan repair can be vastly more efﬁcient than planning from scratch [15]. To our knowledge, this work represents the ﬁrst successful attempt to perform incremental replanning in micro-UAV domain.
+B. Prior Work
+Motion planning with kinematics and dynamics constraints has been extensively explored over the last several decades by [1, 3, 6, 7, 12, 14, 16], among many others. Application of these methods to micro-UAV planning have been limited, however, due to the challenges of this domain as suggested in Section I-A.
+In addition, incremental replanning methods, motivated above, have traditionally featured search spaces with certain regular and repetitive structure that allows representing the search space as a graph, such as 2-D grids [8, 15]. Graph properties, such as edge in-degree ≥ 1, allow the reuse of previous computation in replanning. In contrast, tree based search spaces [1, 7] do not readily admit this type
+
+978-1-4673-5643-5/13/$31.00 ©2013 IEEE
+
+2452
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+of computation reuse [13]. With this motivation, this paper explores the application of structured, graph-based search spaces to micro-UAV replanning.
+In other related work, Gillula et al. [4] develop control techniques for acrobatic maneuvers of quadrotors by studying reachability of the system in a number of speciﬁc regimes. Our approach is also based on reachability evaluation, however we focus on motion generation in cluttered environments over long ranges, while that work is mostly considering free-space motion. He et al. [5] utilized a microUAV as an aid to ground robots during exploration in adversarial environments. While this work pushed the envelope in micro-UAV capability in partially known environments, it did not speciﬁcally focus on generating micro-UAV maneuvers.
+In previous work [10], we explored the application of mixed-integer quadratic programming to generate smooth trajectories that minimize a cost functional incorporating the dynamics in the presence of obstacles. However, the complexity of the method renders it challenging in complex environments because of the need to represent each polygonal facet with a binary variable, which leads to prohibitive growth in the dimensionality of the problem. We adapt earlier work on differentially-constrained planning [13] to develop a set of pre-computed motion primitives which allows us to synthesize complex motion plans for quadrotor micro-UAVs by concatenating these primitives.
+The contribution of the paper is two-fold. First, we are able to enlarge the size of the workspace considered in micro-UAV motion planning domain to length scales that are several orders of magnitude larger than the size of the vehicles, in 3D environments with obstacles. Second, we demonstrate the reuse of previous computation via incremental replanning; such methods have been actively pursued in robot motion planning in partially known environments for over a decade [8, 15], though their application to systems with second and higher-order dynamics (which is necessary for micro-UAV) have been limited.
+The paper is structured as follows. Section II formalizes the problem we address here, and Section III describes a set of state sampling rules that provide the desired search space structure, followed by an account, in Section IIIC, of a control sampling process that is guided by the structure. Further, certain speciﬁcs of using these controls in the context of incremental replanning are described in Section IV. Lastly, Section V describes experimental results in micro-UAV motion planning as applied to the quadrotor platform. We demonstrate that the proposed approach compares favorably with the leading state-of-the-art methods.
+II. PRELIMINARIES
+A. Differential Flatness
+The quadrotor is a smooth nonlinear underactuated dynamics system. It requires at least a six-dimensional state space description (3D position and orientation, although typically also their time derivatives) to represent its motion, while the input space is four-dimensional, U ⊂ R4 (corresponding to propeller thrusts). However, this system is also known
+
+to be differentially ﬂat [11]. This implies that all the state and input variables (and therefore the constraints on these variables) can be written as functions of the so-called ﬂat outputs and their derivatives, in particular the position of the quadrotor center of mass and its yaw angle in an inertial frame, y = [rx, ry, rz, ψ]T . Quadrotor ﬂat state space is a smooth manifold X ⊂ SE(2) × R4l+1 that includes the space of the ﬂat outputs and their l time derivatives. Since there is a one-to-one correspondence between X and the original vehicle state and controls, we will be referring to ﬂat space unless otherwise noted (a comprehensive account of this relationship and the details of quadrotor dynamics are given in [9], among others). The quadrotor is assumed to be a time-invariant system satisfying a transition equation x˙ = f (x, u), which induces a vector ﬁeld X on X.
+
+B. Problem Deﬁnition
+Assume Xfree ⊂ X that is free of obstacles: either other objects in the environment, pre-deﬁned “no-go” regions, dynamics constraints, etc. We seek to steer the system from an initial state xI ∈ Xfree to a ﬁnal state xF ∈ Xfree. Let u : R+ → U be a control function of time deﬁned over the time interval [0, T ] (or simply control). Control Hilbert space U spans all feasible controls of the system. Suppose a control u(t) ∈ U is executed in free space without disturbances when the system is in x ∈ X. The resulting state space projection ξu,x : R+ → X is a ﬂow of X , or trajectory – a solution to the system’s transition equation from x given u(t) (time dependence was dropped for clarity).
+In addition, a function c : X × U → R+ assigns to each control a value of cost that is related to a domainspeciﬁc notion of motion quality. Without loss of generality, this paper focuses on cost deﬁned in terms of three practically important, though competing, objectives in microUAV domain: trajectory traversal time T , a measure of trajectory smoothness ce (related to control effort and energy expenditure):
+
+l
+
+T dky 2
+
+ce(u, x) = wk
+
+k=1
+
+0
+
+dtk
+
+dt
+
+where wk terms optionally weigh the derivative terms, in addition to the workspace based term cw that captures preference of traversing certain parts of the workspace over others (e.g. adversarial or poor visibility regions may be assigned higher cost):
+
+c(u, x) = w · [T, ce(u, x), cw(u, x)]T
+
+(1)
+
+where weight vector w additionally speciﬁes relative preference between the cost components. Other measures of cost may be utilized, however.
+The motion planning problem we address is the following constrained optimization program:
+
+u∗ = arg min c(u, ξu,x)
+
+(2)
+
+u∈U
+
+2453
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+s.t. ξu,x(0) = xI
+ξu,x(T ) = xF , T > 0
+ξu,x(t) ∈ Xfree, ∀t ∈ [0, T ]
+for given initial and ﬁnal states xI , xF ∈ Xfree.
+C. System Symmetries and Invariance
+An array of systems of practical interest exhibit symmetries in system dynamics that can be exploited to reduce the computational complexity of (2) [2, 3, 12, 13]. These symmetries provide for existence of certain controls that are invariant with respect to certain transformations in some regions of X and therefore may be pre-computed, cached and reused in those regions, leading to potentially signiﬁcant reduction in computation.
+Speciﬁcally, we assume that X can be partitioned, at least locally, into a Cartesian product of two sub-manifolds X = G × Z, where G is a Lie group with identity element e, and g is a Lie algebra on G. Any x ∈ X is then a tuple (g, z) ∈ G×Z. We denote Z as the base space, and G as the ﬁber, such that X is the principal ﬁber bundle. Furthermore, the system transition equation is said to be invariant with repect to the left action of γ ∈ G onto X × U if its solutions ξu,x satisfy:
+γξu,(g,z)(t) = ξu,(γg,z)(t), t ∈ [0, T ], T > 0 (3)
+Note that, unlike [2], we cannot assume invariance of the cost functional (1) due to the workspace term cw because the workspace is related to the ﬁber G and the left action of γ modiﬁes its value, namely the equality (3) is not satisﬁed.
+D. Motion Primitives
+Invariance property allows us to develop a representation of the planning problem based on pre-computing controls at ﬁber origin g0 ∈ G and reusing them elsewhere else in G. We refer to such pre-computed controls as motion primitives. Their collection A forms a motion description language, whose symbols are motion primitives α = (u, z, cu,(g0,z)) ∈ U ×Z×R+ consisting of pre-computed controls, the resulting trajectories and their free-space costs (omitting the cw term), deﬁned at a particular z ∈ Z and ﬁber origin g0 but valid anywhere else in G. A motion plan ω = {α1, α2, . . . , αN } is a sequence of primitives. In general, not all primitives can be combined arbitrarily. Therefore, the feasible motion plans belong to a subset Ω∗ of the free monoid over all possible primitives.
+E. Incremental Replanning
+Since we emphasize the micro-UAV motion in previously unknown environments, we assume that Xfree changes quickly, e.g. perhaps many times over the interval [0, T ], with a frequency that depends on sensor measurement rate. This requires the vehicle to generate and transition to a new plan ωi+1 while executing ωi. To maintain control continuity, we require the transition between the plans to occur at least
+
+α3 α2 tH α1
+
+α'3
+
+tH
+
+α'4 α2
+
+(a) Before replan
+
+(b) After replan
+
+Fig. 2. Replanning horizon. The ﬁgure illustrates the process of replanning during to quadrotor motion in an unknown environment. The robot attempts to move to a goal state in upper right of the ﬁgure (marked with a ﬂag icon). Initially (left ﬁgure), the robot’s sensors have not yet observed the upper wall (the unknown parts of the workspace are in grey). An optimistic planning strategy allows computing a trajectory through unknown area, under the assumption that once the robot makes progress executing it, the planner will be able to modify the plan to avoid collision. To that end, the quadrotor commits the ﬁrst tH seconds of a plan for execution (thick grey highlight over the trajectory), and replans from the end of the affected motion primitive (α2 in Figure b) onwards to the goal. Dashed line in Figure (b) shows the previous plan before replanning.
+
+tH seconds (referred to as the replanning horizon) ahead along the current plan. Since we impose control quantization (Section II-D), this implies that the transition will take place at the end of the current or a future primitive that is part of ωi being executed.
+Figure 2 illustrates the replanning process, adapted to micro-UAV domain from [13, 15]. A quadrotor moves through a partially known area containing a Γ-shaped obstacle toward a goal on upper right of the ﬁgure. Unknown parts of the environment are in grey, and are “discovered” by the robot as it travels and its sensor perception ellipsoid moves over the unknown areas. In 2(a), robot’s motion plan is ωi = {α1, α2, α3, . . .}. Since the replan horizon extends through the primitive α1 (thick grey highlight along the trajectory in the ﬁgure), the robot commits to executing α1. Notice that the planner guarantees that this primitive is collision free 1 An optimistic planning strategy is employed: all trajectory segments are allowed to pass through unknown areas (though they may be assigned a higher cost cw).
+As the robot makes progress executing α1, its replanning horizon enters α2, thereby committing it for execution also, as shown in Figure 2(b). However, since the robot’s perception horizon moves with the robot, it “discovers” the wall at the top of the picture. The planner performs a replan by setting xI in (2) to the ﬁnal endpoint of the last committed primitive, α2, (overall motion goal remains xF ) and selects a different set of primitives after α2 so that the obstacle is avoided, resulting in a new plan ω2 = {α2} ∪ {α3, α4, . . .}. We seek to perform replanning as frequently as computationally possible in order to keep the moving vehicle safe from collision while traversing a partially known environment.
+1See Section IV-B for an extended replanning procedure which guarantees collision avoidance even under signiﬁcant drift.
+
+2454
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+III. SEARCH SPACE DESIGN
+A. Structured Search Space
+We guarantee the graph structure of the search space by developing a sampled state space Xˆ = (Gˆ, Zˆ) = {g0, g1, . . .} × {z0, z1, . . .} ⊂ X, where the samples are arranged as a multi-dimensional lattice. The differential ﬂatness property of quadrotor micro-UAV’s (Section II-A) allows pre-computation of free-space controls that steer the system between any two such state samples [9]. Connecting pairs xi, xj ∈ Xˆ in this manner induces a state lattice search space Ω∗ ⊂ U , which inherits regular structure from Xˆ [13]. Since the original planning problem, as posed in Section II-B, is NP-hard, it is common practice to use sampled approximations, despite the inevitable losses in optimality and completeness [1, 3, 7, 12, 14, 16].
+Given zi, zj ∈ Zˆ, let a set of primitives azi,zj = {αzi,zj,1, αzi,zj,2, . . .} steer the system from (g0, zi) to (g1, zj), (g2, zj), . . ., respectively, namely to a set of states that share the base value zj. By symmetry invariance, azi,zj maintains regular lattice structure if applied at any other (γg0, zi). Therefore, azi,zj generates a subset of Ω∗ that consists of motions from (gi, zi) to (gj, zj), ∀gi, gj ∈ Gˆ. By induction, we deﬁne a generator Aˆ = {azi,zj |∀zi, zj ∈ Zˆ} that generates the entire lattice Ω∗. For example, in the case of a 2D grid, the set of edges that connect some origin vertex to its four immediate neighbors generate the entire fourconnected grid by translation and replication. Notice that this deﬁnition admits control sets azi,zi that keep the base value constant; such motions are known as trim trajectories in the aerospace community [2, 3].
+Because the cost functional (1) does not possess ﬁber invariance property (Section II-C), we are not able to utilize the motion primitive automaton framework [2]. Instead, the syntax of the motion language is formalized as a roadmap graph G = (E, Xˆ ), where edges E = γ∈Gˆ γAˆ is the set of generator copies replicated throughout Gˆ and vertices are sampled state values in Xˆ .
+B. State Space Sampling Rules
+While the speciﬁcs of state sampling that result in Xˆ depend on the details of the system transition equation, the robot’s perception components and its environment, several general sampling strategies are worth noting.
+To maintain symmetry and regularity motivated in Section III-A, we sample the quadrotor ﬁber space Gˆ ⊂ SE(2) × R as a regular lattice (with a rectangular, hexagonal or other repeating unit). The sampling resolution C is chosen to be commensurate with the trajectory following accuracy of the robot controller and the feature size of the robot’s perception system (e.g. for occupancy grid approaches, the resolution of this grid). Intuitively, performing motion planning at position grid resolution that is vastly different from that quantity is likely to lead to excessive computation (if planning resolution is much higher than that of the world model) or excessive losses in motion quality (if planning resolution is too low).
+
+The quadrotor base space Z ⊂ R4l captures the dynamics of the system and therefore has less intuitive basis for sampling. A reasonable approach is to choose a coarse sampling of each dimension and enhance it as demanded by the application. Thus, for a quadrotor an initial sampling choice may consist of extremal values of ﬂat space rate of change along with a value of zero (steady-state): {y˙ min, 0, y˙ max} and so on for further derivatives 2. If needed, this interval is further subsampled.
+C. Generating Motion Primitives
+The discussion so far described the search space design principles and motivated the development of a set of motion primitives Aˆ that serves as the state lattice generator. Algorithm 1 suggests a greedy approach for developing this generator set automatically.
+The inputs to the algorithm are: N the maximal number of motion primitive variants that are allowed, ρ the distance metric over Xˆ , and R the radius of a representation region, a ball in Xˆ that is considered for generating motion primitives. The greater N and R are, the better representation quality of the resulting motion primitive set, although on-line planning computation also increases; the values are chosen as large as computationally tractable for real-time operation. Line 2 attempts to produce a set of motion primitives emanating from all discrete base values zi ∈ Zˆ, and line 4 iterates over all base values once again to make sure that the resulting generator subset azi has primitives that can connect to other generator subsets azj .
+Once the terminal base values are ﬁxed, line 7 sets up a loop over the ﬁber values (within the representation region)
+2Though the related increases in trajectory following error and control effort may be of concern in some applications.
+
+Input: N , ρ, R Output: Aˆ 1 Aˆ = ∅;
+2 foreach zi ∈ Zˆ do
+3 azi = ∅; 4 foreach zj ∈ Zˆ do
+
+5
+
+initialize PQ;
+
+6
+
+xI = (g0, zi);
+
+7
+
+foreach gj ∈ Gˆ do
+
+8
+
+xF = (gj, zj);
+
+9
+
+if xI − xF ρ < R then
+
+10
+
+αzi,zj = generate primitive(xI , xF );
+
+11
+
+PQ.push(αzi,zj );
+
+12
+
+end
+
+13
+
+end
+
+14
+
+azi = PQ.pop(N);
+
+15 end
+
+16
+
+Aˆ ← azi ;
+
+17 end
+
+Algorithm 1: A greedy algorithm for automatic generation
+
+of motion primitives.
+
+2455
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Hover state
+
+(b) High velocity in Z-direction
+
+Fig. 3. Pre-computed motion primitives. The proposed method seeks to encapsulate much of the complexity of dynamics and control of microUAV’s with motion primitives, off-line pre-computed controls that represent feasible motions of the system. By representing system reachability with a carefully designed set of control samples, the need to reason about system dynamics at planning time is eliminated, allowing ultra-low power CPU’s (perhaps even lacking ﬂoating-point units) to compute elaborate motion plans in real-time. The ﬁgure shows a set of primitives of a quadrotor (gray circle) while it is hovering in place (a) and moving at a certain velocity along the Z-axis (b).
+
+that generates motion primitives (line 10) via a boundary value problem (BVP) solver [9] and stores them in a priority queue. Line 14 pops N primitives from the priority queue (in increasing order of free-space cost) and adds them to the partial generator set of primitives emanating from zi, which then is added to Aˆ on line 16.
+IV. INCREMENTAL REPLANNING WITH CONTROL SETS
+This section describes the speciﬁcs of micro-UAV replanning in partially known environments when using motion primitives developed above.
+A. Trajectory Swaths
+It is widely accepted that one of the most computationally intensive procedures in planning is collision detection and estimation of motion cost. This computation involves convolving the vehicle frame along the workspace trajectory in question. Since we pre-compute motion alternatives, their workspace paths can be also cached in the form of invariant trajectory swaths, a set of voxels that are occupied by the robot body during motion (red cells in Figure 4). Hence, motion cost computation is reduced to iterating over an array of voxels resulting in potential orders of magnitude speed-up.
+
+Fig. 4. Trajectory swath. One of the quadrotor motion primitives is shown along with the pre-computed swath of the motion, a set of workspace voxels that the vehicle traverses when executing a motion. During on-line planning, the evaluation of the cost of this maneuver with respect to a cost map is reduced to a summation operation over a memory array – system simulation is avoided, resulting in signiﬁcant runtime speed-up.
+here, naturally includes stop motions, primitives that bring the system to rest (micro-UAV hover state). The stop motions of each successor state are checked for entering the unknown region. If there is no available stop motion entirely inside the known region, we consider the state an ICS.
+C. Incremental Search
+Compatibility with incremental search was one of the motivations for the present search space design, as described in Sections I-A and III-A. Due to the proposed search space structure, any standard incremental search algorithm ([8, 15] among others) may be used in order to implement reactive replanning while navigating partially known cluttered environments. Pre-computed lookup table heuristics and invalidation regions [13] may further reduce replanning computation.
+V. EXPERIMENTAL RESULTS
+A model of the KMel “nano” quadrotor was used throughout the experiments. The search space feature size C (Section III-B) was set to 20cm, roughly the size of the vehicle. The world model was a 3D occupancy grid with resolution C, and the position dimensions of Gˆ were similarly sampled as a regular 3D grid with resolution C. The robot was assumed equipped with perception sensors that operate within a perception radius RP around the vehicle; in the experiments, we expressed this value in terms of the feature size, RP /C.
+
+B. Inevitable Collision State Rejection
+When the micro-UAV is moving through a partially known environment, the motion planner must guarantee that the robot is able to stop in the event that the unknown area is determined to be an obstacle. In general, verifying that a state along the computed micro-UAV trajectory is not an inevitable collision state (ICS) [17] is difﬁcult, however we may once again leverage the motion sampling structure established in Section III in order to simplify the problem.
+As Figure 5 illustrates, ICS rejection may be performed by adding a layer of look-ahead to each vertex expansion during planning. The motion primitive generation method, proposed
+
+Fig. 5. Inevitable collision state rejection. The motion primitive generation method, proposed here, naturally includes stop motions, controls that bring the system to rest (micro-UAV hover state). This allows fast checking whether a state is potentially an inevitable collision state (ICS) that must be rejected. The quadrotor icon in the ﬁgure denotes the vertex being expanded during search. The motion alternatives (solid lines) lead to successor states (circles). White circle is an ICS because it has no stop motion (black squares) that entirely lies inside the known region (unknown area is in grey). Detecting and rejecting ICS is a fast operation because it beneﬁts from the pre-computation used in the other aspects of the proposed approach.
+
+2456
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+10 2
+
+RRT Sim
+
+RRT TG
+
+Ratio w.r.t. our method
+
+10 1 Compute Time
+
+Exec. Time
+
+Cost
+
+Fig. 6. Planning comparison. The ﬁgure compares two variants of the classical RRT algorithm with the approach presented here in terms of planning runtime, exploration execution time and the cost of overall motion. Note the vertical semilog axis. Horizontal axis represents quality metrics, namely computation runtime, execution (ﬂight) time and overall cost of motion. Results are given as ratios with respect to our method, averaged over 30 simulated planning episodes with random initial and ﬁnal states in the environment in Figure 1, with RP /C = 5.
+
+Ratio w.r.t. baseline
+
+1.6 1.2 0.8 0.4
+0
+Compute Time
+
+Exec. Time
+
+Naive Safe
+Cost
+
+Fig. 7. Replanning performance comparison. The ﬁgure compares two modes of replanning with the baseline conﬁguration, as averages over 30 simulated replanning experiments with random initial and ﬁnal states in the environment in Figure 1, with RP /C = 5.
+
+30
+
+Compute Time
+
+Exec. Time
+
+20
+
+Cost
+
+Ratio w.r.t. D/C=15
+
+We evaluate the replanning performance w.r.t. the following three metrics that are relevant in applications we consider:
+• Compute time: the amount of (wall) time, in seconds, the planner takes to generate a motion,
+• Execution time: the amount of (wall) time, in seconds, required by the micro-UAV to execute the computed motion,
+• Cost of the computed motion (1).
+In the experiments, the robot traverses a previously unknown environment (an urban scene illustrated in Figure 1) between random start and goal states. Three sets of experiments are presented: a comparison of the approach with the RRT algorithm, a replanning performance study, and a review of the effects of the robot’s perception radius on replanning.
+A. RRT Comparison
+Figure 6 presents a comparison of the classical RRT algorithm [7] adapted to this domain with a baseline conﬁguration of our method: the state lattice roadmap coupled with AD* search algorithm [8]. Results are given as ratios with respect to baseline, averaged over 30 simulated planning episodes with random initial and ﬁnal states in the environment in Figure 1, with RP /C = 5. The average runtime of the baseline replanner in these experiments was 0.23 sec. with standard error 0.14 sec. The motions computed in these trials were successfully executed on physical “nano” quadrotors in our micro-UAV lab in order to conﬁrm their ﬂight feasibility.
+Two variants of the RRT were used for fair comparison. One of the variants, labeled as “RRT Sim”, is identical to the original RRT algorithm: it uses dynamics simulation during planning, which requires signiﬁcant computation. The other variant, labeled “RRT TG”, grows its tree using a differential ﬂatness BVP solver [9]. While avoiding dynamics simulation, it tends to lead to increased cost of traversal by steering the system to the random state samples exactly.
+We note that a comparison of our method to the alternative deterministic approaches, such as [1] and their successors, would be similar to “RRT Sim” result due to the dynamics simulation requirement.
+
+10
+
+0 5
+
+Perception Horizon, D/C
+
+10
+
+15
+
+Fig. 8. Effect of perception radius. Measured dependence of replanning performance on the radius of perception radius is shown. Horizontal axis shows three different values of RP /C. Vertical axis represents ratios of the three performance quantities compared.
+
+B. Reuse of Computation in Replanning
+A replanning comparison of two conﬁgurations of the presented approach with respect to the baseline conﬁguration above are shown in Figure 7. First compared conﬁguration, referred to as na¨ıve, is based on G coupled with A* search and cannot reuse computation between replans. This results in signiﬁcantly higher (almost 50%) computation time with respect to the baseline (left side of the ﬁgure). Execution time and cost of motion (middle and left) are about the same, as expected. The second compared conﬁguration, labeled as safe, utilizes AD* search with ICS rejection to guarantee safety (Section IV-B). Figure 7 demonstrates small additional motion cost and runtime losses due to additional successor processing, while execution is signiﬁcantly faster due to higher velocity motion. These results suggest that the latter is the preferred conﬁguration of the method when applied to replanning in partially known environments.
+C. Variation of the Perception Radius
+The effect of the perception radius during motion in unknown environment is studied here. The same experimental setup and baseline planner was chosen as in earlier experiments. Execution time and overall cost of motion degrades almost exponentially with the reduction of the perception radius. However, replanning computation time degradation is signiﬁcantly more graceful – nearly linear thanks to reuse of previous computation in the proposed approach. Na¨ıve replanning without the reuse would result in similar, nearexponential degradation in compute time as well.
+
+2457
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+
+VI. CONCLUSIONS
+Recent advances in micro-UAV’s, such as quadrotors, have set off new research efforts in a number of areas related to autonomous ﬂying robots. These vehicles are particularly difﬁcult from the point of view of motion planning because of severely limited power and on-board computation, and complex dynamics motion constraints. We discussed efﬁcient motion generation in partially known environments under the constraints of micro-UAV systems. The strengths of the approach include its ability to manage runtime-quality tradeoff by virtue of pre-computing motion primitives that encapsulate the motion dynamics. We demonstrate autonomous micro-UAV motion in partially known, cluttered environments on the scale of at least three orders of magnitude greater than vehicle size, in real-time. Future work includes further improving motion sampling and search techniques in this framework, demonstrating the efﬁcacy of the approach in autonomous micro-UAV exploration in search and rescue applications, as well as studying the applicability of these results to collaborating robot teams.
+ACKNOWLEDGMENT
+We thank ARL (grant W911NF-08-2-0004) and ONR (grant N00014-09-1-1031) for their support of this research. In addition we are grateful to Rattanachai Ramaithitima, Alex Kushleyev, Koushil Srinath and others for helpful discussions and their help with implementations and experiments.
+REFERENCES
+[1] J. Barraquand and J.-C. Latombe. Nonholonomic multibody mobile robots: Controllability and motion planning in the presence of obstacles. Algorithmica, 10(2-4):121–155, 10 1993.
+[2] E. Frazzoli and F. Bullo. On quantization and optimal control of dynamical systems with symmetries. In Proceedings of the IEEE Conference on Decision and Control, 2002.
+[3] E. Frazzoli, M.A. Dahleh, and E. Feron. Real-time motion planning for agile autonomous vehicles. Journal of Guidance, Control and Dynamics, 25(1), 2002.
+[4] J. H. Gillula, Haomiao Huang, M. P. Vitus, and C. J. Tomlin. Design of guaranteed safe maneuvers using reachable sets: Autonomous quadrotor aerobatics in theory and practice. In Proceedings of the IEEE International Conference on Robotics and Automation, pages 1649–1654, 2010.
+[5] R. He, A. Bachrach, M. Achtelik, A. Geramifard, D. Gurdan, S. Prentice, J. Stumpf, and N. Roy. On
+
+the design and use of a micro air vehicle to track and avoid adversaries. International Journal of Robotics Research, 29:529–546, 2010. [6] J.-P. Laumond, S. Sekhavat, and F. Lamiraux. Guidelines in nonholonomic motion planning. Robot motion planning and control, 1998. [7] S.M. LaValle and Jr. J.J. Kuffner. Randomized kinodynamic planning. International Journal of Robotics Research, 20(5):378–400, 2001. [8] M. Likhachev, D. Ferguson, G. Gordon, A. Stentz, and S. Thrun. Anytime Dynamic A*: An anytime, replanning algorithm. In AAAI, 2005. [9] D. Mellinger and V. Kumar. Minimum snap trajectory generation and control for quadrotors. In Proceedings of the IEEE International Conference on Robotics and Automation, pages 2520–2525, 2011. [10] D. Mellinger, A. Kushleyev, and V. Kumar. Mixedinteger quadratic program trajectory generation for heterogeneous quadrotor teams. In Proceedings of the IEEE International Conference on Robotics and Automation, pages 477–483, 2012. [11] M. J. V. Nieuwstadt and R. M. Murray. Real-time trajectory generation for differentially ﬂat systems. International Journal of Robust and Nonlinear Control, 8(11):995–1020, 1998. [12] S. Pancanti, L. Pallottino, and A. Bicchi. Motion planning through symbols and lattices. In Proceedings of the IEEE International Conference on Robotics and Automation, 2004. [13] M. Pivtoraiko and A. Kelly. Kinodynamic motion planning with state lattice motion primitives. In Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems, pages 2172–2179, 2011. [14] E. Plaku, L. E. Kavraki, and M. Y. Vardi. Motion planning with dynamics by a synergistic combination of layers of planning. IEEE Transactions on Robotics and Automation, 26(3):469–482, 2010. [15] A. Stentz and M. Hebert. A complete navigation system for goal acquisition in unknown environments. Autonomous Robots, 2(2):127–145, 1995. [16] I.A. Sucan and L.E. Kavraki. Kinodynamic motion planning by interior-exterior cell exploration. In Workshop on Algorithmic Foundations of Robotics, pages 449–464, 2009. [17] T.Fraichard and H.Asama. Inevitable collision states – a step towards safer robots? Advanced Robotics, 18 (10):1001–1024, 2004.
+
+2458 Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:01:08 UTC from IEEE Xplore. Restrictions apply.
+

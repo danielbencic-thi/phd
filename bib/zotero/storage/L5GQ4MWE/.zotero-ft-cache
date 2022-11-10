@@ -1,0 +1,1027 @@
+A Bug-based Path Planner Guided with Homotopy Classes
+Emili Herna´ndez, Marc Carreras and Pere Ridao
+Department of Computer Engineering, University of Girona, 17071 Girona, Spain
+
+Keywords: Path Planning, Homotopy Classes, Robotics.
+
+Abstract:
+
+This paper proposes a bug-based path planning algorithm guided topologically with homotopy classes. Homotopy classes provide a topological description of how paths avoid obstacles in the workspace. They are generated with a method we developed, which builds a topological environment based on the workspace that allows to compute homotopy classes systematically. The homotopy classes are sorted according to a heuristic estimation of their lower bound. Only those with the smaller lower bound are used to guide the path planner we propose, called Homotopic Bug (HBug), which efﬁciently computes paths in the workspace that accomplish homotopy classes. Results show the feasibility of our method. A comparison with well-known path planners has also been included.
+
+1 INTRODUCTION
+The work presented in this paper is focused on the design of a navigation system for a robot that is able to detect the environment, build an internal local map of the explored area according to the information provided by the onboard sensors, compute a safe path through the map and, ﬁnally, generate the high-level commands to follow it. The navigation system has to be able to generate an Occupancy Grid Map (OGM) and a path according to the information obtained from the unknown environment in a reduced amount of time. The target application of this research project is autonomous navigation for surveilling and exploration tasks in unstructured environments.
+Given an OGM, this paper addresses the design of a path planning algorithm to generate a path in a very short time. Anytime path planners (Ferguson et al., 2005) have been shown suitable to be used with robots that have a limited amount of time to perform path planning. These algorithms compute an initial solution highly suboptimal very fast and improves it until time runs out. Deterministic anytime approaches, like the Anytime Repairing A* (ARA*) (Likhachev et al., 2004), speed up the path generation by inﬂating the heuristics to force the exploration of those conﬁguration that are closer to the goal according to their heuristics. During successive iterations the inﬂation factor is decreased in order to generate improved solutions. On the other side, sampling-based anytime algorithms such as Anytime-RRT (ARRT) (Ferguson
+
+and Stentz, 2006), generate a series of RRTs where each new tree reuses the cost information from the previous tree to control its growth and thus improve the quality of the resultant path. At each iteration, anytime path planners try to improve the solution by decreasing the heuristics/cost inﬂation. However, the generation of a new/better path is not ensured (a path with the same cost can be obtained).
+Topological approaches are another way to tackle the path planning problem. This kind of solutions work with a graph-based abstraction of the workspace, in which the environment is represented by a reduced number of potential states over the aforementioned strategies (Dudek et al., 1991; Fabrizi and Safﬁotti, 2000). Visibility graphs (Latombe, 1991) and voronoi diagrams (Takahashi and Schilling, 1989) constitute well-known approaches in this regard. Other methods use homotopy classes to provide a topological description of how paths avoid obstacles. Two paths that share the start point and the end point belong to the same homotopy class if one can be deformed into the other without encroaching any obstacle. Some authors compute the shortest homotopic path of a given input path (Chazelle, 1982; Grigoriev and Slissenko, 1998; Efrat et al., 2002; Bespamyatnikh, 2003). However, in most of robotics applications the path is not known in advance. (Fujita et al., 2003; Bhattacharya et al., 2010) generate an initial path, whose homotopy class is then obtained in order to prevent the algorithm to generate another path with the same topology. This methodology achieves the
+
+Hernández E., Carreras M. and Ridao P.. A Bug-based Path Planner Guided with Homotopy Classes. DOI: 10.5220/0004041201230131 In Proceedings of the 9th International Conference on Informatics in Control, Automation and Robotics (ICINCO-2012), pages 123-131 ISBN: 978-989-8565-22-8 Copyright c 2012 SCITEPRESS (Science and Technology Publications, Lda.)
+
+123
+
+ICINCO2012-9thInternationalConferenceonInformaticsinControl,AutomationandRobotics
+
+generation of a path for different homotopy classes by blocking those previously explored, which make them suitable for computing the shortest path, but not for generating a solution with a different homotopy, since it would require to compute several paths to achieve the desired solution. To overcome this problem, some methods (Jenkins, 1991; Schmitzberger et al., 2002) ﬁrst generate a set of homotopy classes, allowing to look directly for a path with a speciﬁc topology. However, they require establishing a set of restriction criteria in order to generate only those homotopy classes that have an interest for the problem we need to solve. A solution to this problem has been has been proposed in (Herna´ndez et al., 2011a; Herna´ndez et al., 2011c).
+In this paper we propose a bug-based path planner called Homotopic Bug (HBug), which is guided topologically with homotopy classes. Although bug algorithms were initially conceived to achieve reactive online navigation for robots with low computational capabilities in unknown scenarios, it is also possible to use them to perform deliberative path planning on a Conﬁguration Space (C-space) (Antich et al., 2009). The HBug follows the homotopy classes generated with a method we presented in (Herna´ndez et al., 2011a) and improved in (Herna´ndez et al., 2011c). Using the topological information, the path planner does not have to explore the whole space but the space conﬁned in a homotopy class, speeding up the path computation. Moreover, homotopy classes allow the generation of paths that avoid obstacles in different manners, which is interesting for surveilling purposes. Unlike anytime approaches, which start the path search with a highly suboptimal solution, the HBug starts looking for a path in a homotopy class that has a high probability of containing the optimal solution. The method is proved to be complete because in case the goal is not reachable, no homotopy classes will exist and, consequently, no paths will be generated. It is important to note that the homotopy class of the global optimal path is guaranteed to be generated by the algorithm. Results and comparison with other path planners show the efﬁciency and the performance of our method, achieving near to optimal solutions with respect to the homotopy class in unstructured environments with irregular obstacles, which are the target scenarios of our method.
+The paper is structured as follows. Section 2 summarizes the method to generate homotopy classes from the workspace. Section 3 describes the topologically-guided path planning algorithm that we propose. Section 4 reports the results, and section 5 exposes the conclusions and future work.
+
+2 HOMOTOPY CLASSES OF THE WORKSPACE
+Two paths that share the start point and the end point belong to the same homotopy class if one can be deformed into the other without encroaching any obstacle. Therefore, homotopy classes provide topological information of how paths that belong to a class would avoid the obstacles. In (Herna´ndez et al., 2011c) we presented a method to compute all the homotopy classes of any 2D workspace, whose steps are summarized in the following sections.
+2.1 Reference Frame
+The reference frame determines in the metric space the topological relationships between obstacles and it is used to name the homotopy classes. To build it, every obstacle is represented by a single point bk. Then, a set of lines join each bk point and a cental point c placed in the free space. The lines are partitioned into segments according the intersections with the obstacles and labeled αks or βks depending on the side of the obstacle they rely on, where k is the obstacle index and s is the segment index within the line.
+The reference frame allows to represent any path as the sequence of labels of the segments being crossed in order from the starting to the ending point. For instance, Figure 1a depicts a reference frame for a scenario with two obstacles. The path that traverses it is labeled β11 α10 α20 α10 α20 α20 α10 α1−1 . Notice that this path is topologically equivalent to β11 α10 α20 α1−1 , which is the canonical sequence of the homotopy class, since is the simplest representation of a path without changing its topology (Herna´ndez et al., 2011c).
+2.2 Topological Graph
+The topological graph, whose construction is based on the reference frame, provides a model to describe the topological relationships between regions of the metric space. The reference frame divides the workspace into several regions. Each region represents a node of the topological graph. The nodes are interconnected according to the number of segments they share in the reference frame. Each edge of the graph is labeled with the same label of the segment that crosses in the reference frame.
+In the reference frame, a path is deﬁned according to the segments it crosses whereas in the topological graph it turns into traversing the graph from the start-
+
+124
+
+ABug-basedPathPlannerGuidedwithHomotopyClasses
+
+g
+
+β 21
+
+α1−1
+
+b2
+
+α 20
+
+α10
+
+α10 c α 20 p
+
+β 21
+4.1
+
+g 3.2
+
+b2
+
+3.1
+
+α 20
+
+α10
+
+c
+
+α10
+
+α 20
+
+1.1
+
+α1−1
+2.1
+
+β11
+
+b1
+
+l1
+
+s
+
+α 2−1
+l2
+
+b1 β11
+
+α 2−1
+
+1.2 s
+
+a) Reference frame
+
+b) Topological graph
+
+Figure 1: Topological path represented in the reference
+frame as p = β11 α10 α20 α10 α20 α20 α10 α1−1 and its canonical sequence (β11 α10 α20 α1−1 ) in the topological graph.
+
+ing node to the ending node1. Figure 1a depicts a path in the reference frame and Figure 1b its equivalent description in the topological graph.
+
+2.3 Generation of Homotopy Classes
+
+Once the topological graph is constructed, it is traversed with a modiﬁed version of the Breadth-First Search (BFS) algorithm used in (Herna´ndez et al., 2011a; Herna´ndez et al., 2011c), which incrementally builds the candidate homotopy classes according to the edges traversed during the graph search. The algorithm stops when there are no more homotopy class candidates to explore or the length of the last homotopy class candidate is larger than a given threshold. Notice that those homotopy classes which either selfintersect or whose canonical sequence is duplicated are not considered (Herna´ndez et al., 2011b).
+
+2.4 Lower Bound
+
+Depending on the number of homotopy classes generated by the BFS algorithm, it is not possible to compute all their correspondent paths in the workspace in real-time. Therefore, we have modiﬁed the funnel algorithm (Chazelle, 1982) to obtain a quantitative measure for each homotopy class estimating their quality. This algorithm computes the shortest path within a channel, which is a polygon formed by the vertexes of the segments of the reference frame that are traversed in the topological graph. The modiﬁcation consists of accumulating the Euclidean distance between the points while they are being added to the shortest path. Hence, the result of the funnel algorithm is a lower bound of the optimal path in the workspace of the selected homotopy class, which is used to set up a pref-
+1Starting and ending nodes are those regions in the reference frame where the starting and ending points are located.
+
+g
+
+l2 O2
+
+O1
+
+h2 l1
+
+m − line
+
+h1
+
+s
+
+Figure 2: Example of execution of Bug2 algorithm in a simple scenario.
+
+erence order to compute the homotopy classes path in the workspace. Figure 3a depicts an example where the funnel algorithm computes the lower bound for the homotopy class β11 α10 α20 α1−1 . The solid lines represents the channel and the dashed line is the path after applying the algorithm. Notice that our variant of the funnel algorithm takes into account that some subsegments may self-intersect when creating the channel (α10 and α20 in Figure 3a).
+
+3 BUG-BASED PATH PLANNING
+Once the homotopy classes are computed and sorted according to their lower bound, a path planning algorithm has to ﬁnd a path in the workspace that follows a given homotopy class, which essentially implies turning a topological path into a metric path. The only link between the workspace and the topological space is the reference frame. It allows checking whether a metric path in the workspace is following a topological path by following the intersections –in order– from the initial conﬁguration to the current conﬁguration.
+3.1 The Bug2 Algorithm
+Our proposal is a path planning algorithm based on the Bug2 (Lumelsky and Stepanov, 1987). The Bug2 starts by setting up an imaginary line, called m-line, which connects the start point with the goal point. The robot starts by following the m-line until the contact point with an obstacle, which is the ﬁrst hit point h1. Then, a boundary following behavior surrounds the obstacle until it reaches a point in the m-line which is closer to the goal than the previous hit point, that is the ﬁrst leave point l1. The same process is repeated until the goal is found. Figure 2 depicts a path generated by the Bug2 algorithm. Note that the direction to circumnavigate the obstacles can be ﬁxed at the beginning of the execution or chosen randomly.
+
+125
+
+ICINCO2012-9thInternationalConferenceonInformaticsinControl,AutomationandRobotics
+
+3.2 Homotopic Bug
+As stated before, the path planning algorithm we propose, which is called Homotopic Bug (HBug), is based on the Bug2. Essentially, it tries to follow directly the lower bound path obtained with the modiﬁed funnel algorithm, which ensures that the homotopy class is being accomplished. However, the segments of the reference frame constrain the region where the paths can go through, but do not take into account the shape of the obstacles. For this reason, the lower bound path may intersect with the obstacles. In such case, the obstacle boundary is followed in clockwise or counterclockwise direction according to the homotopy class until the lower bound path leaves the obstacle. This process is repeated for all the intersected obstacles by the lower bound path.
+The HBug, detailed in Algorithm 1, receives as an input parameters the lower bound path P, a candidate homotopy class to follow H and the reference frame F. Notice that the ﬁrst and the last elements of P are the start (s) and goal (g) nodes respectively. The algorithm is a three step process. First, the function BoundaryNodes checks the intersections of P with the obstacles in the C-space. Every time that P hits or leaves an obstacle, a boundary node is created. Each node contains the contact point c and the obstacle label k, which is the subindex of the point bk that represents the obstacle in the reference frame. These parameters are accessible through the functions Q and Obst respectively. Then, ObstacleNodes computes the nodes O based on the boundary nodes N previously computed. Each obstacle node contains the ﬁrst boundary node that hits the obstacle nh, the last node that is in its boundary without changing the obstacle nl, and the direction d to surround the obstacle while following H (line 23). Finally, the function BuildPath creates the path P in the workspace by joining the boundary of each obstacle oi ∈ O from nh to nl with the direction d.
+The direction d to surround an obstacle is set according to the direction of a hit node nh towards its successor nh+12 respect to the point bk, that represents the obstacle of the workspace in the reference frame. Notice that nh and nh+1 are ensured to belong to the same obstacle since for any point that hits an obstacle there has to be another one that releases it. The perpendicular dot product between vectors (Q(nh) − bk) and (Q(nh+1) − bk) computes the boundary following direction (line 15). If the result is less than 0 the direction from nh to nh+1 is counterclockwise; if it is greater than 0 the direction is clockwise.
+2When the lower bound path intersect with obstacle just one time, the nh+1 node is also the nl node.
+
+Algorithm 1: Homotopic Bug.
+
+BoundaryNodes(P)
+
+1: N ← 0/
+
+2: for i ← 1 to |P| − 1, pi ∈ P do
+
+3: C ← ContourPoints(pi, pi+1)
+
+4: for all j ← 1 to |C|, c j ∈ C do
+
+5:
+
+k ← Label(c j)
+
+6:
+
+N ← N ∪ {c j, k}
+
+7: end for
+
+8: end for
+
+9: return N
+
+ObstacleNodes(N, H, F)
+
+10: O ← 0/
+
+11: h ← 1
+
+12: while nh ∈ N/h < |N| − 1 do
+
+13: nl ← last n j ∈ N/ j > h without changing Obst(nh)
+
+14: bk ← point of Obst(nh) in F 15: d ← (Q(nh) − bk)⊥ · (Q(nh+1) − bk)
+
+16: if d = 0 then {parallel}
+
+17:
+
+d ← (s − bk)⊥ · (point of 1st χk ∈ H − bk)
+
+18:
+
+ik ← index of χk ∈ H where nh+1 relies on
+
+19:
+
+if |χk| ∈ H1..ik is even then
+
+20:
+
+switch d
+
+21:
+
+end if
+
+22: end if
+
+23: O ← O ∪ {nh, nl, d} 24: h ← l + 1 25: end while 26: return O
+
+BuildPath(O)
+27: P ← 0/ 28: for i ← 1 to |O|, oi ∈ O do 29: P ← P ∪ Boundary(oi) 30: end for 31: return P
+
+HBug(P, H, F)
+32: N ← BoundaryNodes(P) 33: O ← ObstacleNodes(N, H, F) 34: P ← BuildPath(O)
+
+The result of the perpendicular dot product can be 0 if the vectors (Q(nh) − bk) and (Q(nh+1) − bk) are parallel, which means that nh, nh+1 and bk belong to the same lk in the reference frame (line 16). In such case, d is obtained according two conditions: the initial direction selected to cross lk from the start point, and the number of times that lk is crossed until the αk or βk –denoted by χk– of the homotopy class, where nh+1 relies on, is reached. The initial direction is obtained with the dot product form the start s to the ﬁrst χk with the same subindex than lk3 (line 17). The number of times that lk is crossed depends on the number of χk found in the homotopy class from the beginning to the index ik, which indicates the position
+3Notice that the start point cannot be in a line lk of the reference frame since the perpendicular dot product would be also 0.
+
+126
+
+ABug-basedPathPlannerGuidedwithHomotopyClasses
+
+β 21
+
+g
+
+α1−1
+
+b2
+
+α10
+
+β 21 b2
+
+g n4 :{c4 ,2} α1−1
+ccw α10n3 :{c3,2}
+
+α 20
+
+α 20
+
+n2 :{c2 ,1}
+
+β11
+
+b1
+
+s
+
+α 2−1
+
+n1 :{c1,1} β11
+
+b1 cw s
+
+α 2−1
+
+a) Channel and lower bound path b) Path computed with the HBug
+Figure 3: Generation of the lower bound path and the HBug path for the homotopy class β11 α10 α20 α1−1 .
+
+of the χk that contains nh+1 (line 19). Figure 3 depicts an example scenario where the
+HBug is applied. The homotopy class to follow is
+β11 α10 α20 α1−1 . The dashed line represents its lower bound path, which intersects with the ﬁrst obstacle
+generating two boundary nodes n1 and n2, both of them located on the line l1 of the reference frame. The point that represents the obstacle is b1, also on l1, which makes perpendicular dot product between (Q(n1) − b1) and (Q(n2) − b1) unable to set the direction (d = 0). Therefore, using the start point s
+and a point of the edge β11 , the initial direction is set clockwise (cw). The last edge involved in this situ-
+ation is α10 , which is located in the second position in the homotopy class. The number of edges with
+subindex 1 till this position is 2. Thus, the direction
+is not changed. Then, the lower bound path intersects
+with the second obstacle in n3 and n4. Using the base point b2, the perpendicular dot product sets the direction as counterclockwise (ccw). Finally, the path is
+composed from s to g with the boundaries of the ob-
+stacle 1 (from n1 to n2) and the obstacle 2 (from n3 to n4) joint by straight lines.
+
+4 RESULTS
+The feasibility the topological path search with the HBug has been tested in different bitmap scenarios which have been used as C-spaces, where the robot is represented as a single point. To identify the obstacles of the scenarios we have adapted a ComponentLabeling (CL) algorithm that efﬁciently labels connected cells and their contours in greyscale images at the same time (Chang et al., 2004). The contours of the obstacles provided by this algorithm are used by the HBug to avoid recomputing them at each new path search. For the construction of the reference frame, the c point has been set at a ﬁxed position in
+
+s
+
+β2
+
+2
+
+β1 2
+
+β4
+
+3
+
+b2 b1
+
+α2
+
+β4 2
+
+1
+
+α1
+
+1
+
+β4 1
+
+α3
+
+α3 2
+
+1
+
+β3 3
+b3
+
+b4
+
+α2 0
+
+α1 0
+
+α5 0
+
+c
+
+α5 1
+
+α3 0
+
+α4
+
+0
+
+b5
+
+β5 2
+
+g
+
+s
+
+β2
+
+2
+
+b2 α2
+1
+
+β1
+
+2
+
+β4
+
+3
+
+β3 3
+
+b1
+
+b
+
+β4
+
+3
+
+2
+
+α2
+
+α1 0
+
+α5
+
+0
+
+0
+
+c
+
+α3 0
+
+α4
+
+0
+
+α1
+
+α3 2
+
+1
+
+β4 1
+
+α3
+
+1
+
+b4
+
+α5 1
+
+b5
+
+β5 2
+
+g
+
+2-α21 α11 β41 α31 α51
+
+s
+
+β2
+
+2
+
+b2
+
+α2 1
+
+β1 2
+
+β4
+
+3
+
+β3 3
+
+b
+
+1
+
+b
+
+3
+
+β4
+
+2
+
+α1
+
+α3 2
+
+1
+
+β4 1
+
+α3
+
+1
+
+b
+
+α2 0
+
+α1
+
+4
+
+0
+α5
+
+α5 1
+
+0
+
+c
+
+α3 0
+
+α4
+
+0
+
+b5
+
+β5 2
+
+g
+
+8-β22 α11 β41 α31 α51
+
+s
+
+β2
+
+2
+
+b2 α2
+1
+
+β1
+
+2
+
+β4
+
+3
+
+β3 3
+
+b
+
+1
+
+b
+
+3
+
+β4
+
+2
+
+α2 α1 00
+
+α5
+
+0
+
+c
+
+α3 0
+
+α4
+
+0
+
+α1 1 β4
+
+α3 2
+
+1 α3
+
+1
+
+b4
+
+α5 1
+
+b5
+
+β5 2
+
+g
+
+3-α21 α11 β41 α31 β52
+
+9-β22 α11 β41 α31 β52
+
+Figure 4: Paths for the four homotopy classes with the
+
+smaller lower bound in Table 1.
+
+order to ensure the same topological graph construction –and homotopy classes generation– through different executions. The homotopy classes have been set at a maximum of 20 characters length. In order to show all the possible results, no time restrictions have been taken into consideration. The computations have been carried out with a laptop equipped with an Intel CoreTM Duo@1.83GHz processor and 2GB of RAM.
+
+4.1 Cluttered Environment
+
+Our method has been applied in a cluttered environment using a 200x200 pixels bitmap. Figure 4 depicts the scenario with the paths of the best homotopy classes, according to their lower bound. The construction of the reference frame, the topological graph and the generation of the homotopy classes with their lower bound computation took 7.9ms. Table 1 shows the homotopy classes sorted by their lower bound with the path cost and the accumulated computation time, which takes into account the homotopy classes computation and the path generation. The lower bound and the path cost have been normalized with the cost of the optimal path computed with the A* algorithm. It can be appreciated that using the HBug the computation time for the paths of the 13 homotopy classes is almost negligible (0.374ms) compared with the 7.9ms that takes the rest of the process.
+When operating under time restrictions, it is possible to stop the path search when the lower bound
+
+127
+
+ICINCO2012-9thInternationalConferenceonInformaticsinControl,AutomationandRobotics
+
+Table 1: Homotopy classes of Figure 4 environment sorted by their lower bound.
+
+Idx Homotopy class
+
+Lower bound Cost Cumulated
+
+time (ms)
+
+2
+
+α21 α11 β41 α31 α51
+
+8
+
+β22 α11 β41 α31 α51
+
+3
+
+α21 α11 β41 α31 β52
+
+9
+
+β22 α11 β41 α31 β52
+
+1
+
+α50 α30 α40 α10 α20
+
+11
+
+β22 β12 β42 α32 β52
+
+10
+
+β22 β12 β42 α32 α51
+
+13
+
+β22 β12 β43 β33 β52
+
+5
+
+α21 β12 β42 α32 β52
+
+4
+
+α21 β12 β42 α32 α51
+
+7
+
+α21 β12 β43 β33 β52
+
+12
+
+β22 β12 β43 β33 α51
+
+6
+
+α21 β12 β43 β33 α51
+
+0.93 1.16 0.94 1.20 0.99 1.43 1.00 1.45 1.04 1.48 1.08 1.53 1.13 1.51 1.18 1.31 1.26 2.02 1.32 1.99 1.36 1.80 1.40 1.77 1.58 2.26
+
+7.927 7.950 7.981 8.007 8.035 8.063 8.084 8.106 8.142 8.174 8.205 8.236 8.274
+
+Table 2: The ﬁve homotopy classes of the large environment with the smaller lower bound and their generation index.
+
+Idx Homotopy class
+
+25
+
+α15−1 α90 α120 α10 α40 α60 α50 α81 α3−1 α112 α132 β72 α2−2 α142 β102
+
+26
+
+α15−1 α90 α120 α10 α40 α60 α50 α81 α3−1 α112 α132 β72 α2−2 β143 β102
+
+5
+
+α10−1 α14−1 β21 α7−1 α13−1 α11−1 α30 α80 β51 α61 α4−1 α1−2 α122 ...
+
+...β92 α152
+
+1
+
+α10−1 α14−1 β21 α7−1 α13−1 α11−1 α30 α80 α50 α60 α40 α1−2 α122 ...
+
+...β92 α152
+
+41
+
+α15−1 α90 α120 α10 β41 α6−1 α5−1 α81 α3−1 α112 α132 β72 α2−2 ...
+
+...α142 β102
+
+of the next homotopy class –whose path is going to be computed– is higher than the minimum cost of the paths already computed. In such case, it is ensured that the best path with the HBug has been already computed because it is not possible to obtain a path with a lower cost than the lower bound. For instance, in Table 1 the HBug would stop before computing path for homotopy class with index 13 since its lower bound (1.18) is higher than the path length obtained with index 2 class (1.16).
+
+4.2 Scalability
+
+The scalability of the method has been tested in a bitmap of 1000x1000 pixels with 15 irregular obstacles (Figure 5). The construction of the reference frame, the topological graph and the generation of 112 homotopy classes with their lower bound computation took 0.304s. The HBug has been used to compute the path for all homotopy classes of the scenario. The homotopy classes with the smaller lower bound, shown in Table 2, and their paths computed with the HBug are depicted in Figure 5. Figure 6 shows the cost and computation time for each homotopy class path computed with the HBug. The homotopy classes have been sorted according to their lower bound. The path cost and the lower bound have been normalized
+
+β3 1
+α8 −1
+
+α11 −1
+
+α13
+
+α7 −1
+
+β2 1
+
+−1
+
+s
+
+α14 α10
+
+−1
+
+−1
+
+b3 α3
+0
+α8 0
+
+b2
+
+α11 0
+
+α13 0
+
+α2 0
+
+α14 0
+
+α15 −1
+
+α9 0
+
+α12
+
+b1
+
+0
+
+α1 0
+
+b4
+
+β5 2
+
+β5 1
+
+b6
+
+α6
+
+β6
+
+1
+
+2
+
+α4
+
+−1
+
+β12 3
+
+α1 −2
+
+α12 2
+
+β9 2
+b12
+
+β9 3
+
+b15
+
+b
+
+α5 0
+
+5 α6
+
+0
+
+α4 0
+
+α1 −1
+α12 1 β9
+1
+
+b9 α15
+1
+
+c
+
+α10
+
+α7 0
+
+0
+
+α15 0
+
+b7
+
+α11
+
+β7
+
+α13 1
+
+1
+
+1
+
+α10 1
+
+α2 −1
+
+α14 1
+b10
+
+α15 2
+
+β10 2
+
+α14 2 b14 α2 −2
+
+α8 1
+α3 −1
+α11 2
+α13 2
+β7 2 b13
+
+β1
+
+25
+
+1
+
+26
+
+5
+
+1
+
+41
+
+β4 1
+α6 −1
+α5 −1
+
+b 8 β8
+2
+α3 −2
+b11 β11
+3
+
+β15 3
+
+g
+
+β14 3
+
+β7
+
+β13 3
+
+3
+
+Figure 5: Paths of the ﬁve homotopy classes with the smaller lower bound computed with the HBug. The class associated to the index can be found in Table 2.
+
+2.5
+
+Cost
+
+Lower bound
+
+2
+
+Time
+
+x 10−4 2 1.8
+
+Lower bound & Cost Time (s)
+
+1.5
+
+1.6
+
+1
+
+1.4
+
+0.5
+
+1.2
+
+0
+
+1
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+Nº of homotopy class
+
+Figure 6: Normalized cost, normalized lower bound and computation time for paths generated with the HBug for each homotopy class.
+
+with respect to the A* path cost. If time restrictions were applied, the HBug would compute only till the fourth path.
+The fastest path was generated in 1.12x10−4s. It corresponds to the ﬁrst class (index 25) with a path cost only 1.05 times the optimal solution. The homotopy class 110 (index 102) was the one that took more time to be computed (1.98x10−4s) with a cost 2.24 times the global optimal solution. The mean computation per path was only (1.50x10−4s). In this environment, the paths for the whole set of homotopy classes were computed in 16.8ms, which is almost negligible when compared with the 304ms spent in the generation of the reference frame, topological graph and the generation of the homotopy classes with their lower bound.
+
+128
+
+ABug-basedPathPlannerGuidedwithHomotopyClasses
+
+Cost
+
+2 1.8 1.6 1.4 1.2
+1 0
+
+A* RRT Bug2 ARA* ARRT HA* HRRT HBug
+
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+80
+
+Time (s)
+
+1.8 1.7 1.6 1.5 1.4
+0.35 0.4 0.45 0.5 0.55 0.6
+
+1.3
+
+1.2
+
+1.1
+
+1 0.3042
+
+0.3044
+
+0.3046
+
+Figure 7: Comparison of the HA*, HRRT and HBug paths of the ﬁve homotopy classes with the smaller lower bound vs A*, RRT, ARA*, ARRT and Bug2 algorithms.
+
+4.3 Path Planners Comparison
+
+The HBug has been compared against the A*, the RRT, their respective anytime versions (ARA* and ARRT) and the Bug2 algorithm. The comparison also includes the results obtained with the Homotopic A* (HA*) (Herna´ndez et al., 2011b) and the Homotopic RRT (HRRT) (Herna´ndez et al., 2011a), two path planners that constrain the path search according to the homotopy classes previously generated. The A*, the RRT and the Bug2 algorithms are designed to compute only one path towards the goal; ARA* and ARRT compute several paths but without taking into account their homotopy. Because of that, the comparison with these well-known path planners are against the ﬁve homotopy classes with the smaller lower bound (see Table 2). Figure 7 depicts the comparison. In order to ensure the stabilization of the results of the probabilistic path planners, the data obtained with the RRT and the ARRT are the average of 100 executions. Notice that all the time values of the HA*, HRRT and HBug include the computation time of the reference frame and topological graph construction, and the generation of the homotopy classes with their lower bound.
+The A* returned the optimal path in 11.90s. The ARA* generated the ﬁrst solution in 7.40s and found the optimal solution after 301s. The RRT algorithm took 0.012s to compute a path with a cost 1.48 times the global optimal solution. The ARRT took 3.13s to obtain the ﬁrst solution and 78.30s to compute all of them, ensuring that any new generated solution is closer to the optimal one. The Bug2 algorithm com-
+
+puted the path in 0.044s with a cost 1.90 times the optimal solution. In order to obtain the best possible path with this algorithm, we have chosen manually the directions to surround the obstacles: the m-line, which connects the start with the goal, intersects with the obstacles labeled b1, b7 and b10; the directions are clockwise for b1, counter-clockwise for b7 and clockwise for b10.
+The HA* computed the optimal path (index 25) in 7.79s and obtained the path for the ﬁve selected homotopy classes in 71.61s. The HRRT, the best solution (index 25) was computed in 0.373s with a cost 1.40 times the optimal one, and obtained the path for the ﬁve homotopy classes with the smaller lower bound in 0.603s. Using the HBug, our path planning method computed the best solution (index 25) in 0.304s with a cost 1.05 times the optimal one, and obtained the path for the whole set of homotopy classes in 0.321s. The computation of the paths with the HBug for each homotopy class offers a very good performance. Only the RRT and Bug2 had lower computation times at expenses of ﬁnding higher cost solutions. Notice that most of the time was spent in the computation of the reference frame, the topological graph and the generation of the homotopy classes with their lower bound. The HBug shows a very good performance because part of its solution is implicitly generated on the lower bound computation. When the lower bound path intersects with an obstacle of the scenario, its boundary is followed in clockwise or counterclockwise direction according to the homotopy class until the lower bound path leaves the obstacle. Notice that the whole boundary of each obstacle is already computed by the CL algorithm.
+The HA* computes the shortest path for each homotopy class, which is the optimal solution according to the topological constraints. Because of that, Figure 8 depicts a comparison of the solutions generated with the HRRT and the HBug against the HA* cost for each speciﬁc homotopy class. The HRRT generates solutions between 1.35 (class 15, index 73) and 1.82 (class 83, index 61), with a mean of 1.57 times with respect the optimal path cost for the speciﬁc homotopy class generated with the HA*. Finally, the HBug generates solutions between 1.03 (class 5, index 41) and 1.19 (class 100, index 101), with a mean of 1.1 times with respect the optimal path cost computed with the HA*.
+5 CONCLUSIONS
+This paper proposes the HBug path planning algorithm to compute efﬁciently paths that accomplish ho-
+
+129
+
+ICINCO2012-9thInternationalConferenceonInformaticsinControl,AutomationandRobotics
+
+1.9
+
+HRRT
+
+1.8
+
+HBug
+
+1.7
+
+1.6
+
+1.5
+
+Cost
+
+1.4
+
+1.3
+
+1.2
+
+1.1
+
+1
+
+0.9
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+Nº of homotopy class
+
+Figure 8: HRRT and HBug paths cost with respect to the HA* cost for each homotopy class.
+
+motopy classes in any 2D workspace. Given a map with obstacles, we use a method we developed to generate systematically the homotopy classes of the environment. After sorting them according to a lower bound, the HBug algorithm generates paths in the C-space following the homotopy classes previously found. The path planner offers very good performance since the path search for a homotopy class is guided by its lower bound, making the path planning computation time almost negligible when compared with the time used to generate the homotopy classes. Results obtained with the HBug, have shown up that it is a homotopic path planner suitable for robots with very limited computational capabilities or applications in which the time to perform path planning is highly constrained.
+Future work will consists in applying our method into one of the vehicles of our lab. The HBug will be improved by taking into account the robot’s kinodynamic constraints during the path generation. These paths will be used to guide the robot autonomously.
+
+ACKNOWLEDGEMENTS
+The authors of this paper gratefully acknowledge the support from Spanish government under the grant DPI2011-27977-C03-02 and the TRIDENT EU FP7Project under the grant agreement No: ICT-248497.
+
+REFERENCES
+Antich, J., Ortiz, A., and Minguez, J. (2009). A buginspired algorithm for efﬁcient anytime path planning. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 5407 –5413.
+Bespamyatnikh, S. (2003). Computing homotopic shortest paths in the plane. Journal of Algorithms, 49:284– 303.
+Bhattacharya, S., Kumar, V., and Likhachev., M. (2010). Search-based path planning with homotopy class constraints. In Proceedings of the National Conference on
+
+Artiﬁcial Intelligence (AAAI), volume 2, pages 1230– 1237, Atlanta, Georgia, USA.
+Chang, F., jen Chen, C., and Lu, C.-J. (2004). A linear-time component-labeling algorithm using contour tracing technique. Computer Vision and Image Understanding, 93:206–220.
+Chazelle, B. (1982). A theorem on polygon cutting with applications. In 23rd Annual Symposium on Foundations of Computer Science (SFCS), pages 339 –349.
+Dudek, G., Jenkin, M., Milios, E., and Wilkes, D. (1991). Robotic exploration as graph construction. IEEE Transactions on Robotics and Automation, 7(6):859– 865.
+Efrat, A., Kobourov, S., and Lubiw, A. (2002). Computing homotopic shortest paths efﬁciently. In Mo¨hring, R. and Raman, R., editors, Algorithms – ESA 2002, volume 2461 of Lecture Notes in Computer Science, pages 277–288. Springer Berlin / Heidelberg.
+Fabrizi, E. and Safﬁotti, A. (2000). Extracting topologybased maps from gridmaps. In IEEE International Conference on Robotics and Automation (ICRA), pages 2972–2978.
+Ferguson, D., Likhachev, M., and Stentz, A. (2005). A guide to heuristic-based path planning. In Proceedings of the International Workshop on Planning under Uncertainty for Autonomous Systems, International Conference on Automated Planning and Scheduling (ICAPS).
+Ferguson, D. and Stentz, A. (2006). Anytime RRTs. In Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 5369 – 5375.
+Fujita, Y., Nakamura, Y., and Shiller, Z. (2003). Dual dijkstra search for paths with different topologies. In IEEE International Conference on Robotics and Automation (ICRA), volume 3, pages 3359–3364.
+Grigoriev, D. and Slissenko, A. (1998). Polytime algorithm for the shortest path in a homotopy class amidst semialgebraic obstacles in the plane. In Proceedings of the International Symposium on Symbolic and Algebraic Computation (ISSAC), pages 17–24, New York, NY, USA. ACM.
+Herna´ndez, E., Carreras, M., Antich, J., Ridao, P., and A.Ortiz (2011a). A topologically guided path planner for an AUV using homotopy classes. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA), pages 2337–2343, Shanghai, China.
+Herna´ndez, E., Carreras, M., Antich, J., Ridao, P., and Ortiz, A. (2011b). A search-based path planning algorithm with topological constraints. Application to an AUV. In Proceedings of the 18th IFAC World Congress, Milan, Italy.
+Herna´ndez, E., Carreras, M., and Ridao, P. (2011c). A path planning algorithm for an AUV guided with homotopy classes. In Proceedings of the 21st International Conference on Automated Planning and Scheduling (ICAPS), Freiburg, Germany.
+Jenkins, K. D. (1991). The shortest path problem in the plane with obstacles: A graph modeling approach to producing ﬁnite search lists of homotopy classes.
+
+130
+
+ABug-basedPathPlannerGuidedwithHomotopyClasses
+Master’s thesis, Naval Postgraduate School, Monterey, California. Latombe, J. (1991). Robot Motion Planning. Kluwer Academic Publishers, Boston, MA. Likhachev, M., Gordon, G., and Thrun, S. (2004). ARA*: Anytime A* with provable bounds on sub-optimality. In Proceedings of the Advances in Neural Inforamtion Processing Systems 16 (NIPS). MIT Press. Lumelsky, V. and Stepanov, A. (1987). Path-planning strategies for a point mobile automaton moving amidst unknown obstacles of arbitrary shape. Algorithmica, 2:403–430. Schmitzberger, E., Bouchet, J., Dufaut, M., Wolf, D., and Husson, R. (2002). Capture of homotopy classes with probabilistic road map. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), volume 3, pages 2317–2322. Takahashi, O. and Schilling, R. (1989). Motion planning in a plane using generalized voronoi diagrams. IEEE Transactions on Robotics and Automation, 5(2):143 – 150.
+131
+

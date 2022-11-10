@@ -1,0 +1,1714 @@
+arXiv:1506.08903v7 [math.AT] 12 Sep 2017
+
+A Roadmap for the Computation of Persistent Homology
+Nina Otter (otter@maths.ox.ac.uk)∗‡ Mason A. Porter (mason@math.ucla.edu)∗‡§ Ulrike Tillmann (tillmann@maths.ox.ac.uk)∗‡ Peter Grindrod (grindrod@maths.ox.ac.uk)∗ Heather A. Harrington (harrington@maths.ox.ac.uk)∗
+Abstract Persistent homology (PH) is a method used in topological data analysis (TDA) to study qualitative features of data that persist across multiple scales. It is robust to perturbations of input data, independent of dimensions and coordinates, and provides a compact representation of the qualitative features of the input. The computation of PH is an open area with numerous important and fascinating challenges. The ﬁeld of PH computation is evolving rapidly, and new algorithms and software implementations are being updated and released at a rapid pace. The purposes of our article are to (1) introduce theory and computational methods for PH to a broad range of computational scientists and (2) provide benchmarks of state-of-the-art implementations for the computation of PH. We give a friendly introduction to PH, navigate the for the computation of PH with an eye towards applications, and use a range of synthetic and real-world data sets to evaluate currently available open-source implementations for the computation of PH. Based on our benchmarking, we indicate which algorithms and implementations are best suited to diﬀerent types of data sets. In an accompanying tutorial, we provide guidelines for the computation of PH. We make publicly available all scripts that we wrote for the tutorial, and we make available the processed version of the data sets used in the benchmarking.
+Keywords: persistent homology, topological data analysis, point-cloud data, networks
+∗Mathematical Institute, University of Oxford, Oxford OX2 6GG, UK †CABDyN Complexity Centre, University of Oxford, Oxford OX1 1HP, UK ‡The Alan Turing Institute, 96 Euston Road, London NW1 2DB, UK §Department of Mathematics, UCLA, Los Angeles, CA 90095, USA
+1
+
+2
+1 Introduction
+The amount of available data has increased dramatically in recent years, and this situation — which will only become more extreme — necessitates the development of innovative and eﬃcient data-processing methods. Making sense of the vast amount of data is diﬃcult: on one hand, the sheer size of the data poses challenges; on the other hand, the complexity of the data, which includes situations in which data is noisy, high-dimensional, and/or incomplete, is perhaps an even more signiﬁcant challenge. The use of clustering techniques and other ideas from areas such as computer science, machine learning, and uncertainty quantiﬁcation — along with mathematical and statistical models — are often very useful for data analysis (see, e.g., [77, 82, 98, 141] and many other references). However, recent mathematical developments are shedding new light on such “traditional” ideas, forging new approaches of their own, and helping people to better decipher increasingly complicated structure in data.
+Techniques from the relatively new subject of “topological data analysis” (TDA) have provided a wealth of new insights in the study of data in an increasingly diverse set of applications — including sensor-network coverage [52], proteins [76,102,167,168], three-dimensional structure of DNA [72], development of cells [139], stability of fullerene molecules [166], robotics [17, 136, 154], signals in images [40, 86], periodicity in time series [133], cancer [45, 56, 129, 144], phylogenetics [29, 35, 71], natural images [32], the spread of contagions [114, 150], self-similarity in geometry [116], materials science [88, 103, 104, 110], ﬁnancial networks [80, 111], diverse applications in neuroscience [16, 47, 48, 61, 81, 97, 115, 170], classiﬁcation of weighted networks [146], collaboration networks [34, 131], analysis of mobile phone data [8], collective behavior in biology [152], time-series output of dynamical systems [117], and more. There are numerous others, and new applications of TDA appear in journals and preprint servers increasingly frequently. There are also interesting computational eﬀorts, such as [158].
+TDA is a ﬁeld that lies at the intersection of data analysis, algebraic topology, computational geometry, computer science, statistics, and other related areas. The main goal of TDA is to use ideas and results from geometry and topology to develop tools for studying qualitative features of data. To achieve this goal, one needs precise deﬁnitions of qualitative features, tools to compute them in practice, and some guarantee about the robustness of those features. One way to address all three points is a method in TDA called persistent homology (PH). This method is appealing for applications because it is based on algebraic topology, which gives a well-understood theoretical framework to study qualitative features of data with complex structure, is computable via linear algebra, and is robust with respect to small perturbations in input data.
+Types of data sets that can be studied with PH include ﬁnite metric spaces, digital images, level-sets of real-valued functions, and networks (see Section 5.1). In the next two paragraphs, we give some motivation for the main ideas of persistent homology by discussing two examples of such data sets.
+Finite metric spaces are also called “point cloud” data sets in the TDA literature. From a topological point of view, ﬁnite metric spaces do not contain any interesting information. One thus considers a “thickening” of a point cloud at diﬀerent “scales of resolution” and then analyses the evolution of the resulting shape across the diﬀerent resolution scales. The qualitative features are given by topological invariants, and one can represent the variation of such invariants across the diﬀerent resolution scales in a compact way to summarize the “shape” of the data.
+As an illustration, consider the set of points in R2 that we show in Fig. 1. Let , which we interpret as a “distance parameter,” be a nonnegative real number (so = 0 gives the set of points). For diﬀerent values of , we construct a space S composed of vertices, edges, triangles, and higher-dimensional polytopes according to the following rule: We include an edge between two points i and j if and only if the Euclidean distance between them is no larger than ; we
+
+3
+include a triangle if and only if all of its edges are in S ; we include a tetrahedron if and only if all of its face triangles are in S ; and so on. For ≤ , it then follows that the space S is contained in the space S . This yields a nested sequence of spaces, as we illustrate in Fig. 1(a). Our construction of nested spaces gives an example of a “ﬁltered Vietoris–Rips complex,” which we deﬁne and discuss in Section 5.2.
+
+Figure 1:
+
+(a)
+
+A
+
+ﬁnite
+
+set
+
+of
+
+points
+
+in
+
+2
+R
+
+(for
+
+= 0) and a nested sequence of spaces obtained from
+
+it (from = 0 to = 2.1). (b) Barcode for the nested sequence of spaces illustrated in (a). Solid lines
+
+represent the lifetime of components, and dashed lines represent the lifetime of holes.
+
+By using homology, a tool in algebraic topology, one can measure several features of the spaces S — including the numbers of components, holes, and voids (higher-dimensional versions of holes). One can then represent the lifetime of such features using a ﬁnite collection of intervals known as a “barcode.” Roughly, the left endpoint of an interval represents the birth of a feature, and its right endpoint represents the death of the same feature. In Fig. 1(b), we reproduce such intervals for the number of components (blue solid lines) and the number of holes (violet dashed lines). In Fig. 1(b), we observe a dashed line that is signiﬁcantly longer than the other dashed lines. This indicates that the data set has a long-lived hole. By contrast, one can potentially construe the shorter dashed lines as noise. However, note that while widespread, such an interpretation is not correct in general; for applications in which one considers some short and medium-sized intervals as features rather than noise, see [16, 148]. When a feature is still “alive” at the largest value of that we consider, the lifetime interval is an inﬁnite interval, which we indicate by putting an arrowhead at the right endpoint of the interval. In Fig. 1(b), we see that there is exactly one solid line that lives up to = 2.1. One can use information about shorter solid lines to extract information about how data is clustered in a similar way as with linkage-clustering methods [77].
+One of the most challenging parts of using PH is statistical interpretation of results. From a statistical point of view, a barcode like the one in Fig. 1(b) is an unknown quantity that one is trying to estimate; one therefore needs methods for quantitatively assessing the quality of the
+
+4
+
+ 115 119 119 119 119 
+
+ 115 94 94 94 114 
+
+G
+
+=
+
+ 
+
+115
+
+94
+
+139
+
+100
+
+114
+
+ 
+
+ 
+
+115
+
+94
+
+99
+
+99
+
+114
+
+ 
+
+115 117 117 117 117
+
+(a)
+
+(b)
+
+•••
+
+(c)
+
+•
+
+•
+
+•••
+
+•
+
+•••••
+
+••
+
+••
+
+•••••
+
+•
+
+•••••
+
+•••••
+
+••
+
+••
+
+•••••
+
+•••••
+
+••••• ••••• ••••• ••••• •••••
+
+100
+
+115
+
+130
+
+145
+
+(d)
+Figure 2: (a) A gray-scale image, (b) the matrix of gray values, (c) the ﬁltered cubical complex associated to the digital image, and (d) the barcode for the nested sequence of spaces in panel (c). A solid line represents the lifetime of a component, and a dashed line represents the lifetime of a hole.
+barcodes that one obtains with computations. The challenge is twofold. On one hand, there is a cultural obstacle: practitioners of TDA often have backgrounds in pure topology and are not well-versed in statistical approaches to data analysis [4]. On the other hand, the space of barcodes lacks geometric properties that would make it easy to deﬁne basic concepts such as mean, median, and so on. Current research is focused both on studying geometric properties of this space and on studying methods that map this space to spaces that have better geometric properties for statistics. In Section 5.4, we give a brief overview of the challenges and current approaches for statistical interpretation of barcodes. This is an active area of research and an important endeavor, as few statistical tools are currently available for interpreting results in applications of PH.
+We now discuss a second example related to digital images. (For an illustration, see Fig. 2(a).) Digital images have a “cubical” structure, given by the pixels (for 2-dimensional digital images) or voxels (for 3-dimensional images). Therefore, one approach to study digital images uses combinatorial structures called “cubical complexes.” (For a diﬀerent approach to the study of digital images, see Section 5.1.) Roughly, cubical complexes are topological spaces built from a union of vertices, edges, squares, cubes, and higher-dimensional hypercubes. An eﬃcient way [157] to build a cubical complex from a 2-dimensional digital image consists of assigning a
+
+5
+vertex to every pixel, then joining vertices corresponding to adjacent pixels by an edge, and ﬁlling in the resulting squares. One proceeds in a similar way for 3-dimensional images. One then labels every vertex with an integer that corresponds to the gray value of the pixel, and one labels edges (respectively, squares) with the maximum of the values of the adjacent vertices (respectively, edges). One can then construct a nested sequence of cubical complexes C0 ⊂ C1 ⊂ · · · ⊂ C256, where for each i ∈ {0, 1, . . . , 256}, the cubical complex Ci contains all vertices, edges, squares, and cubes that are labeled by a number less than or equal to i. (See Fig. 2(c) for an example.) Such a sequence of cubical complexes is also called a “ﬁltered cubical complex.” Similar to the previous example, one can use homology to measure several features of the spaces Ci (see Fig. 2(d)).
+In the present article, we focus on persistent homology, but there are also other methods in TDA — including the Mapper algorithm [143], Euler calculus (see [79] for an introduction with an eye towards applications), cellular sheaves [46,79], and many more. We refer readers who wish to learn more about the foundations of TDA to the article [30], which discusses why topology and functoriality are essential for data analysis. We point to several introductory papers, books, and two videos on PH at the end of Section 4.
+The ﬁrst algorithm for the computation of PH was introduced for computation over F2 (the ﬁeld with two elements) in [67] and over general ﬁelds in [177]. Since then, several algorithms and optimization techniques have been presented, and there are now various powerful implementations of PH [10, 11, 14, 119, 123, 126, 149]. Those wishing to try PH for computations may ﬁnd it diﬃcult to discern which implementations and algorithms are best suited for a given task. The ﬁeld of PH is evolving continually, and new software implementations and updates are released at a rapid pace. Not all of them are well-documented, and (as is well-known in the TDA community), the computation of PH for large data sets is computationally very expensive.
+To our knowledge, there exists neither an overview of the various computational methods for PH nor a comprehensive benchmarking of the state-of-the-art implementations for the computation of persistent homology. In the present article, we close this gap: we introduce computation of PH to a general audience of applied mathematicians and computational scientists, oﬀer guidelines for the computation of PH, and test the existing open-source published libraries for the computation of PH.
+The rest of our paper is organized as follows. In Section 2, we discuss related work. We then introduce homology in Section 3 and introduce PH in Section 4. We discuss the various steps of the pipeline for the computation of PH in Section 5, and we brieﬂy examine algorithms for “generalized persistence” in Section 6. In Section 7, we give an overview of software libraries, discuss our benchmarking of a collection of them, and provide guidelines for which software or algorithm is better suited to which data set. (We provide speciﬁc guidelines for the computation of PH with the diﬀerent libraries in the Tutorial in the Supplementary Information (SI).) In Section 8, we discuss future directions for the computation of PH.
+2 Related work
+In our work, we introduce PH to non-experts with an eye towards applications, and we benchmark state-of-the-art libraries for the computation of PH. In this section, we discuss related work for both of these points.
+There are several excellent introductions to the theory of PH (see the references at the end of Section 4.1), but none of them emphasizes the actual computation of PH by providing speciﬁc guidelines for people who want to do computations. In the present paper, we navigate the theory of PH with an eye towards applications, and we provide guidelines for the computation
+
+6
+of PH using the open-source libraries Perseus, Dionysus, DIPHA, javaPlex, and Gudhi. We include a tutorial (see the SI) that gives speciﬁc instructions for how to use the diﬀerent functionalities that are implemented in these libraries. Much of this information is scattered throughout numerous diﬀerent papers, websites, and even source code of implementations, and we believe that it is beneﬁcial to the applied mathematics community (especially people who seek an entry point into PH) to ﬁnd all of this information in one place. The functionalities that we cover include plots of barcodes and persistence diagrams and the computation of PH with Vietoris–Rips complexes, alpha complexes, Cˇ ech complexes, witness complexes, and cubical complexes for image data. We thus believe that our paper closes a gap in introducing PH to people interested in applications, while our tutorial complements existing tutorials (see, e.g. [2, 26, 74]).
+We believe that there is a need for a thorough benchmarking of the state-of-the-art libraries. In our work, we use twelve diﬀerent data sets to test and compare the libraries javaPlex, Gudhi, DIPHA, Dionysus, and Perseus, and we obtain some surprising results (see Section 7.2). There are several benchmarkings in the PH literature; we are aware of the following ones: the benchmarking in [53] compares the implementations of standard and dual algorithms in Dionysus; the one in [127] compares the Morse-theoretic reduction algorithm with the standard algorithm; the one in [14] compares all of the data structures and algorithms implemented in PHAT; the benchmarking in [13] compares PHAT and its spin-oﬀ DIPHA; and the benchmarking in C. Maria’s doctoral thesis [118] is to our knowledge the only existing benchmarking that compares packages from diﬀerent authors. However, Maria compares only up to three diﬀerent implementations at one time, and he used the package jPlex (which is no longer maintained) instead of the javaPlex library (its successor). Additionally, the widely used library Perseus (e.g., it was used in [103, 104, 145, 150]) does not appear in Maria’s benchmarking.
+3 Homology
+Assume that one is given data that lies in a metric space, such as a subset of Euclidean space with an inherited distance function. In many situations, one is not interested in the precise geometry of these spaces, but instead seeks to understand some basic characteristics, such as the number of components or the existence of holes and voids. Algebraic topology captures these basic characteristics either by counting them or by associating vector spaces or more sophisticated algebraic structures to them. Here we are interested in homology, which associates one vector space Hi(X) to a space X for each natural number i ∈ {0, 1, 2, . . . }. The dimension of H0(X) counts the number of path components in X, the dimension of H1(X) is a count of the number of holes, and the dimension of H2(X) is a count of the number of voids. An important property of these algebraic structures is that they are robust, as they do not change when the underlying space is transformed by bending, stretching, or other deformations. In technical terms, they are homotopy invariant. 1
+It can be very diﬃcult to compute the homology of arbitrary topological spaces. We thus approximate our spaces by combinatorial structures called “simplicial complexes,” for which homology can be easily computed algorithmically. Indeed, often one is not even given the space X, but instead possesses only a discrete sample set S from which to build a simplicial complex following one of the recipes described in Sections 3.2 and 5.2.
+1Conversely, under favorable conditions (see [87, Corollary 4.33]), these algebraic invariants determine the topology of a space up to homotopy— an equivalence relation that is much coarser (and easier to work with) than the more familiar notion of homeomorphy.
+
+7
+
+3.1 Simplicial complexes and their homology
+We begin by giving the deﬁnitions of simplicial complexes and of the maps between them. Roughly, a simplicial complex is a space that is built from a union of points, edges, triangles, tetrahedra, and higher-dimensional polytopes. We illustrate the main deﬁnitions given in this section with the example in Fig. 3. As we pointed out in Section 1, “cubical complexes” give another way to associate a combinatorial structure to a topological space. In TDA, cubical complexes have been used primarily to study image data sets. One can compute PH for a nested sequence of cubical complexes in a similar way as for simplicial complexes, but the theory of PH for simplicial complexes is richer, and we therefore examine only simplicial homology and complexes in our discussions. See [94] for a treatment of cubical complexes and their homology.
+Deﬁnition 1 A simplicial complex2 is a collection K of non-empty subsets of a set K0 such that τ ⊂ σ and σ ∈ K guarantees that τ ∈ K and {v} ∈ K for all v ∈ K0. The elements of K0 are called vertices of K, and the elements of K are called simplices. Additionally, we say that a simplex has dimension p or is a p-simplex if it has a cardinality of p + 1. We use Kp to denote the collection of p-simplices. The k-skeleton of K is the union of the sets Kp for all p ∈ {0, 1, . . . , k}. If τ and σ are simplices such that τ ⊂ σ, then we call τ a face of σ. The dimension of K is deﬁned as the maximum of the dimensions of its simplices. A map of simplicial complexes, f : K → L, is a map f : K0 → L0 such that f (σ) ∈ L for all σ ∈ K.
+We give an example of a simplicial complex in Fig. 3(a) and an example of a map of simplicial complexes in Fig. 3(b). Deﬁnition 1 is rather abstract, but one can always interpret a ﬁnite simplicial complex K geometrically as a subset of RN for suﬃciently large N ; such a subset is called a “geometric realization,” and it is unique up to a canonical piecewise-linear homeomorphism. For example, the simplicial complex in Fig. 3(a) has a geometric realization given by the subset of R2 in Fig. 3(c).
+We now deﬁne homology for simplicial complexes. Let F2 denote the ﬁeld with two elements. Given a simplicial complex K, let Cp(K) denote the F2-vector space with basis given by the p-simplices of K. For any p ∈ {1, 2, . . . }, we deﬁne the linear map
+
+dp : Cp(K) → Cp−1(K) : σ →
+
+τ.
+
+τ ⊂σ,τ ∈Kp−1
+
+For p = 0, we deﬁne d0 to be the zero map. In words, dp maps each p-simplex to its boundary, the sum of its faces of codimension 1. Because the boundary of a boundary is always empty, the
+linear maps dp have the property that composing any two consecutive maps yields the zero map: for all p ∈ {0, 1, 2, . . . }, we have dp ◦ dp+1 = 0. Consequently, the image of dp+1 is contained in the kernel of dp, so we can take the quotient of kernel(dp) by image(dp+1). We can thus make the following deﬁnition.
+
+Deﬁnition 2 For any p ∈ {0, 1, 2, . . . }, the pth homology of a simplicial complex K is the quotient vector space
+Hp(K) := kernel(dp) / image(dp+1) .
+
+Its dimension
+
+βp(K) := dim Hp(K) = dim kernel(dp) − dim image(dp+1)
+
+is called the pth Betti number of K. Elements in the image of dp+1 are called p-boundaries, and elements in the kernel of dp are called p-cycles.
+
+2Note that this is usually called an“abstract simplicial complex” in the literature.
+
+8
+
+(a) A simplicial complex: K = {{a}, {b}, {c}, {d}, {e}, {a, b}, {a, c}, {a, d}, {b, c}, {c, d} , {a, b, c}} .
+
+(b) Let K be the simplicial complex in (a), and let K be the following simplicial complex: K = {{g}, {h}, {l}, {g, h}, {g, l}, {h, l}, {g, h, l}} .
+We deﬁne a map of simplicial complexes, f : K → K , as follows: h , if x=a
+f : K0 → K0 : x → g , otherwise .
+
+(c) Geometric realizations of the simplicial complexes in (a) and (b) are the following
+
+subsets of R2:
+
+d• •c
+
+•l
+
+e•
+
+a• •b
+
+g• •h
+
+Figure 3: (a) Example of a simplicial complex, (b) a map of simplicial complexes, and (c) a geometric realization of the simplicial complex in (a).
+
+Intuitively, the p-cycles that are not boundaries represent p-dimensional holes. Therefore, the pth Betti number “counts” the number of p-holes. Additionally, if K is a simplicial complex of dimension n, then for all p > n, we have that Hp(K) = 0, as Kp is empty and hence Cp(K) = 0. We therefore obtain the following sequence of vector spaces and linear maps:
+
+0 d−n→+1 Cn(K) −d→n . . . . . . −d→2 C1(K) −d→1 C0(K) −d→0 0 .
+We give an example of such a sequence in Fig. 4(a), for which we also report the Betti numbers. One of the most important properties of simplicial homology is “functoriality.” Any map
+f : K → K of simplicial complexes induces the following F2-linear map:
+
+fp : Cp(K) → Cp(K ) :
+
+cσσ →
+
+cσf (σ) , for any p ∈ {0, 1, 2, . . . } ,
+
+σ∈Kp
+
+σ∈Kp such that f (σ)∈Kp
+
+where cσ ∈ F2. Additionally, fp ◦ dp+1 = dp+1 ◦ fp+1, and the map fp therefore induces the following linear map between homology vector spaces:
+
+fp : Hp(K) → Hp(K ) ,
+[c] → [fp(c)] .
+(We give an example of such a map in Fig. 4(b).) Consequently, to any map f : K → K of simplicial complexes, we can assign a map fp : Hp(K) → Hp(K ) for any p ∈ {0, 1, 2, . . . }. This assignment has the important property that given a pair of composable maps of simplicial complexes, f : K −→ K and g : K −→ K , the map (g ◦ f )p : Hp(K) → Hp(K ) is equal to the
+
+9
+
+(a) We compute the simplicial homology for the simplicial complex in Fig. 3(a). We have the following sequence of vector spaces and linear maps:
+
+0 −→ F2 −d→2 F52 −d→1 F52 −d→0 0 .
+
+Let abc denote the basis vector that corresponds to the simplex {a, b, c}. Similarly,
+
+we use ab, ac, ad, bc, and cd to denote the basis vectors that correspond to the 1-
+
+simplices; and we use a, b, c, d, and e to denote the basis vectors that correspond to
+
+the 0-simplices. We order the bases of the vector spaces using lexicographic order. We
+
+then have
+
+d2 = 1 1 0 1 0 t
+
+and 1 1 1 0 0
+1 0 0 1 0 d1 = 0 1 0 1 1 .
+0 0 1 0 1
+00000
+
+One can then compute that β0(K) = 2, β1(K) = 1, and all higher Betti numbers are 0.
+
+(b) The map of simplicial complexes, f : K → K , in Fig. 3(b) induces the map
+f0 : C0(K) → C0(K ) on chain complexes that sends the basis element a to h (note that we use the same notation as in part (a) of this box). Furthermore, it sends the basis elements that correspond to the other 0-simplices of K to g, and it induces the map f1 : C1(K) → C1(K ) that sends the basis elements ab, ac, and ad to cd and sends the basis elements cd and bc to 0. This gives a map f0 on degree-0 homology that sends both generators of H0(K) to the generator of H0(K ). It follows that Hi(K ) = 0 for all i ≥ 1, so fi is the zero map for i ≥ 1.
+
+Figure 4: (a) Computation of simplicial homology for the simplicial complex in Fig. 3(a) and (b) induced map in degree-0 homology for the map of simplicial complexes in Fig. 3(b).
+composition of the maps induced by f and g. That is, (g ◦ f )p = gp ◦ fp. The fact that a map of simplicial complexes induces a map on homology that is compatible with composition is called functoriality, and it is crucial for the deﬁnition of persistent homology (see Section 4.1).
+When working with simplicial complexes, one can modify a simplicial complex by removing or adding a pair of simplices (σ, τ ), where τ is a codimension-1 face of σ and σ is the only simplex that has τ as a face. The resulting simplicial complex has the same homology as the one with which we started. In Fig. 3 (a), we can remove the pair ({a, b, c}, {b, c}) and then the pair ({a, b}, {b}) without changing the Betti numbers. Such a move is called an elementary simplicial collapse [41]. In Section 5.2.6, we will see an application of this for the computation of PH.
+In this section, we have deﬁned simplicial homology over the ﬁeld F2 — i.e., “with coeﬃcients in F2.” One can be more general and instead deﬁne simplicial homology with coeﬃcients in any ﬁeld (or even in the integers). However, when 1 = −1, one needs to take more care when deﬁning the boundary maps dp to ensure that dp◦dp+1 remains the zero map. Consequently, the deﬁnition
+
+10
+is more involved. For the purposes of the present paper, it suﬃces to consider homology with coeﬃcients in the ﬁeld F2. Indeed, we will see in Section 4 that to obtain topological summaries in the form of barcodes, we need to compute homology with coeﬃcients in a ﬁeld. Furthermore, as we summarize in Table 2 (in Section 7), most of the implementations for the computation of PH work with F2.
+We conclude this section with a warning: changing the coeﬃcient ﬁeld can aﬀect the Betti numbers. For example, if one computes the homology of the Klein bottle (see Section 7.1.1) with coeﬃcients in the ﬁeld Fp with p elements, where p is a prime, then β0(K) = 1 for all primes p. However, β1(K) = 2 and β2(K) = 1 if p = 2, but β1(K) = 1 and β2(K) = 0 for all other primes p. The fact that β2(K) = 0 for p = 2 arises from the nonorientability of the Klein bottle. The treatment of diﬀerent coeﬃcient ﬁelds is beyond the scope of our article, but interested readers can peruse [87] for an introduction to homology and [94] for an overview of computational homology.
+3.2 Building simplicial complexes
+As we discussed in Section 3.1, computing the homology of ﬁnite simplicial complexes boils down to linear algebra. The same is not true for the homology of an arbitrary space X, and one therefore tries to ﬁnd simplicial complexes whose homology approximates the homology of the space in an appropriate sense.
+An important tool is the Cˇ ech (Cˇ ) complex. Let U be a cover of X — i.e., a collection of subsets of X such that the union of the subsets is X. The k-simplices of the Cˇ ech complex are the non-empty intersections of k + 1 sets in the cover U. More precisely, we deﬁne the nerve of a collection of sets as follows.
+Deﬁnition 3 Let U = {Ui}i∈I be a non-empty collection of sets. The nerve of U is the simplicial complex with set of vertices given by I and k-simplices given by {i0, . . . , ik} if and only if Ui0 ∩ · · · ∩ Uik = ∅.
+If the cover of the sets is suﬃciently “nice,” then the Nerve Theorem implies that the nerve of the cover and the space X have the same homology [19, 65]. For example, suppose that we have a ﬁnite set of points S in a metric space X. We then can deﬁne, for every > 0, the space S as the union ∪x∈SB(x, ), where B(x, ) denotes the closed ball with radius centered at x. It follows that {B(x, ) | x ∈ S} is a cover of S , and the nerve of this cover is the Cˇech complex on S at scale . We denote this complex by Cˇ (S). If the space X is Euclidean space, then the Nerve Theorem guarantees that the simplicial complex Cˇ (S) recovers the homology of S .
+From a computational point of view, the Cˇ ech complex is expensive because one has to check for large numbers of intersections. Additionally, in the worst case, the Cˇ ech complex can have dimension |U| − 1, and it therefore can have many simplices in dimensions higher than the dimension of the underlying space. Ideally, it is desirable to construct simplicial complexes that approximate the homology of a space but are easy to compute and have “few” simplices, especially in high dimensions. This is a subject of ongoing research: In Subsection 5.2, we give an overview of state-of-the-art methods to associate complexes to point-cloud data in a way that addresses one or both of these desiderata. See [65,70] for more details on the Cˇ ech complex, and see [19, 65] for a precise statement of the Nerve Theorem.
+4 Persistent homology
+Assume that we are given experimental data in the form of a ﬁnite metric space S; there are points or vectors that represent measurements along with some distance function (e.g., given
+
+11
+
+by a correlation or a measure of dissimilarity) on the set of points or vectors. Whether or not the set S is a sample from some underlying topological space, it is useful to think of it in those terms. Our goal is to recover the properties of such an underlying space in a way that is robust to small perturbations in the data S. In a broad sense, this is the subject of topological inference. (See [130] for an overview.) If S is a subset of Euclidean space, one can consider a “thickening” S of S given by the union of balls of a certain ﬁxed radius around its points and then compute the Cˇ ech complex. One can thus try to compute qualitative features of the data set S by constructing the Cˇ ech complex for a chosen value and then computing its simplicial homology. The problem with this approach is that there is a priori no clear choice for the value of the parameter . The key insight of PH is the following: To extract qualitative information from data, one considers several (or even all) possible values of the parameter . As the value of increases, simplices are added to the complexes. Persistent homology then captures how the homology of the complexes changes as the parameter value increases, and it detects which features “persist” across changes in the parameter value. We give an example of persistent homology in Fig. 5.
+
+4.1 Filtered complexes and homology
+Let K be a ﬁnite simplicial complex, and let K1 ⊂ K2 ⊂ · · · ⊂ Kl = K be a ﬁnite sequence of nested subcomplexes of K. The simplicial complex K with such a sequence of subcomplexes is called a ﬁltered simplicial complex. See Fig. 5(a) for an example of ﬁltered simplicial complex. We can apply homology to each of the subcomplexes. For all homology degrees p, the inclusion maps Ki → Kj induce F2-linear maps fi,j : Hp(Ki) → Hp(Kj) for all i, j ∈ {1, . . . , l} with i ≤ j. By functoriality (see Section 3.1), it follows that
+
+fk,j ◦ fi,k = fi,j for all i ≤ k ≤ j .
+
+(1)
+
+We therefore give the following deﬁnition3.
+
+Deﬁnition 4 Let K1 ⊂ K2 ⊂ · · · ⊂ Kl = K be a ﬁltered simplicial complex. The pth persistent homology of K is the pair
+{Hp(Ki)}1≤i≤l , {fi,j }1≤i≤j≤l ,
+where for all i, j ∈ {1, . . . , l} with i ≤ j, the linear maps fi,j : Hp(Ki) → Hp(Kj) are the maps induced by the inclusion maps Ki → Kj.
+
+The pth persistent homology of a ﬁltered simplicial complex gives more reﬁned information than just the homology of the single subcomplexes. We can visualize the information given by the vector spaces Hp(Ki) together with the linear maps fi,j by drawing the following diagram: at ﬁltration step i, we draw as many bullets as the dimension of the vector space Hp(Ki). We then connect the bullets as follows: we draw an interval between bullet u at ﬁltration step i and bullet v at ﬁltration step i + 1 if the generator of Hp(Ki) that corresponds to u is sent to the generator of Hp(Ki+1) that corresponds to v. If the generator corresponding to a bullet u at ﬁltration step i is sent to 0 by fi,i+1, we draw an interval starting at u and ending at i + 1. (See Fig. 5(b) for an example.) Such a diagram clearly depends on a choice of basis for the vector spaces Hp(Ki), and a poor choice can lead to complicated and unreadable clutter. Fortunately, by the Fundamental
+3A pair {Mi}i∈I , {φi,j : Mi → Mj }i≤j , where (I, ≤) is a totally ordered set, such that for each i, we have that Mi is a vector space and the maps φi,j are linear maps satisfying the functoriality property (1), is usually called a persistence module. With this terminology, the homology of a ﬁltered simplicial complex is an example of persistence module.
+
+12
+
+•c •d
+
+•• ab
+
+(a)
+
+K1
+
+•e
+
+•c •d
+
+••
+
+•
+
+ab
+
+f
+
+K2
+
+•e
+
+• c •d
+
+••
+
+•
+
+ab
+
+f
+
+K3
+
+•e
+
+• c •d
+
+••
+
+•
+
+ab
+
+f
+
+K4
+
+−−−−−−−−−−−−−−−−−−−−−−−−−−
+
+Degree 0
+
+• [e] + [f ]
+
+• [f ] + [c]
+
+•
+
+•
+
+•
+
+•
+
+[c]
+
+[c]
+
+[c]
+
+[c]
+
+• [a] + [c]
+
+•
+
+•
+
+•
+
+•
+
+[d]
+
+[d]
+
+[d]
+
+[d]
+
+Degree 1
+
+• [ac + ae + ce]
+
+•
+
+•
+
+[bc + cf + bf ] [bc + cf + bf ]
+
+• [ab + bc + ac]
+
+1
+
+2
+
+3
+
+4
+
+(b)
+
+ﬁltration step
+
+1
+
+2
+
+3
+
+4
+
+ﬁltration step
+
+−−−−−−−−−−−−−−−−−−−−−−−−−−
+
+1
+
+2
+
+3
+
+4
+
+(c)
+
+ﬁltration step
+
+1
+
+2
+
+3
+
+4
+
+ﬁltration step
+
+−−−−−−−−−−−−−−−−−−−−−−−−−−
+
+death death
+
+4
+3•
+2•
+
+4
+
+•
+
+3
+
+•
+
+2
+
+1234
+
+(d)
+
+birth
+
+1234 birth
+
+Figure 5: Example of persistent homology for a ﬁnite ﬁltered simplicial complex. (a) We start with
+
+a ﬁnite ﬁltered simplicial complex. (b) At each ﬁltration step i, we draw as many vertices as the
+
+dimension of (left column) H0(Ki) and (right column) H1(Ki). We label the vertices by basis elements,
+
+the existence of which is guaranteed by the Fundamental Theorem of Persistent Homology, and we draw
+
+an edge between two vertices to represent the maps fi,j, as explained in the main text. We thus obtain
+
+a well-deﬁned collection of disjoint half-open intervals called a “barcode.” We interpret each interval
+
+in degree p as representing the lifetime of a p-homology class across the ﬁltration. (c) We rewrite the
+
+diagram in (b) in the conventional way. We represent classes that are born but do not die at the
+
+ﬁnal ﬁltration step using arrows that start at the birth of that feature and point to the right. (d) An
+
+alternative graphical way to represent barcodes (which gives exactly the same information) is to use
+
+persistence diagrams, in which an interval [i, j) is represented by the point (i, j) in the extended plane
+
+2
+R
+
+,
+
+where R = R ∪ {∞}.
+
+Therefore,
+
+a persistence diagram is a ﬁnite multiset of points
+
+in
+
+R2.
+
+We use
+
+squares to signify the classes that do not die at the ﬁnal step of a ﬁltration, and the size of dots or
+
+squares is directly proportional to the number of points being represented. For technical reasons, which
+
+we discuss brieﬂy in Section 5.4, one also adds points on the diagonal to the persistence diagrams. (Each
+
+of the points on the diagonal has inﬁnite multiplicity.)
+
+13
+
+Theorem of Persistent Homology [177], there is a choice of basis vectors of Hp(Ki) for each i ∈ {1, . . . , l} such that one can construct the diagram as a well-deﬁned and unique collection of disjoint half-open intervals, collectively called a barcode4. We give an example of a barcode in Fig. 5(c). Note that the Fundamental Theorem of PH, and hence the existence of a barcode, relies on the fact that we are using homology with ﬁeld coeﬃcients. (See [177] for more details.)
+There is a useful interpretation of barcodes in terms of births and deaths of generators. Considering the maps fi,j written in the basis given by the Fundamental Theorem of Persistent Homology, we say that x ∈ Hp(Ki) (with x = 0) is born in Hp(Ki) if it is not in the image of fi−1,i (i.e., fi−−11,i(x) = ∅). For x ∈ Hp(Ki) (with x = 0), we say that x dies in Hp(Kj) if j > i is the smallest index for which fi,j(x) = 0. The lifetime of x is represented by the half-open interval [i, j). If fi,j(x) = 0 for all j > i in I, we say that x lives forever, and its lifetime is represented by the interval [i, ∞).
+Remark 5 Note that some references (e.g., [65]) introduce persistent homology by deﬁning the birth and death of generators without using the existence of a choice of compatible bases, as given by the Fundamental Theorem of Persistent Homology. The deﬁnition of birth coincides with the deﬁnition that we have given, but the deﬁnition of death is diﬀerent. One says that x ∈ Hp(Ki) (with x = 0) dies in Hp(Kj) if j > i is the smallest index for which either fi,j(x) = 0 or there exists y ∈ Hp(Ki ) with i < i such that fi ,j(y) = fi,j(x). In words, this means that x and y merge at ﬁltration step j, and the class that was born earlier is the one that survives. In the literature, this is called the elder rule. We do not adopt this deﬁnition, because the elder rule is not well-deﬁned when two classes are born at the same time, as there is no way to choose which class will survive. For example, in Fig. 5, there are two classes in H0 that are born at the same stage in K1. These two classes merge in K2, but neither dies. The class that dies is [a] + [c].
+There are numerous excellent introductions to PH, such as the books [65,79,130,173] and the papers [30,63,64,78,161]. For a brief and friendly introduction to PH and some of its applications, see the video https://www.youtube.com/watch?v=h0bnG1Wavag. For a brief introduction to some of the ideas in TDA, see the video https://www.youtube.com/watch?v=XfWibrh6stw.
+
+5 Computation of PH for data
+
+We summarize the pipeline for the computation of PH from data in Fig. 6. In the following subsections, we describe each step of this pipeline and state-of-the-art algorithms for the computation of PH. The two features that make PH appealing for applications are that it is computable via linear algebra and that it is stable with respect to perturbations in the measurement of data. In Section 5.5, we give a brief overview of stability results.
+
+Data
+
+(1)
+
+Filtered complex
+
+(2)
+
+(3)
+
+Barcodes
+
+Interpretation
+
+Figure 6: PH pipeline.
+4Although the collection of intervals is unique, note that one has to choose a vertical order when drawing the intervals in the diagram, and there is therefore an ambiguity in the representation of the intervals as a barcode. However, there is no ambiguity when representing the intervals as points in a persistence diagram (see Fig. 5(d)).
+
+14
+5.1 Data
+As we mentioned in Section 1, types of data sets that one can study with PH include ﬁnite metric spaces, digital images, and networks. We now give a brief overview of how one can study these types of data sets using PH.
+5.1.1 Networks
+One can construe an undirected network as a 1-dimensional simplicial complex. If the network is weighted, then ﬁltering by increasing or decreasing weight yields a ﬁltered 1-dimensional simplicial complex. To obtain more reﬁned information about the network, it is desirable to construct higher-dimensional simplices. There are various methods to do this. The simplest method, called a weight rank clique ﬁltration (WRCF), consists of building a clique complex on each subnetwork. (See Section 5.2.1 for the deﬁnition of “clique complex.”) See [135] for an application of this method. Another method to study networks with PH consists of mapping the nodes of the network to points of a ﬁnite metric space. There are several ways to compute distances between nodes of a network; the method that we use in our benchmarking in Section 7 consists of computing a shortest path between nodes. For such a distance to be well-deﬁned, note that one needs the network to be connected (although conventionally one takes the distance between nodes in diﬀerent components to be inﬁnity). There are many methods to associate an unﬁltered simplicial complex to both undirected and directed networks. See the book [90] for an overview of such methods, and see the paper [89] for an overview of PH for networks.
+5.1.2 Digital images
+As we mentioned in Section 1, digital images have a natural cubical structure: 2-dimensional digital images are made of pixels, and 3-dimensional images are made of voxels. Therefore, to study digital images, cubical complexes are more appropriate than simplicial complexes. Roughly, cubical complexes are spaces built from a union of vertices, edges, squares, cubes, and so on. One can compute PH for cubical complexes in a similar way as for simplicial complexes, and we will therefore not discuss this further in this paper. See [94] for a treatment of computational homology with cubical complexes rather than simplicial complexes and for a discussion of the relationship between simplicial and cubical homology. See [157] for an eﬃcient algorithm and data structure for the computation of PH for cubical data, and [15] for an algorithm that computes PH for cubical data in an approximate way. For an application of PH and cubical complexes to movies, see [127].
+Other approaches for studying digital images are also useful. In general, given a digital image that consists of N pixels or voxels, one can consider this image as a point in a c × N -dimensional space, with each coordinate storing a vector of length c representing the color of a pixel or voxel. Deﬁning an appropriate distance function on such a space allows one to consider a collection of images (each of which has N pixels or voxels) as a ﬁnite metric space. A version of this approach was used in [32], in which the local structure of natural images was studied by selecting 3 × 3 patches of pixels of the images.
+5.1.3 Finite metric spaces
+As we mentioned in the previous two subsections, both undirected networks and image data can be construed as ﬁnite metric spaces. Therefore, methods to study ﬁnite metric spaces with PH apply to the study of networks and image data sets.
+In some applications, points of a metric space have associated “weights.” For instance, in the study of molecules, one can represent a molecule as a union of balls in Euclidean space [169,171].
+
+15
+
+For such data sets, one would therefore also consider a minimum ﬁltration value (see Section 5.2 for the description of such ﬁltration values) at which the point enters the ﬁltration. In Table 2(g), we indicate which software libraries implement this feature.
+
+5.2 Filtered Simplicial Complexes
+
+In Section 3.2, we introduced the Cˇ ech complex, a classical simplicial complex from algebraic
+
+topology. However, there are many other simplicial complexes that are better suited for studying
+
+data from applications. We discuss them in this section.
+
+To be a useful tool for the study of data, a simplicial complex has to satisfy some theoretical
+
+properties dictated by topological inference; roughly, if we build the simplicial complex on a set
+
+of points sampled from a space, then the homology of the simplicial complex has to approximate the homology of the space. For the Cˇ ech complex, these properties are guaranteed by the
+
+Nerve Theorem. Some of the complexes that we discuss in this subsection are motivated by a
+
+“sparsiﬁcation paradigm”: they approximate the PH of known simplicial complexes but have
+
+fewer simplices than them. Others, like the Vietoris–Rips complex, are appealing because they
+
+can be computed eﬃciently. In this subsection, we also review reduction techniques, which are
+
+heuristics that reduce the size of complexes without changing the PH. In Table 1, we summarize
+
+the simplicial complexes that we discuss in this subsection.
+
+For the rest of this subsection (X, d) denotes a metric space, and S is a subset of X, which
+
+becomes a metric space with the induced metric. In applications, S is the collection of measure-
+
+ments together with a notion of distance, and we assume that S lies in the (unknown) metric
+
+space X. Our goal is then to compute persistent homology for a sequence of nested spaces
+
+S
+
+1, S
+
+2, . . . , S
+
+,
+l
+
+where
+
+each
+
+space
+
+gives
+
+a
+
+“thickening”
+
+of
+
+S
+
+in
+
+X.
+
+5.2.1 Vietoris–Rips complex
+We have seen that one of the disadvantages of the Cˇ ech complex is that one has to check for a large number of intersections. To circumvent this issue, one can instead consider the Vietoris– Rips (VR) complex, which approximates the Cˇ ech complex. For a non-negative real number , the Vietoris–Rips complex VR (S) at scale is deﬁned as
+
+VR (S) = {σ ⊆ S | d(x, y) ≤ 2 for all x, y ∈ σ} .
+The sense in which the VR complex approximates the Cˇ ech complex is that, when S is a subset of Euclidean space, we have Cˇ (S) ⊆ VR (S) ⊆ Cˇ√2 (S). Deciding whether a subset σ ⊆ S is in VR (S) is equivalent to deciding if the maximal pairwise distance between any two vertices in σ is at most 2 . Therefore, one can construct the VR complex in two steps. One ﬁrst computes the -neighborhood graph of S. This is the graph whose vertices are all points in S and whose edges are
+{(i, j) ∈ S × S | i = j and d(i, j) ≤ 2 } .
+Second, one obtains the VR complex by computing the clique complex of the -neighborhood graph. The clique complex of a graph is a simplicial complex that is deﬁned as follows: The subset {x0, . . . , xk} is a k-simplex if and only if every pair of vertices in {x0, . . . , xk} is connected by an edge. Such a collection of vertices is called a clique. This construction makes it very easy to compute the VR complex, because to construct the clique complex one has only to check for pairwise distances — for this reason clique complexes are also called “lazy” in the literature. Unfortunately, the VR complex has the same worst-case complexity as the Cˇ ech complex. In the worst case, it can have up to 2|S| − 1 simplices and dimension |S| − 1.
+
+16
+In applications, one therefore usually only computes the VR complex up to some dimension k |S| − 1. In our benchmarking, we often choose k = 2 and k = 3.
+The paper [174] overviews diﬀerent algorithms to perform both of the steps for the construction of the VR complex, and it introduces fast algorithms to construct the clique complex. For more details on the VR complex, see [65, 156]. For a proof of the approximation of the Cˇ ech complex by the VR complex, see [65]; see [101] for a generalization of this result.
+5.2.2 The Delaunay complex
+To avoid the computational problems of the Cˇ ech and VR complexes, we need a way to limit the number of simplices in high dimensions. The Delaunay complex gives a geometric tool to accomplish this task, and most of the new simplicial complexes that have been introduced for the study of data are based on variations of the Delaunay complex. The Delaunay complex and its dual, the Voronoi diagram, are central objects of study in computational geometry because they have many useful properties.
+For the Delaunay complex, one usually considers X = Rd, so we also make this assumption. We subdivide the space Rd into regions of points that are closest to any of the points in S. More precisely, for any s ∈ S, we deﬁne
+Vs = {x ∈ Rd | d(x, s) ≤ d(x, s ) for all s ∈ S} .
+The collection of sets Vs is a cover for Rd that is called the Voronoi decomposition of Rd with respect to S, and the nerve of this cover is called the Delaunay complex of S and is denoted by Del(S; Rd). In general, the Delaunay complex does not have a geometric realization in Rd. However, if the points S are “in general position” 5 then the Delaunay complex has a geometric realization in Rd that gives a triangulation of the convex hull of S. In this case, the Delaunay complex is also called the Delaunay triangulation.
+The complexity of the Delaunay complex depends on the dimension d of the space. For d ≤ 2, the best algorithms have complexity O(N log N ), where N is the cardinality of S. For d ≥ 3, they have complexity O(N d/2 ). The construction of the Delaunay complex is therefore costly in high dimensions, although there are eﬃcient algorithms for the computation of the Delaunay complex for d = 2 and d = 3. Developing eﬃcient algorithms for the construction of the Delaunay complex in higher dimensions is a subject of ongoing research. See [21] for a discussion of progress in this direction, and see [83] for more details on the Delaunay complex and the Voronoi diagram.
+5.2.3 Alpha complex
+We continue to assume that S is a ﬁnite set of points in Rd. Using the Voronoi decomposition, one can deﬁne a simplicial complex that is similar to the Cˇ ech complex, but which has the desired property that (if the points S are in general position) its dimension is at most that of the space. Let > 0, and let S denote the union s∈S B(s, ). For every s ∈ S, consider the intersection Vs ∩ B(s, ). The collection of these sets forms a cover of S , and the nerve complex of this cover is called the alpha (α) complex of S at scale and is denoted by A (S). The Nerve Theorem applies, and it therefore follows that A (S) has the same homology as S .
+Furthermore, A∞(S) is the Delaunay complex; and for < ∞, the alpha complex is a subcomplex of the Delaunay complex. The alpha complex was introduced for points in the plane
+5A set S of points in Rd is in general position if no d + 2 points of S lie on a d-dimensional sphere, and for any d < d, no d + 2 points of S lie on a d -dimensional subspace that is isometric to Rd . In particular, a set of points S in R2 is in general position if no four points lie on a 2-dimensional sphere and no three points lie on a line.
+
+17
+in [66], in 3-dimensional Euclidean space in [69], and for Euclidean spaces of arbitrary dimension in [62]. For points in the plane, there is a well-known speed-up for the alpha complex that uses a duality between 0-dimensional and 1-dimensional persistence for alpha complexes [64]. (See [106] for the algorithm, and see [105] for an implementation.)
+5.2.4 Witness complexes
+Witness complexes are very useful for analyzing large data sets, because they make it possible to construct a simplicial complex on a signiﬁcantly smaller subset L ⊆ S of points that are called “landmark” points. Meanwhile, because one uses information about all points in S to construct the simplicial complex, the points in S are called “witnesses.” Witness complexes can be construed as a “weak version” of Delaunay complexes. (See the characterization of the Delaunay complex in [50].)
+Deﬁnition 6 Let (S, d) be a metric space, and let L ⊆ S be a ﬁnite subset. Suppose that σ is a non-empty subset of L. We then say that s ∈ S is a weak witness for σ with respect to L if and only if d(s, a) ≤ d(s, b) for all a ∈ σ and for all b ∈ L \ σ. The weak Delaunay complex Delw(L; S) of S with respect to L has vertex set given by the points in L, and a subset σ of L is in Delw(L; S) if and only if it has a weak witness in S.
+To obtain nested complexes, one can extend the deﬁnition of witnesses to -witnesses.
+Deﬁnition 7 A point s ∈ S is a weak -witness for σ with respect to L if and only if d(s, a) ≤ d(s, b) + for all a ∈ σ and for all b ∈ L \ σ.
+Now we can deﬁne the weak Delaunay complex Delw(L; S, ) at scale to be the simplicial complex with vertex set L, and such that a subset σ ⊆ L is in Delw(L; S, ) if and only if it has a weak -witness in S. By considering diﬀerent values for the parameter , we thereby obtain nested simplicial complexes. The weak Delaunay complex is also called the “weak witness complex” or just the “witness complex” in the literature.
+There is a modiﬁcation of the witness complex called the lazy witness complex Delwlazy(L; X, ). It is a clique complex, and it can therefore be computed more eﬃciently than the witness complex. The lazy witness complex has the same 1-skeleton as Delw(L; X, ), and one adds a simplex σ to Delwlazy(L; X, ) whenever its edges are in Delwlazy(L; X, ). Another type of modiﬁcation of the witness complex yields parametrized witness complexes. Let ν = 1, 2, . . . and for all s ∈ S deﬁne mν(s) to be the distance to the νth closest landmark point. Furthermore, deﬁne m0(s) = 0 for all s ∈ S. Let Wν(L; S, ) be the simplicial complex whose vertex set is L and such that a 1-simplex σ = {x0, x1} is in Wν(L; X, ) if and only if there exists s in S for which
+max{d(x0, s), d(x1, s)} ≤ mν(s) + .
+A simplex σ is in Wν(L; X, ) if and only if all of its edges belong to Wν(L; X, ). For ν = 2, note that W2(L; X, ) = Delwlazy(L; X, ). For ν = 0, we have that W0(L; X, ) approximates the VR complex VR(L; ). That is,
+W0(L; X, ) ⊆ VR(L; 2 ) ⊆ W0(L; X, 2 ) .
+Note that parametrized witness complexes are often called “lazy witness complexes” in the literature, because they are clique complexes.
+The weak Delaunay complex was introduced in [50], and parametrized witness complexes were introduced in [51]. Witness complexes can be rather useful for applications. Because their
+
+18
+
+Table 1: We summarize several types of complexes that are used for PH. We indicate the theoretical guarantees and the worst-case sizes of the complexes as functions of the cardinality N of the vertex set. For the witness complexes (see Section 5.2.4), L denotes the set of landmark points, while Q denotes the subsample set for the graph-induced complex (see Section 5.2.5).
+
+Complex K Cˇ ech
+Vietoris–Rips (VR)
+Alpha
+Witness Graph-induced complex
+Sparsiﬁed Cˇ ech Sparsiﬁed VR
+
+Size of K 2O(N ) 2O(N )
+N O( d/2 ) (N points in Rd)
+2O(|L|) 2O(|Q|)
+O(N )
+O(N )
+
+Theoretical guarantee Nerve theorem
+Approximates Cˇ ech complex
+Nerve theorem
+For curves and surfaces in Euclidean space Approximates VR complex Approximates Cˇ ech complex Approximates VR complex
+
+complexity depends on the number of landmark points, one can reduce complexity by computing simplicial complexes using a smaller number of vertices. However, there are theoretical guarantees for the witness complex only when S is the metric space associated to a low-dimensional Euclidean submanifold. It has been shown that witness complexes can be used to recover the topology of curves and surfaces in Euclidean space [7, 85], but they can fail to recover topology for submanifolds of Euclidean space of three or more dimensions [22]. Consequently, there have been studies of simplicial complexes that are similar to the witness complexes but with better theoretical guarantees (see Section 5.2.5).
+5.2.5 Additional complexes
+Many more complexes have been introduced for the fast computation of PH for large data sets. These include the graph-induced complex [57], which is a simplicial complex constructed on a subsample Q, and has better theoretical guarantees than the witness complex (see [92] for the companion software); an approximation of the VR complex that has a worst-case size that is linear in the number of data points [142]; an approximation of the Cˇ ech complex [101] whose worst-case size also scales linearly in the data; and an approximation of the VR complex via simplicial collapses [59]. We do not discuss such complexes in detail, because thus far (at the time of writing) none of them have been implemented in publicly-available libraries for the computation of PH. (See Table 2 in Section 7 for information about which complexes have been implemented.)
+5.2.6 Reduction techniques
+Thus far, we have discussed techniques to build simplicial complexes with possibly “few” simplices. One can also take an alternative approach to speed up the computation of PH. For example, one can use a heuristic (i.e., a method without theoretical guarantees on the speed-up) to reduce the size of a ﬁltered complex while leaving the PH unchanged.
+For simplicial complexes, one such method is based on discrete Morse theory [140], which was adapted to ﬁltrations of simplicial complexes in [122]. The basic idea of the algorithm developed in [122] is that one can compute a partial matching of the simplices in a ﬁltered simplicial complex so that (i) pairs occur only between simplices that enter the ﬁltration at the same step, (ii) unpaired simplices determine the homology, and (iii) one can remove paired simplices from the ﬁltered complex without altering the total PH. Such deletions are examples of the elementary
+
+19
+simplicial collapses that we mentioned in Section 3.1. Unfortunately, the problem of ﬁnding an optimal partial matching was shown to be NP complete [91], and one thus relies on heuristics to ﬁnd partial matchings to reduce the size of the complex.
+One particular family of elementary collapses, called strong collapses, was introduced in [9]. Strong collapses preserve cycles of shortest length in the representative class of a generator of a hole [165]; this feature makes strong collapses useful for ﬁnding holes in networks [165]. A distributed version of the algorithm introduced in [165] was introduced in [164] and adapted for the computation of PH in [163].
+A method for the reduction of the size of a complex for clique complexes, such as the VR complex, was introduced in [175] and is called the tidy-set method. Using maximal cliques, this method extracts a minimal representation of the graph that determines the clique complex. Although the tidy-set method cannot be extended to ﬁltered complexes, it can be used for the computation of zigzag PH (see Section 6) [176]. The tidy-set method is a heuristic, because it does not give a guarantee to minimize the size of the output complex.
+5.3 From a Filtered Simplicial Complex to Barcodes
+To compute the PH of a ﬁltered simplicial complex K and obtain a barcode like the one illustrated in Fig. 5(c), we need to associate to it a matrix — the so-called boundary matrix — that stores information about the faces of every simplex. To do this, we place a total ordering on the simplices of the complex that is compatible with the ﬁltration in the following sense:
+• a face of a simplex precedes the simplex;
+• a simplex in the ith complex Ki precedes simplices in Kj for j > i, which are not in Ki.
+Let n denote the total number of simplices in the complex, and let σ1, . . . , σn denote the simplices with respect to this ordering. We construct a square matrix δ of dimension n × n by storing a 1 in δ(i, j) if the simplex σi is a face of simplex σj of codimension 1; otherwise, we store a 0 in δ(i, j).
+Once one has constructed the boundary matrix, one has to reduce it using Gaussian elimination.6 In the following subsections, we discuss several algorithms for reducing the boundary matrix.
+5.3.1 Standard algorithm
+The so-called standard algorithm for the computation of PH was introduced for the ﬁeld F2 in [67] and for general ﬁelds in [177]. For every j ∈ {1, . . . , n}, we deﬁne low(j) to be the largest index value i such that δ(i, j) is diﬀerent from 0.7 If column j only contains 0 entries, then the value of low(j) is undeﬁned. We say that the boundary matrix is reduced if the map low is injective on its domain of deﬁnition. In Alg. 1, we illustrate the standard algorithm for reducing the boundary matrix. Because this algorithm operates on columns of the matrix from left to right, it is also sometimes called the “column algorithm.” In the worst case, the complexity of the standard algorithm is cubic in the number of simplices.
+6As we mentioned in Section 4, for the reduction of the boundary matrix and thus the computation of PH, it is crucial that one uses simplicial homology with coeﬃcients in a ﬁeld; see [177] for details.
+7This map is called “low” in the literature, because one can think of it as indicating the index of the “lowest” row — the one that is nearest to the bottom of the page on which one writes the boundary matrix — that contains a 1 in column j.
+
+20
+Algorithm 1 The standard algorithm for the reduction of the boundary matrix to barcodes.
+for j = 1 to n do while there exists i < j with low(i) = low(j) do add column i to column j end while
+end for
+5.3.2 Reading oﬀ the intervals
+Once the boundary matrix is reduced, one can read oﬀ the intervals of the barcode by pairing the simplices in the following way:
+• If low(j) = i, then the simplex σj is paired with σi, and the entrance of σi in the ﬁltration causes the birth of a feature that dies with the entrance of σj.
+• If low(j) is undeﬁned, then the entrance of the simplex σj in the ﬁltration causes the birth of a feature. It there exists k such that low(k) = j, then σj is paired with the simplex σk, whose entrance in the ﬁltration causes the death of the feature. If no such k exists, then σj is unpaired.
+A pair (σi, σj) gives the half-open interval [dg(σi), dg(σj)) in the barcode, where for a simplex σ ∈ K we deﬁne dg(σ) to be the smallest number l such that σ ∈ Kl. An unpaired simplex σk gives the inﬁnite interval [dg(σk), ∞). We give an example of PH computation in Fig. 7.
+5.3.3 Other algorithms
+After the introduction of the standard algorithm, several new algorithms were developed. Each of these algorithms gives the same output for the computation of PH, so we only give a brief overview and references to these algorithms, as one does not need to know them to compute PH with one of the publicly-available software packages. In Section 7.2, we indicate which implementation of these libraries is best suited to which data set.
+As we mentioned in Section 5.3.1, in the worst case, the standard algorithm has cubic complexity in the number of simplices. This bound is sharp, as Morozov gave an example of a complex with cubic complexity in [124]. Note that in cases such as when matrices are sparse, complexity is less than cubic. Milosavljevi´c, Morozov, and Skraba [121] introduced an algorithm for the reduction of the boundary matrix in O(nω), where ω is the matrix-multiplication coeﬃcient (i.e., O(nω) is the complexity of the multiplication of two square matrices of size n). At present, the best bound for ω is 2.376 [43]. Many other algorithms have been proposed for the reduction of the boundary matrix. These algorithms give a heuristic speed-up for many data sets and complexes (see the benchmarkings in the forthcoming references), but they still have cubic complexity in the number of simplices. Sequential algorithms include the twist algorithm [38] and the dual algorithm [53,54]. (Note that the dual algorithm is known to give a speed-up when one computes PH with the VR complex, but not necessarily for other types of complexes (see also the results of our benchmarking for the vertebra data set in the SI).) Parallel algorithms in a shared setting include the spectral-sequence algorithm [65, Section VII.4] and the chunk algorithm [12], and parallel algorithms in a distributed setting include the distributed algorithm [13]. The multifield algorithm is a sequential algorithm that allows the simultaneous computation of PH over several ﬁelds [23].
+
+21
+
+(a) A ﬁltered simplicial complex:
+
+•
+
+⊂
+
+⊂
+
+• K1
+
+•• K2
+
+•
+⊂
+•• K3
+
+•
+•• K4
+
+(b) We put a total order on the simplices that is compatible with the ﬁltration:
+
+σ2
+
+σ2
+
+σ2
+
+•
+
+•
+
+•
+
+σ4
+
+σ4
+
+σ6
+
+σ4 σ7 σ6
+
+σ1•
+
+σ1•
+
+•σ3
+
+σ1• σ5 •σ3
+
+σ1• σ5 •σ3
+
+where σi denotes the ith simplex in this order.
+
+(c) (Left) The boundary matrix B for the ﬁltered simplicial complex in (a) with respect to order on simplices in (b), and (right) its reduction B given by applying Alg. 1 (one ﬁrst adds column 5 to column 6, and then column 4 to column 6):
+
+0 0 0 1 1 0 0
+0 0 0 1 0 1 0 0 0 0 0 1 1 0 B = 0 0 0 0 0 0 1 0 0 0 0 0 0 1 0 0 0 0 0 0 1
+0000000
+
+0 0 0 1 1 0 0
+0 0 0 1 0 0 0 0 0 0 0 1 0 0 B = 0 0 0 0 0 0 1 . 0 0 0 0 0 0 1 0 0 0 0 0 0 1
+0000000
+
+(d) We read oﬀ the following intervals from the matrix B in (c):
+• σ1 is positive, unpaired; this gives the interval [1, ∞) in H0. • σ2 is positive, paired with σ4; this gives no interval, because σ2 and σ4 enter at
+the same time in the ﬁltration. • σ3 is positive, paired with σ5: this gives the interval [2, 3) in H0. • σ6 is positive, paired with σ7: this gives the interval [3, 4) in H1.
+
+Figure 7: Example of PH computation with the standard algorithm (see Alg. 1).
+
+22
+
+5.4 Statistical interpretation of topological summaries
+
+Once one has obtained barcodes, one needs to interpret the results of computations. In appli-
+
+cations, one often wants to compare the output of a computation for a certain data set with
+
+the output for a null model. Alternatively, one may be studying data sets from the output of
+
+a generative model (e.g., many realizations from a model of random networks), and it is then
+
+necessary to average results over multiple realizations. In the ﬁrst instance, one needs both a
+
+way to compare the two diﬀerent outputs and a way to evaluate the signiﬁcance of the result
+
+for the original data set. In the second case, one needs a way to calculate appropriate averages
+
+(e.g., summary statistics) of the result of the computations.
+
+From a statistical perspective, one can interpret a barcode as an unknown quantity that
+
+one tries to estimate by computing PH. If one wants to use PH in applications, one thus needs
+
+a reliable way to apply statistical methods to the output of the computation of PH. To our
+
+knowledge, statistical methods for PH were addressed for the ﬁrst time in the paper [27]. Roughly
+
+speaking, there are three current approaches to the problem of statistical analysis of barcodes.
+
+In the ﬁrst approach, researchers study topological properties of random simplicial complexes
+
+(see, e.g., [5,44]) and the review papers [6,96]. One can view random simplicial complexes as null
+
+models to compare with empirical data when studying PH. In the second approach, one studies
+
+properties of a metric space whose points are persistence diagrams. In the third approach, one
+
+studies “features” of persistence diagrams. We will provide a bit more detail about the second
+
+and third approaches.
+
+In the second approach, one considers an appropriately deﬁned “space of persistence dia-
+
+grams,” deﬁnes a distance function on it, studies geometric properties of this space, and does
+
+standard statistical calculations (means, medians, statistical tests, and so on). Recall that a
+
+persistence
+
+diagram
+
+(see
+
+Fig.
+
+5
+
+for
+
+an
+
+example)
+
+is
+
+a
+
+multiset
+
+of
+
+points
+
+in
+
+2
+R
+
+and
+
+that
+
+it
+
+gives
+
+the same information as a barcode. We now give the following precise deﬁnition of a persistence
+
+diagram.
+
+Deﬁnition 8 A persistence diagram is a multiset that is the union of a ﬁnite multiset of points
+
+in
+
+2
+R
+
+with
+
+the
+
+multiset
+
+of
+
+points
+
+on
+
+the
+
+diagonal
+
+∆
+
+=
+
+{(x, y)
+
+∈
+
+R2
+
+|
+
+x
+
+=
+
+y},
+
+where
+
+each
+
+point
+
+on
+
+the diagonal has inﬁnite multiplicity.
+
+In this deﬁnition, we include all of the points on the diagonal in R2 with inﬁnite multiplicity. We include the diagonal points for technical reasons; roughly, it is desirable to be able to compare persistence diagrams by studying bijections between their points, and persistence diagrams must thus be sets with the same cardinality.
+Given two persistence diagrams X and Y , we consider the following general deﬁnition of distance between X and Y .
+
+Deﬁnition 9 Let p ∈ [1, ∞]. The pth Wasserstein distance between X and Y is deﬁned as
+
+1/p
+
+Wp[d](X, Y ) := inf
+
+d[x, φ(x)]p
+
+φ : X→Y
+
+x∈X
+
+for p ∈ [1, ∞) and as W∞[d](X, Y ) := inf sup d[x, φ(x)]
+φ : X→Y x∈X
+for p = ∞, where d is a metric on R2 and φ ranges over all bijections from X to Y .
+
+Usually, one takes d = Lq for q ∈ [1, ∞]. One of the most commonly employed distance functions is the bottleneck distance W∞[L∞].
+
+23
+The development of statistical analysis on the space of persistence diagrams is an area of ongoing research, and presently there are few tools that can be used in applications. See [120, 125, 153] for research in this direction. Until recently, the library Dionysus [123] was the only library to implement computation of the bottleneck and Wasserstein distances (for d = L∞); the library hera [100] implements a new algorithm [99] for the computation of the bottleneck and Wasserstein distances that signiﬁcantly outperforms the implementation in Dionysus. The library TDA Package [75] (see [74] for the accompanying tutorial) implements the computation of conﬁdence sets for persistence diagrams that was developed in [73], distance functions that are robust to noise and outliers [37], and many more tools for interpreting barcodes.
+The third approach for the development of statistical tools for PH consists of mapping the space of persistence diagrams to spaces (e.g., Banach spaces) that are amenable to statistical analysis and machine-learning techniques. Such methods include persistence landscapes [24], using the space of algebraic functions [3], persistence images [39], and kernelization techniques [20,107,138,172]. See the papers [102,148] for applications of persistence landscapes. The package Persistence Landscape Toolbox [60] (see [26] for the accompanying tutorial) implements the computation of persistence landscapes, as well as many statistical tools that one can apply to persistence landscapes, such as mean, ANOVA, hypothesis tests, and many more.
+5.5 Stability
+As we mentioned in Section 1, PH is useful for applications because it is stable with respect to small perturbations in the input data.
+The ﬁrst stability theorem for PH, proven in [42], asserts that, under favorable conditions, step (2) in the pipeline in Fig. 6 is 1-Lipschitz with respect to suitable distance functions on ﬁltered complexes and the bottleneck distance for barcodes (see Section 5.4). This result was generalized in the papers [25,28,36]. Stability for PH is an active area of research; for an overview of stability results, their history and recent developments, see [130, Chapter 3].
+6 Excursus: Generalized persistence
+One can use the algorithms that we described in Section 5 to compute PH when one has a sequence of complexes with inclusion maps that are all going in the same direction, as in the following diagram:
+· · · → Ki−1 → Ki → Ki+1 → . . . .
+An algorithm, called the zigzag algorithm, for the computation of PH for inclusion maps that do not all go in the same direction, as, e.g., in the diagram
+· · · → Ki−1 → Ki ← Ki+1 → . . .
+was introduced in [31]. In the more general setting in which maps are not inclusions, one can still compute PH using the simplicial map algorithm [58].
+One may also wish to vary two or more parameters instead of one. This yields multi-ﬁltered
+
+... → → → → ... ... → → → → ... ... → → → → ...
+
+24
+simplicial complexes, as, e.g., in the following diagram:
+. . . → Kj+1,i−1 → Kj+1,i → Kj+1,i+1 → . . .
+. . . → Kj,i−1 → Kj,i → Kj,i+1 → . . . .
+. . . → Kj−1,i−1 → Kj−1,i → Kj−1,i+1 → . . .
+In this case, one speaks of multi-parameter persistent homology. Unfortunately, the Fundamental Theorem of Persistent Homology is no longer valid if one ﬁlters with more than one parameter, and there is no such thing as a “generalized interval.” The topic of multi-parameter persistence is under active research, and several approaches are being studied to extract topological information from multi-ﬁltered simplicial complexes. See [33,130] for the theory of multi-parameter persistent homology, and see [113] (and [112] for its companion paper) for upcoming software for the visualization of 2-parameter persistent homology.
+7 Software
+There are several publicly-available implementations for the computation of PH. We give an overview of the libraries with accompanying peer-reviewed publication and summarize their properties in Table 2.
+The software package javaPlex [149], which was developed by the computational topology group at Stanford University, is based on the Plex library [134], which to our knowledge is the ﬁrst piece of software to implement the computation of PH. Perseus [126] was developed to implement Morse-theoretic reductions [122] (see Section 5.2.6). jHoles [18] is a Java library for computing the weight rank clique ﬁltration for weighted undirected networks [135]. Dionysus [123] is the ﬁrst software package to implement the dual algorithm [53, 54]. PHAT [14] is a library that implements several algorithms and data structures for the fast computation of barcodes, takes a boundary matrix as input, and is the ﬁrst software to implement a matrixreduction algorithm that can be executed in parallel. DIPHA [11], a spin-oﬀ of PHAT, implements a distributed computation of the matrix-reduction algorithm. Gudhi [119] implements new data structures for simplicial complexes and the boundary matrix. It also implements the multi-field algorithm, which allows simultaneous computation of PH over several ﬁelds [23]. This library is currently under intense development, and a Python interface was just released in the most recent version of the library (namely, Version 2.0.0, whereas the version that we study in our tests is Version 1.3.1). The library ripser [10], the most recently developed software of the set that we examine, uses several optimizations and shortcuts to speed up the computation of PH with the VR complex. This library does not have an accompanying peer-reviewed publication. However, because it is currently the best-performing (both in terms of memory usage and in terms of wall-time seconds8) library for the computation of PH with the VR complex, we include it in our study. The library SimpPers [93] implements the simplicial map algorithm. Libraries that implement techniques for the statistical interpretation of barcodes include the
+8“Wall time” is the amount of elapsed time perceived by a human.
+
+25
+TDA Package [75] and the Persistence Landscape Toolbox [60]. RIVET, a package for visualizing 2-parameter persistent homology, is slated to be released soon [113]. We summarize the properties of the libraries that we mentioned in this paragraph in Table 2, and we discuss the performance for a selection of them in Section 7.1.3 and in the SI. For a list of programs, see https://github.com/n-otter/PH-roadmap.
+7.1 Benchmarking
+We benchmark a subset of the currently available open-source libraries with peer-reviewed publication for the computation of PH. To our knowledge, the published open-source libraries are jHoles, javaPlex, Perseus, Dionysus, PHAT, DIPHA, SimpPers, and Gudhi. To these, we add the library ripser, which is currently the best-performing library to compute PH with the VR complex. To study the performance of the packages, we restrict our attention to the algorithms that are implemented by the largest number of libraries. These are the VR complex and the standard and dual algorithms for the reduction of the boundary matrix. PHAT only takes a boundary matrix as input, so it is not possible to conduct a direct comparison of it with the other implementations. However, the fast data structures and algorithms implemented in PHAT are also implemented in its spin-oﬀ software DIPHA, which we include in the benchmarking. The software jHoles computes PH using the WRCF for weighted undirected networks, and SimpPers takes a map of simplicial complexes as input, so these two libraries cannot be compared directly to the other libraries. In the SI, we report benchmarking of some additional features that are implemented by some of the six libraries (i.e., javaPlex, Perseus, Dionysus, DIPHA, Gudhi, and ripser) that we test. Speciﬁcally, we report results for the computation of PH with cubical complexes for image data sets and the computation of PH with witness, alpha, and Cˇ ech complexes.
+We study the software packages javaPlex, Perseus, Dionysus, DIPHA, Gudhi, and ripser using both synthetic and real-world data from three diﬀerent perspectives:
+1. Performance measured in CPU seconds and wall-time (i.e., elapsed time) seconds.
+2. Memory required by the process.
+3. Maximum size of simplicial complex allowed by the software.
+7.1.1 Data sets
+In this subsection, we describe the data sets that we use for our benchmarking. We use data sets from a variety of diﬀerent mathematical and scientiﬁc areas and applications. In each case, when possible, we use data sets that have already been studied using PH. Our list of data sets is far from complete; we view this list as an initial step towards building a comprehensive collection of benchmarking data sets for PH.
+Data sets (1)–(4) are synthetic: these arise from topology (1), stochastic topology (2), dynamical systems (3), and from an area at the intersection of network theory and fractal geometry (4) and which was ﬁrst used to study connection patterns of the cerebral cortex (see below for details). Data sets (5)–(12) are from empirical experiments and measurements: they arise from phylogenetics (5)–(6), genomics (9), neuroscience (8), image analysis (7), medical imaging (10), political science (11), and scientometrics (12).
+In each case, these data sets are of one of the following three types: point clouds, weighted undirected networks, and grey-scale digital images. To obtain a point cloud from a real-world weighted undirected network, we compute shortest paths using the inverse of the nonzero weights on edges as distances between nodes (except for the US Congress networks; see below). For the
+
+Table 2: Overview of existing software for the computation of PH that have an accompanying peer-reviewed publication (and also ripser [10], because of its performance). The symbol “−” signiﬁes that the associated feature is not implemented. For each software package, we indicate the following items. (a) The language in which it is implemented. (b) The implemented algorithms for the computation of barcodes from the boundary matrix. (c) The coeﬃcient ﬁelds for which PH is computed, where the letter p denotes any prime number in the coeﬃcient ﬁeld Fp. (d) The type of homology computed. (e) The ﬁltered complexes that are computed, where VR stands for Vietoris–Rips complex, W stands for the weak witness complex, Wν stands for parametrized witness complexes, WRCF stands for the weight rank clique ﬁltration, α stands for the alpha complex, and Cˇ for the Cˇ ech complex. Perseus, DIPHA, and Gudhi implement the computation of the lower-star ﬁltration [68] of a weighted cubical complex; one inputs data in the form of a d-dimensional array; the data is then interpreted as a d-dimensional cubical complex, and its lower-star ﬁltration is computed. (See the Tutorial in the SI for more details.) Note that DIPHA and Gudhi use the eﬃcient representation of cubical complexes presented in [157], so the size of the cubical complex that is computed by these libraries is smaller than the size of the resulting complex with Perseus. (f) The ﬁltered complexes that one can give as input. javaPlex supports the input of a ﬁltered CW complex for the computation of cellular homology [87]; in contrast with simplicial complexes, there do not currently exist algorithms to assign a cell complex to point-cloud data. (g) Additional features implemented by the library. javaPlex supports the computation of some constructions from homological algebra (see [149] for details), and Perseus implements the computation of PH with the VR for points with diﬀerent “birth times” (see Section 5.1.3). The library Dionysus implements the computation of vineyards [31] and circle-valued functions [54]. Both javaPlex and Dionysus support the output of representatives of homology classes for the intervals in a barcode. (i) Whether visualization of the output is provided.
+
+Software (a) Language (b) Algorithms
+for PH
+(c) Coeﬀ. ﬁeld (d) Homology
+(e) Filtrations computed
+(f) Filtrations as input
+(g) Additional features
+(h) Visualization
+
+javaPlex Java
+standard, dual, zigzag
+Q, Fp simplicial, cellular
+VR, W, Wν
+simplicial complex,
+zigzag, CW Computes some hom. alg. constructions, homology generators
+barcodes
+
+Perseus C++
+Morse reductions,
+standard
+F2 simplicial,
+cubical
+VR, lower star of cubical complex
+simplicial complex, cubical complex
+weighted points for VR
+persistence diagram
+
+jHoles Java
+standard (uses
+javaPlex) F2
+simplicial
+WRCF
+−
+−
+−
+
+Dionysus C++
+standard, dual, zigzag
+F2 (standard, zigzag), Fp (dual) simplicial
+VR, α, C˘
+simplicial complex,
+zigzag vineyards, circle-valued functions, homology generators
+−
+
+PHAT C++ standard, dual, twist, chunk, spectral seq.
+F2 simplicial,
+cubical
+−
+boundary matrix of simpl. complex
+−
+−
+
+DIPHA C++
+twist, dual, distributed
+F2 simplicial,
+cubical
+VR, lower star of cubical complex
+boundary matrix of simpl. complex
+−
+persistence diagram
+
+Gudhi C++
+dual, multiﬁeld
+Fp simplicial,
+cubical VR, α, W
+lower star of cubical complex
+−
+−
+−
+
+SimpPers C++
+simplicial map
+F2 simplicial
+−
+map of simpl. complexes
+−
+−
+
+ripser C++ twist, dual
+Fp simplicial
+VR
+−
+− −
+
+26
+
+27
+synthetic networks, the values assigned to edges are interpreted as distances between nodes, and we therefore use these values to compute shortest paths. We make all processed versions of the data sets that we use in the benchmarking available at https://github.com/ n-otter/PH-roadmap/tree/master/data_sets. We provide the scripts that we used to produce the synthetic data sets at https://github.com/n-otter/PH-roadmap/tree/master/matlab/ synthetic_data_sets_scripts.
+We now describe all data sets in detail:
+(1) Klein bottle. The Klein bottle is a one-sided nonorientable surface (see Fig. 8). We linearly sample points from the Klein bottle using its “ﬁgure-8” immersion in R3 and size sample of 400 points. We denote this data set by Klein. Note that the image of the immersion of the Klein bottle does not have the same homotopy type as the original Klein bottle, but they do have the same singular homology9 with F2 coeﬃcients. We have H0(B) = F2, H1(B) = F2 ⊕ F2, and H2(B) = F2, where B denotes the Klein bottle and Hi(B) is the ith singular homology group with F2 coeﬃcients.
+(2) Random VR complexes (uniform distribution) [95]. The parameters for this model are positive integers N and d; the random VR complex for parameters N and d is the VR complex VR (X), where X is a set of N points sampled from Rd. (Equivalently, the random VR complex is the clique complex on the random geometric graph G(N, ) [132].) We sample N points uniformly at random from [0, 1]d. We choose (N, d) = (50, 16) and we denote this data set by random. The homology of random VR complexes was studied in [95].
+(3) Vicsek biological aggregation model. This model was ﬁrst introduced in [155] and was studied using PH in [152]. We implement the model in the form in which it appears in [152]. The model describes the motion of a collection of particles that interact in a square with periodic boundary conditions. The parameters for the model are the length l of the side of the square, the initial angle θ0, the ﬁxed absolute value for the velocity v0, the number of particles N , a noise parameter η, and the number T of time steps. The output of the model is a point cloud in 3-dimensional Euclidean space in which each point is speciﬁed by its position in the 2-dimensional box and its velocity angle. We run three simulations of the model using the parameter values used in [152]. For each simulation, we choose two point clouds that correspond to two diﬀerent time frames. See [152] for further details. We denote this data set by Vicsek.
+(4) Fractal networks. These are self-similar networks introduced in [147] to investigate whether connection patterns of the cerebral cortex are arranged in self-similar patterns. The parameters for this model are natural numbers b, k, and n. To generate a fractal network, one starts with a fully-connected network on 2b nodes. Two copies of this network are connected to each other so that the “connection density” between them is k−1, where the connection density is the number of edges between the two copies divided by the number of total possible edges between them. Two copies of the resulting network are connected with connection density k−2. One repeats this type of connection process until the network has size 2n, but with a decrease in the connnection density by a factor of 1/k at each step.
+We deﬁne distances between nodes in two diﬀerent ways: (1) uniformly at random, and (2) with linear weight–degree correlations. In the latter, the distance between nodes i and
+9Singular homology is a method that assigns to every topological space homology groups encoding invariants of the space, in an analogous way as simplicial homology assigns homology groups to simplicial complexes. See [87] for an account of singular homology.
+
+28
+j is distributed as kikjX, where ki is the degree of node i and X is a random variable uniformly distributed on the unit interval. We use the parameters b = 5, n = 9, and k = 2; and we compute PH for the weighted network and for the network in which all adjacent nodes have distance 1. We denote this data set by fract and distinguish between the two ways of deﬁning distances between weights using the abbreviations “r” for random, and “l” for linear.
+(5) Genomic sequences of the HIV virus. We construct a ﬁnite metric space using the independent and concatenated sequences of the three largest genes — gag, pol, and env — of the HIV genome. We take 1088 diﬀerent genomic sequences and compute distances between them by using the Hamming distance. We use the aligned sequences studied using PH in [35]. (The authors of that paper retrieved the sequences from [108].) We denote this data set by HIV.
+(6) Genomic sequences of H3N2. These are 1000 diﬀerent genomic sequences of H3N2 inﬂuenza. We compute the Hamming distance between sequences. We use the aligned sequences studied using PH in [35]. We denote this data set by H3N2.
+(7) Stanford Dragon graphic. We sample points uniformly at random from 3-dimensional scans of the dragon [109], whose reconstruction we show in Fig. 8. The sample sizes contain 1000 and 2000 points. We denote these data sets by drag 1 and drag 2, respectively.
+(8) C. elegans neuronal network. This is a weighted, undirected network in which each node is a neuron and edges represent synapses or gaps junctions. We use the network studied using PH in [135]. (The authors of the paper used the data set studied in [159], which ﬁrst appeared in [162].) Recall that for this example, and also for the other real-world weighted networks (except for the human genome network and for the US Congress networks), we convert each nonzero edge weight to a distance by taking its inverse. We denote this data set by eleg.
+(9) Human genome. A weighted, undirected network representing a sample of the human genome. We use the network studied using PH in [135]. (The authors of that paper created the sample using data retrieved from [49].) Each node represents a gene, and weighted edges between nodes represent the correlation of the expression level of the corresponding genes. We deﬁne the weight of an edge as the inverse of the correlation.10 We denote this data set by genome.
+(10) Grey-scale image: 3-dimensional rotational angiography scan of a head with an aneurysm. This data set was used in the benchmarking in [13]. This data set is given by a 3-dimensional array of size 512 × 512 × 512, with each entry storing an integer that represents the grey value for the corresponding voxel. We retrieved the data set from the repository [1]. We denote this data set by vertebra.
+(11) US Congress roll-call voting networks. These two networks (the Senate and House of Representatives from the 104th United States Congress) are constructed using the procedure in [160] from data compiled by [137]. In each network, a node is a legislator (Senators in one data set and Representatives in the other), and there is a weighted edge between legislators i and j, where the weight wi,j is a number in [0, 1] (it is equal to 0 if and only if legislators i and j never voted the same way on any bill) given by the number of times the
+10We note that the weight should be the correlation; this issue came to our attention when the paper was in press.
+
+29
+two legislators voted in the same way divided by the total number of bills on which they both voted. See [160] for further details. We denote the networks from the Senate and House by senate and house, respectively. The network senate has 103 nodes, and the network house has 445 nodes. To compute shortest paths, we deﬁne the distance between two nodes i and j to be 1 − wi,j. In the 104th Congress, no two politicians voted in the same way on every bill, so we do not have distinct nodes with 0 distance between them. (This is important, for example, if one wants to apply multidimensional scaling.)
+(12) Network of network scientists. This is a weighted undirected network representing the largest connected component of a collaboration network of network scientists [128]. Nodes represent authors and edges represent collaborations, where weights indicate the number of joint papers. The largest connected components consists of 379 nodes. We denote this data set by netw-sc.
+Figure 8: Plot of the image of the ﬁgure-8 immersion of the Klein bottle and the reconstruction of the Stanford Dragon (retrieved from [109]).
+7.1.2 Machines and compilers We tested the libraries on both a cluster and a shared-memory system. The cluster is a Dell Sandybridge cluster, it has 1728 (i.e., 108 × 16) cores of 2.0GHz Xeon SandyBridge, RAM of 64 GiB in 80 nodes and RAM of 128 GiB in 4 nodes, and a scratch disk of 20 TB. It runs the operating system (OS) Red Hat Enterprise Linux 6. The shared-memory system is an IBM System x3550 M4 server with 16 (i.e., 2 × 8) cores of 3.3GHz, RAM of 768 GB, and storage of 3 TB. It runs the OS Ubuntu 14.04.01.11 The major diﬀerence in running shared algorithms on the shared-memory system versus the distributed-memory system is that each node in the former has much more available RAM than in the latter. (See also the diﬀerence in performance between computations on cluster and shared memory system in Tables 3 and 4.) To compile Gudhi, DIPHA, Perseus and Dionysus we used the compiler gcc 4.8.2 on the cluster, and gcc 4.8.4 on the shared-memory system; for both machines we used the (default) optimization -O3. Additionally, we used openmpi 1.8.3 for DIPHA.
+7.1.3 Tests and results We now report the details and results of the tests that we performed. We have made the data sets, header ﬁle to measure memory, and other information related to the tests available at https://github.com/n-otter/PH-roadmap. Of the six software packages that we study, four implement the computation of the dual algorithm, and four implement the standard algorithm. It is reported in [149] that javaPlex implements the dual algorithm, but the implementation of
+11Note that we performed the computations for Gudhi and ripser at a diﬀerent point in time, during which the shared-memory system was running the OS Ubuntu 16.04.01.
+
+30
+the algorithm has a bug and gives a wrong output. To our knowledge, this bug has not yet been ﬁxed (at the time of writing), and we therefore test only the standard algorithm.
+For the computations on the cluster, we compare the libraries running both the dual algorithm and the standard algorithm. The package DIPHA is the only one to implement a distributed computation. As a default, we run the software on one node and 16 cores; we only increase the number of nodes and cores employed when the machine runs out of memory. However, augmenting the number of nodes can make the computations faster (in terms of CPU seconds) for complexes of all sizes.12 We see this in our experiments, and it is also discussed in [13]. For the other packages, we run the computations on a single node with one core.
+For computations on the shared-memory system, we compare the libraries using only the dual algorithm if they implement it, and we otherwise use the standard algorithm. For the shared-memory system, we run all packages (including DIPHA) on a single core.
+In our benchmarking, we report mean computation times and memory measurements. In Table 3, we give the computation times for the diﬀerent software packages. We measure elapsed and CPU time by using the time function in Linux. We report computation times with a precision of one second; if a computation took only fractions of a second, we report “one second” as the computation time. For space reasons, we report results for a subset of the computations. (In the SI, we tabulate the rest of our computations.) In Table 4, we report the memory used by the processes in terms of maximum resident set size (RSS); in other words, we give the maximum amount of real RAM a program has used during its execution. We measure the maximum RSS using the getrusage function in Linux. The header ﬁle that we use to measure memory is available at https://github.com/n-otter/PH-roadmap. In DIPHA, the measurement of memory is already implemented by the authors of the software. They also use the getrusage function in Linux. The package javaPlex is written in Java, and we thus cannot measure its memory as we do for the other packages. However, one can infer memory requirements for this software package using the value of the maximal heap size necessary to perform the computations; we report this value in Table 4. In Table 5, we give the maximum size of the simplicial complex for which we were able to compute PH with each software package in our benchmarkings.
+7.2 Conclusions from our benchmarking
+Our tests suggest that ripser is the best-performing library currently available for the computation of PH with the Vietoris–Rips complex, and in order of decreasing performance, that Gudhi and DIPHA are the next-best implementations. For the computation of PH with cubical complexes, Gudhi outperforms DIPHA by a factor of 3 to 4 in terms of memory usage, and DIPHA outperforms Gudhi in terms of wall-time seconds by a factor of 1 to 2 (when running on one core on a shared-memory system). Both DIPHA and Gudhi signiﬁcantly outperform the implementation in Perseus. For the computation of PH with the alpha complex, we did not observe any signiﬁcant diﬀerences in performance between the libraries Gudhi and Dionysus. Because the alpha complex has fewer simplices than the other complexes that we used in our tests, further tests with larger data sets may be appropriate in future benchmarkings.
+There is a huge disparity between implementations of the dual and standard algorithms. In our benchmarking, the dual implementations outperformed standard ones both in terms of computation time (with respect to both CPU and wall-time seconds) and in terms of the amount of memory used. This signiﬁcant diﬀerence in performance and memory usage was also revealed for the software package Dionysus in [53].
+12Based on the results of our tests, we think of small, medium, and large complexes, respectively, as complexes with a size of order of magnitude of up to 10 million simplices, between 10 million and 100 million simplices, and between 100 million and a billion simplices.
+
+31
+
+Table 3: Performance of the software packages measured in wall-time (i.e., elapsed time), and CPU seconds (for the computations running on the cluster). For each data set, we indicate the size of the simplicial complex and the maximum dimension up to which we construct the VR complex. For all data sets, we construct the ﬁltered VR complex up to the maximum distance between any two points. We indicate the implementation of the standard algorithm using the abbreviation “st” following the name of the package, and we indicate the implementation of the dual algorithm using the abbreviation “d.” The symbol “-” signiﬁes that we were unable to ﬁnish computations for this data set, because the machine ran out of memory. Perseus implements only the standard algorithm, and Gudhi and ripser implement only the dual algorithm. (a,b) We run DIPHA on one node and 16 cores for the data sets eleg, Klein, and genome; on 2 nodes of 16 cores for the HIV data set; on 2 and 3 nodes of 16 cores for the dual and standard implementations, respectively, for drag 2; and on 8 nodes of 16 cores for random. (The maximum number of processes that we could use at any one time was 128.) (c) We run DIPHA on a single core.
+
+Data set Size of complex
+Max. dim. javaPlex (st) Dionysus (st) DIPHA (st)
+Perseus Dionysus (d) DIPHA (d)
+Gudhi
+ripser
+
+(a) Computations on cluster: wall-time seconds
+
+eleg 4.4 × 106
+2 84 474 6 543 513 4 36 1
+
+Klein 1.1 × 107
+2 747 1830 90 1978 145
+6 89 1
+
+HIV 2.1 × 108
+2 1631 81 1798 2
+
+drag 2 1.3 × 109
+2 142559 2358 14368 6
+
+random 3.1 × 109
+8 5096 349
+
+genome 4.5 × 108
+2 9110 232 4753 3
+
+Data set Size of complex
+Max. dim. javaPlex (st) Dionysus (st) DIPHA (st)
+Perseus Dionysus (d) DIPHA (d)
+Gudhi
+ripser
+
+(b) Computations on cluster: CPU seconds
+
+eleg 4.4 × 106
+2 284 473 68 542 513 39 36
+1
+
+Klein 1.1 × 107
+2 1031 1824 1360 1974 145
+73 88 1
+
+HIV 2.1 × 108
+2 25950 1276 1794 2
+
+drag 2 1.3 × 109
+2 1489615 37572 14351 5
+
+random 3.1 × 109
+8 79691 348
+
+genome 4.5 × 108
+2 130972 3622 4764 2
+
+(c) Computations on shared-memory system: wall-time seconds
+
+Data set Size of complex
+Max. dim. javaPlex (st)
+Perseus Dionysus (d) DIPHA (d)
+Gudhi ripser
+
+eleg 3.2 × 108
+3 13607
+926 381 2
+
+Klein 1.1 × 107
+2 1358 1271 100
+13 6 1
+
+HIV 2.1 × 108
+2 43861
+142055
+773 177
+2
+
+drag 2 1.3 × 109
+2 35366 4482 1518 5
+
+genome 4.5 × 108
+2 28064
+1775 442 3
+
+fract r 2.8 × 109
+3 572764 3923 4590 1517
+
+32
+
+Table 4: Memory usage in GB for the computations summarized in Table 3. For javaPlex, we indicate the value of the maximum heap size that was suﬃcient to perform the computation. The value that we give is an upper bound to the memory usage. For DIPHA, we indicate the maximum memory used by a single core (considering all cores). See Table 3 for details on the number of cores used.
+
+Data set Size of complex
+Max. dim. javaPlex (st) Dionysus (st) DIPHA (st)
+Perseus Dionysus (d) DIPHA (d)
+Gudhi
+ripser
+
+(a) Computations on cluster
+
+eleg 4.4 × 106
+2 <5 1.3 0.1 5.1 0.5 0.1 0.2 0.007
+
+Klein 1.1 × 107
+2 < 15 11.6 0.2 12.7 1.1 0.2 0.5 0.02
+
+HIV 2.1 × 108
+2 > 64
+2.7
+1.8 8.5 0.06
+
+drag 2 1.3 × 109
+2 > 64
+4.9
+13.8 62.8 0.2
+
+random 3.1 × 109
+8 > 64
+9.6 24.7
+
+genome 4.5 × 108
+2 > 64
+4.8
+6.3 21.5 0.07
+
+Data set Size of complex
+Max. dim. javaPlex (st)
+Perseus Dionysus (d) DIPHA (d)
+Gudhi ripser
+
+(b) Computations on shared-memory system
+
+eleg 3.2 × 108
+3 < 600
+31.2 15.4 0.2
+
+Klein 1.1 × 107
+2 < 15 11.7 1.1 0.9 0.5 0.03
+
+HIV 2.1 × 108
+2 < 700
+16.8 17.7 10.2 0.07
+
+drag 2 1.3 × 109
+2 > 700
+134.2 109.5 62.8
+0.2
+
+genome 4.5 × 108
+2 < 700
+37.3 21.4 0.07
+
+fract r 2.8 × 109
+3 > 700
+268.5 276.1 134.8 155
+
+Table 5: For each software package in (a), we indicate in (b) the maximal size of the simplicial complex supported by it thus far in our tests.
+
+(a)
+
+javaPlex st
+
+Dionysus
+
+st
+
+d
+
+DIPHA
+
+st
+
+d
+
+Perseus Gudhi
+
+st
+
+d
+
+ripser d
+
+(b) 4.5 · 108 1.1 · 107 2.8 × 109 1.3 · 109 3.4 · 109 1 · 107 3.4 · 109 3.4 · 109
+
+33
+
+To conclude, in our benchmarking, the fastest software packages were ripser, Gudhi, and DIPHA. For small complexes, the software packages Perseus and javaPlex are good choices, because they are the easiest ones to use. (They are the only libraries that need only to be downloaded and are then “plug-and-play,” and they have user-friendly interfaces.) Because the library javaPlex implements the computation of a variety of complexes and algorithms, we feel that it is the best software for an initial foray into PH computation.
+We now give guidelines for the computation of PH based on our benchmarking. We list several types of data sets in Table 6 and indicate which software or algorithm that we feel is best-suited to each one. These guidelines are based on the ﬁndings of our benchmarking. Note that one can transform networks into distance matrices, and distance matrices can yield points in Euclidean space using a method such as multi-dimensional scaling. Naturally, given a ﬁnite set of points in Euclidean space, we can compute their distance matrix. As we discussed in Section 5.1, image data can also be considered as a ﬁnite metric space, so the indications for distance matrices and points in Euclidean space also apply to image data.
+Table 6: Guidelines for which implementation is best-suited for which data set, based on our benchmarking. Recall that we indicate the implementation of the dual algorithm using the abbreviation “d” following the name of a package, and similarly we indicate the implementation of the standard algorithm by “st”. Note that for smaller data sets one can also use javaPlex to compute PH with VR complexes from points in Euclidean space, and Perseus to compute PH with cubical complexes for image data, and with VR complexes for distance matrices. The library jHoles can only handle networks with density much less than 1.
+
+Data type networks image data distance matrix distance matrix points in Euclidean space points in Euclidean space points in Euclidean space
+
+Complexes WRCF cubical VR W VR Cˇ
+α (only in dim 2 and 3)
+
+Suggested software jHoles
+Gudhi or DIPHA (st) ripser
+javaPlex Gudhi
+Dionysus Dionysus ((st) in dim 2, (d) in dim 3) or Gudhi
+
+8 Future directions
+We conclude by discussing some future directions for the computation of PH. As we saw in Section 5, much work has been done on step 2 (i.e., going from ﬁltered complexes to barcodes) of the PH pipeline of Fig. 6, and there exist implementations of many fast algorithms for the reduction of the boundary matrix. Step 1 (i.e., going from data to a ﬁltered complex) of the PH pipeline is an active area of research, but many sparsiﬁcation techniques (see, e.g., [101, 142]) for complexes have yet to be implemented, and more research needs to be done on steps 1 and 3 (i.e., interpreting barcodes; see. e.g., [24, 27, 153]) of the PH pipeline. In particular, it is important to develop approaches for statistical analysis of persistent homology.
+We believe that there needs to be a community-wide eﬀort to build a library that implements the algorithms and data structures for the computation of PH, and that it should be done in a way that new algorithms and methods can be implemented easily in this framework. This would parallel similar community-wide eﬀorts in ﬁelds such as computational algebra and computational geometry, and libraries such as Macaulay2 [84], Sage [55], and CGAL [151].
+
+34
+We also believe that there is a need to create guidelines and benchmark data sets for the test of new algorithms and data structures. The methods and collection of data sets that we used in our benchmarking provide an initial step towards establishing such guidelines and a list of test problems.
+9 Availability of data and materials
+The processed version of the data sets used in the benchmarking and the scripts written for the tutorial are available at https://github.com/n-otter/PH-roadmap. The open-source libraries for the computation of PH studied in this paper are available at the references indicated in the associated citations.
+Acknowledgements
+We thank the Rabadan Lab at Columbia University for providing the HIV and H3N2 sequences used in [35] and Giovanni Petri for sharing the data sets used in [135]. We thank Krishna Bhogaonker, Adrian Clough, Patrizio Frosini, Florian Klimm, Vitaliy Kurlin, Robert MacKay, James Meiss, Dane Taylor, Leo Speidel, Parker Edwards, and Bernadette Stolz for helpful comments on a draft of this paper. We also thank the anonymous referees for their many helpful comments. The ﬁrst author thanks Ulrich Bauer, Michael Lesnick, Hubert Wagner, and Matthew Wright for helpful discussions, and thanks Florian Klimm, Vidit Nanda, and Bernadette Stolz for precious advice. The authors would like to acknowledge the use of the University of Oxford Advanced Research Computing (ARC) facility (http://dx.doi.org/10.5281/zenodo.22558) in carrying out some of the computations performed in this work. The ﬁrst author thanks the support team at the ARC for their assistance. NO and PG are grateful for support from the EPSRC grant EP/G065802/1 (The Digital Economy HORIZON Hub). HAH gratefully acknowledges EPSRC Fellowship EP/K041096/1. NO and UT were supported by The Alan Turing Institute through EPSRC grant EP/N510129/1. NO and HAH were supported by the EPSRC institutional grant D4D01270 BKA1.01.
+References
+[1] Volvis repository. http://volvis.org.
+[2] H. Adams and A. Tausz, JavaPlex tutorial. Available at https://github.com/ appliedtopology/javaplex.
+[3] A. Adcock, E. Carlsson, and G. Carlsson, The ring of algebraic functions on persistence bar codes, ArXiv e-prints, (2013). 1304.0530.
+[4] R. Adler, TOPOS, and why you should care about it, IMS Bulletin, 43 (2014), pp. 4–5.
+[5] R. Adler, O. Bobrowski, and S. Weinberger, Crackle: The homology of noise, Discrete & Computational Geometry, 52 (2014), pp. 680–704.
+[6] R. J. Adler, O. Bobrowski, M. S. Borman, E. Subag, and S. Weinberger, Persistent homology for random ﬁelds and complexes, vol. 6 of Collections, Institute of Mathematical Statistics, Beachwood, Ohio, USA, 2010, pp. 124–143.
+
+35
+
+[7] D. Attali, H. Edelsbrunner, and Y. Mileyko, Weak witnesses for Delaunay triangulations of submanifolds, in Proceedings of the 2007 ACM Symposium on Solid and Physical Modeling, SPM ’07, New York, NY, USA, 2007, ACM, pp. 143–150.
+
+[8] P. Bajardi, M. Delfino, A. Panisson, G. Petri, and M. Tizzoni, Unveiling patterns of international communities in a global city using mobile phone data, EPJ Data Science, 4 (2015), p. 3.
+
+[9] J. A. Barmak and E. G. Minian, Strong homotopy types, nerves and collapses, Discrete & Computational Geometry, 47 (2012), pp. 301–328.
+
+[10] U. Bauer, Ripser, 2016. Available at https://github.com/Ripser/ripser.
+
+[11] U. Bauer, M. Kerber, and J. Reininghaus, DIPHA (A distributed persistent homology algorithm). Software available at https://code.google.com/p/dipha/.
+
+[12]
+
+, Clear and compress: Computing persistent homology in chunks, in Topological Meth-
+
+ods in Data Analysis and Visualization III, P.-T. Bremer, I. Hotz, V. Pascucci, and R. Peik-
+
+ert, eds., Mathematics and Visualization, Springer International Publishing, 2014, pp. 103–
+
+117.
+
+[13]
+
+, Distributed computation of persistent homology, in 2014 Proceedings of the Sixteenth
+
+Workshop on Algorithm Engineering and Experiments (ALENEX), Society for industrial
+
+and applied mathematics, 2014, ch. 3, pp. 31–38.
+
+[14] U. Bauer, M. Kerber, J. Reininghaus, and H. Wagner, PHAT: Persistent homology algorithms toolbox, in Mathematical Software, ICMS 2014, H. Hong and C. Yap, eds., vol. 8592 of Lecture Notes in Computer Science, Springer Berlin Heidelberg, 2014, pp. 137– 143. Software available at https://code.google.com/p/phat/.
+
+[15] P. Bendich, H. Edelsbrunner, and M. Kerber, Computing robustness and persistence for images, IEEE Transactions on Visualization and Computer Graphics, 16 (2010), pp. 1251–1260.
+
+[16] P. Bendich, J. S. Marron, E. Miller, A. Pieloch, and S. Skwerer, Persistent homology analysis of brain artery trees, The annals of applied statistics, 10 (2016), pp. 198– 218.
+
+[17] S. Bhattacharya, R. Ghrist, and V. Kumar, Persistent homology for path planning in uncertain environments, IEEE Transactions on Robotics, 31 (2015), pp. 578–590.
+
+[18] J. Binchi, E. Merelli, M. Rucco, G. Petri, and F. Vaccarino, jHoles: A tool for understanding biological complex networks via clique weight rank persistent homology, Electronic Notes in Theoretical Computer Science, 306 (2014), pp. 5–18. Proceedings of the 5th International Workshop on Interactions between Computer Science and Biology (CS2Bio14).
+
+[19] A. Bjo¨rner, Topological methods, in Handbook of combinatorics, R. Graham, M. Gr¨otschel, and L. Lov´asz, eds., Elsevier Science B.V., 1995, ch. 34, pp. 1819–1872.
+
+[20] O. Bobrowski, S. Mukherjee, and J. Taylor, Topological consistency via kernel estimation, Bernoulli, 23 (2017), pp. 288–328.
+
+36
+[21] J.-D. Boissonnat, O. Devillers, and S. Hornus, Incremental construction of the Delaunay triangulation and the Delaunay graph in medium dimension, in Proceedings of the Twenty-ﬁfth Annual Symposium on Computational Geometry, SCG ’09, New York, NY, USA, 2009, ACM, pp. 208–216.
+[22] J.-D. Boissonnat, L. J. Guibas, and S. Y. Oudot, Manifold reconstruction in arbitrary dimensions using witness complexes, Discrete & Computational Geometry, 42 (2009), pp. 37–70.
+[23] J.-D. Boissonnat and C. Maria, Computing persistent homology with various coeﬃcient ﬁelds in a single pass, in Algorithms - ESA 2014, A. S. Schulz and D. Wagner, eds., vol. 8737 of Lecture Notes in Computer Science, Springer Berlin Heidelberg, 2014, pp. 185–196.
+[24] P. Bubenik, Statistical topological data analysis using persistence landscapes, Journal of Machine Learning Research, 16 (2015), pp. 77–102.
+[25] P. Bubenik, V. de Silva, and J. Scott, Metrics for generalized persistence modules, Foundations of Computational Mathematics, 15 (2014), pp. 1501–1531.
+[26] P. Bubenik and P. Dlotko, A persistence landscapes toolbox for topological statistics, J. Symb. Comput., 78 (2017), pp. 91–114.
+[27] P. Bubenik and P. T. Kim, A statistical approach to persistent homology, Homology, Homotopy and Applications, 9 (2007), pp. 337–362.
+[28] P. Bubenik and J. A. Scott, Categoriﬁcation of persistent homology, Discrete & Computational Geometry, 51 (2014), pp. 600–627.
+[29] P. G. Ca´mara, A. J. Levine, and R. Rabada´n, Inference of ancestral recombination graphs through topological data analysis, PLOS Computational Biology, 12 (2016), pp. 1–25.
+[30] G. Carlsson, Topology and data, Bulletin of the American Mathematical Society, 46 (2009), pp. 255–308.
+[31] G. Carlsson, V. de Silva, and D. Morozov, Zigzag persistent homology and realvalued functions, in Proceedings of the Twenty-ﬁfth Annual Symposium on Computational Geometry, SCG ’09, New York, NY, USA, 2009, ACM, pp. 247–256.
+[32] G. Carlsson, T. Ishkhanov, V. de Silva, and A. Zomorodian, On the local behavior of spaces of natural images, International Journal of Computer Vision, 76 (2008), pp. 1–12.
+[33] G. Carlsson and A. Zomorodian, The theory of multidimensional persistence, Discrete & Computational Geometry, 42 (2009), pp. 71–93.
+[34] C. J. Carstens and K. J. Horadam, Persistent homology of collaboration networks, Mathematical Problems in Engineering, (2013).
+[35] J. M. Chan, G. Carlsson, and R. Rabadan, Topology of viral evolution, Proceedings of the National Academy of Sciences of the United States of America, 110 (2013), pp. 18566– 18571.
+[36] F. Chazal, D. Cohen-Steiner, M. Glisse, L. J. Guibas, and S. Y. Oudot, Proximity of persistence modules and their diagrams, in Proceedings of the Twenty-ﬁfth Annual Symposium on Computational Geometry, SCG ’09, New York, NY, USA, 2009, ACM, pp. 237–246.
+
+37
+[37] F. Chazal, B. T. Fasy, F. Lecci, B. Michel, A. Rinaldo, and L. Wasserman, Robust Topological Inference: Distance To a Measure and Kernel Distance, ArXiv e-prints, (2014). 1412.7197.
+[38] C. Chen and M. Kerber, Persistent homology computation with a twist, in Proceedings of the 27th European Workshop on Computational Geometry, 2011, pp. 197–200.
+[39] S. Chepushtanova, T. Emerson, E. Hanson, M. Kirby, F. Motta, R. Neville, C. Peterson, P. Shipman, and L. Ziegelmeier, Persistence images: An alternative persistent homology representation, ArXiv e-prints, (2015). 1507.06217.
+[40] M. K. Chung, P. Bubenik, and P. T. Kim, Persistence diagrams of cortical surface data, in Information Processing in Medical Imaging, J. L. Prince, D. L. Pham, and K. J. Myers, eds., vol. 5636 of Lecture Notes in Computer Science, Springer Berlin Heidelberg, 2009, pp. 386–397.
+[41] M. M. Cohen, A Course in Simple Homotopy Theory, Graduate Texts in Mathematics, Springer-Verlag New York Inc., 1970.
+[42] D. Cohen-Steiner, H. Edelsbrunner, and J. Harer, Stability of persistence diagrams, Discrete & Computational Geometry, 37 (2007), pp. 103–120.
+[43] D. Coppersmith and S. Winograd, Matrix multiplication via arithmetic progressions, Journal of Symbolic Computation, 9 (1990), pp. 251–280.
+[44] O. Courtney and G. Bianconi, Generalized network structures: The conﬁguration model and the canonical ensemble of simplicial complexes, Phys. Rev. E, 93 (2016), p. 062311.
+[45] L. Crawford, A. Monod, A. X. Chen, S. Mukherjee, and R. Rabada´n, Topological Summaries of Tumor Images Improve Prediction of Disease Free Survival in Glioblastoma Multiforme, ArXiv e-prints, (2016). 1611.06818.
+[46] J. Curry, Sheaves, cosheaves and applications, ArXiv e-prints, (2013). 1303.3255.
+[47] C. Curto, What can topology tell us about the neural code?, Bulletin (New Series) of the American Mathematical Society, 54 (2017), pp. 63–78.
+[48] Y. Dabaghian, V. L. Brandt, and L. M. Frank, Reconceiving the hippocampal map as a topological template, eLife, 3 (2014), p. e03476.
+[49] T. A. Davis and Y. Hu, The University of Florida Sparse Matrix Collection, ACM Transactions on Mathematical Software, 38 (2011), pp. 1–25. Available at http://www. cise.ufl.edu/research/sparse/matrices.
+[50] V. de Silva, A weak characterisation of the Delaunay triangulation, Geometriae Dedicata, 135 (2008), pp. 39–64.
+[51] V. de Silva and G. Carlsson, Topological estimation using witness complexes, in Proceedings of the First Eurographics conference on Point-Based Graphics, Eurographics Association, 2004, pp. 157–166.
+[52] V. de Silva and R. Ghrist, Coverage in sensor networks via persistent homology, Algebraic & Geometric Topology, 7 (2007), pp. 339–358.
+
+38
+
+[53] V. de Silva, D. Morozov, and M. Vejdemo-Johansson, Dualities in persistent (co)homology, Inverse Problems, 27 (2011), p. 124003.
+
+[54]
+
+, Persistent cohomology and circular coordinates, Discrete & Computational Geome-
+
+try, 45 (2011), pp. 737–759.
+
+[55] T. S. Developers, Sage Mathematics Software. Available at http://www.sagemath.org.
+
+[56] D. DeWoskin, J. Climent, I. Cruz-White, M. Vazquez, C. Park, and J. Arsuaga, Applications of computational homology to the analysis of treatment response in breast cancer patients, Topology and its Applications, 157 (2010), pp. 157–164. Proceedings of the International Conference on Topology and its Applications 2007 at Kyoto; Jointly with 4th Japan Mexico Topology Conference.
+
+[57] T. K. Dey, F. Fan, and Y. Wang, Graph induced complex on point data, in Proceedings of the Twenty-ninth Annual Symposium on Computational Geometry, SoCG ’13, New York, NY, USA, 2013, ACM, pp. 107–116.
+
+[58]
+
+, Computing topological persistence for simplicial maps, in Proceedings of the Thir-
+
+tieth Annual Symposium on Computational Geometry, SOCG’14, New York, NY, USA,
+
+2014, ACM, pp. 345–354.
+
+[59] T. K. Dey, D. Shi, and Y. Wang, SimBa: An eﬃcient tool for approximating Ripsﬁltration persistence via simplicial batch-collapse, in LIPIcs-Leibniz International Proceedings in Informatics. Vol. 57, Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik, 2016.
+
+[60] P. Dlotko, Persistence landscape toolbox. Available at https://www.math.upenn.edu/ ~dlotko/persistenceLandscape.html.
+[61] P. Dlotko, K. Hess, R. Levi, M. Nolte, M. Reimann, M. Scolamiero, K. Turner, E. Muller, and H. Markram, Topological analysis of the connectome of digital reconstructions of neural microcircuits, ArXiv e-prints, (2016). 1601.01580.
+
+[62] H. Edelsbrunner, The union of balls and its dual shape, Discrete & Computational Geometry, 13 (1995), pp. 415–440.
+
+[63] H. Edelsbrunner and M. D., Persistent homology: Theory and practice, in Proceedings of the European Congress of Mathematics, 2012, pp. 31–50.
+
+[64] H. Edelsbrunner and J. Harer, Persistent homology — A survey, in Surveys on Discrete and Computational Geometry. Twenty Years Later, J. E. Goodman, J. Pach, and R. Pollack, eds., vol. 453 of Contemporary Mathematics, 2008, pp. 257–282.
+
+[65]
+
+, Computational Topology: An Introduction, Applied mathematics, American Mathe-
+
+matical Society, 2010.
+
+[66] H. Edelsbrunner, D. Kirkpatrick, and R. Seidel, On the shape of a set of points in the plane, IEEE Transactions on Information Theory, 29 (1983), pp. 551–559.
+
+[67] H. Edelsbrunner, D. Letscher, and A. Zomorodian, Topological persistence and simpliﬁcation, Discrete & Computational Geometry, 28 (2002), pp. 511–533.
+
+[68] H. Edelsbrunner, D. Morozov, and V. Pascucci, Persistence-sensitive simpliﬁcation functions on 2-manifolds, in Proceedings of the Twenty-second Annual Symposium on Computational Geometry, SCG ’06, New York, NY, USA, 2006, ACM, pp. 127–134.
+
+39
+
+[69] H. Edelsbrunner and E. P. Mu¨cke, Three-dimensional alpha shapes, ACM Transactions on Graphics, 13 (1994), pp. 43–72.
+
+[70] S. Eilenberg and N. E. Steenrod, Foundations of Algebraic Topology, Princeton Mathematical Series, Princeton University Press, 1952.
+
+[71] K. Emmett, D. Rosenbloom, P. Camara, and R. Rabadan, Parametric inference using persistence diagrams: A case study in population genetics, ArXiv e-prints, (2014). 1406.4582.
+
+[72] K. Emmett, B. Schweinhart, and R. Rabad´ an, Multiscale topology of chromatin folding, in Proceedings of the 9th EAI International Conference on Bio-inspired Information and Communications Technologies (Formerly BIONETICS), BICT’15, ICST, Brussels, Belgium, Belgium, 2016, ICST (Institute for Computer Sciences, Social-Informatics and Telecommunications Engineering), pp. 177–180.
+
+[73] B. Fasy, F. Lecci, A. Rinaldo, L. Wasserman, S. Balakrishnan, and A. Singh, Conﬁdence sets for persistence diagrams, Ann. Statist., 42 (2014), pp. 2301–2339.
+
+[74] B. T. Fasy, J. Kim, F. Lecci, and C. Maria, Introduction to the R package TDA, ArXiv e-prints, (2014). 1411.1830.
+
+[75] B. T. Fasy, J. Kim, F. Lecci, C. Maria, and V. Rouvreau, TDA: Statistical tools for topological data analysis. Available at https://cran.r-project.org/web/packages/ TDA/index.html.
+
+[76] M. Gameiro, Y. Hiraoka, S. Izumi, M. Krama´r, K. Mischaikow, and V. Nanda, A topological measurement of protein compressibility, Japan Journal of Industrial and Applied Mathematics, 32 (2015), pp. 1–17.
+
+[77] G. Gan, C. Ma, and J. Wu, Data Clustering: Theory, Algorithms, and Applications, SIAM, Philadelphia, PA, 2007.
+
+[78] R. Ghrist, Barcodes: The persistent topology of data, Bulletin of the American Mathematical Society, 45 (2008), pp. 61–75.
+
+[79]
+
+, Elementary Applied Topology, Createspace, 2014. ed. 1.0.
+
+[80] M. Gidea, Topology data analysis of critical transitions in ﬁnancial networks, ArXiv eprints, (2017). 1701.06081.
+
+[81] C. Giusti, R. Ghrist, and D. Bassett, Two’s company and three (or more) is a simplex, Journal of Computational Neuroscience, 41 (2016), pp. 1–14.
+
+[82] A. Goldenberg, A. X. Zheng, S. E. Fienberg, and E. M. Airoldi, A survey of statistical network models, Foundations and Trends in Machine Learning, 2 (2010), pp. 129– 233.
+
+[83] J. E. Goodman and J. O’Rourke, eds., Handbook of Discrete and Computational Geometry, CRC Press, Inc., Boca Raton, FL, USA, 2 ed., 2004.
+
+[84] D. R. Grayson and M. E. Stillman, Macaulay2, a software system for research in algebraic geometry. Available at http://www.math.uiuc.edu/Macaulay2/.
+
+40
+
+[85] L. J. Guibas and S. Y. Oudot, Reconstruction using witness complexes, Discrete & Computational Geometry, 40 (2008), pp. 325–356.
+
+[86] M. Guillemard, H. Boche, G. Kutyniok, and F. Philipp, Signal analysis with frame theory and persistent homology, in 10th International Conference on Sampling Theory and Applications, 2013, pp. 309–312.
+
+[87] A. Hatcher, Algebraic Topology, Cambridge University Press, Cambridge, New York, 2002.
+
+[88] Y. Hiraoka, T. Nakamura, A. Hirata, E. Escolar, K. Matsue, and Y. Nishiura, Hierarchical structures of amorphous solids characterized by persistent homology, Proceedings of the National Academy of Sciences, 113 (2016), pp. 7035–7040.
+
+[89] D. Horak, S. Maletic´, and M. Rajkovic´, Persistent homology of complex networks, Journal of Statistical Mechanics: Theory and Experiment, 2009 (2009), p. P03034.
+
+[90] J. Jonsson, Simplicial Complexes of Graphs, Lecture Notes in Mathematics, Springer Berlin Heidelberg, 2007.
+
+[91] M. Joswig and M. E. Pfetsch, Computing optimal Morse matchings, SIAM Journal on Discrete Mathematics, 20 (2006), pp. 11–25.
+
+[92] D. o. C. S. Jyamiti research group (Prof. Tamal K. Dey) and O. S. U. Engi-
+neering, GIComplex, 2013. Available at http://web.cse.ohio-state.edu/~tamaldey/ GIC/GICsoftware/.
+
+[93] D. o. C. S. Jyamiti research group (Prof. Tamal K. Dey) and O. S. U. Engi-
+neering, SimpPers, 2014. Available at http://web.cse.ohio-state.edu/~tamaldey/ SimpPers/SimpPers-software/.
+
+[94] T. Kaczynski, K. Mischaikow, and M. Mrozek, Computational Homology, vol. 157 of Applied Mathematical Sciences, Springer, 2004.
+
+[95] M. Kahle, Random geometric complexes, Discrete & Computational Geometry, 45 (2011), pp. 553–573.
+
+[96]
+
+, Topology of random simplicial complexes: A survey, in AMS Contemporary Math-
+
+ematics – Applied algebraic topology: New directions and applications, vol. 620, 2014,
+
+p. 201.
+
+[97] L. Kanari, P. Dlotko, M. Scolamiero, R. Levi, J. Shillcock, K. Hess, and H. Markram, Quantifying topological invariants of neuronal morphologies, ArXiv e-prints, (2016). 1603.08432.
+
+[98] L. Kaufman and P. J. Rousseeuw, Finding Groups in Data: An Introduction to Cluster Analysis, John Wiley and Sons, Inc., New York, NY, 1990.
+
+[99] M. Kerber, D. Morozov, and A. Nigmetov, Geometry Helps to Compare Persistence Diagrams, ArXiv e-prints, (2016). 1606.03357.
+
+[100] M. Kerber, D. Morozov, and A. Nigmetov, Hera, 2016. Available at https:// bitbucket.org/grey_narn/hera.
+
+41
+
+[101] M. Kerber and R. Sharathkumar, Approximate Cˇech complex in low and high dimensions, in 24th International Symposium on Algorithms and Computation (ISAAC 2013), L. Cai, S.-W. Cheng, and T.-W. Lam, eds., Lecture Notes in Computer Science 8283, 2013, pp. 666–676.
+
+[102] V. Kovacev-Nikolic, P. Bubenik, D. Nikolic´, and G. Heo, Using persistent homology and dynamical distances to analyze protein binding, ArXiv e-prints, (2014). 1412.1394.
+
+[103] M. Krama´r, A. Goullet, L. Kondic, and K. Mischaikow, Persistence of force networks in compressed granular media, Physical Review E, 87 (2013), p. 042207.
+
+[104]
+
+, Quantifying force networks in particulate systems, Physica D, 283 (2014), pp. 37–55.
+
+[105] V. Kurlin, 2015. http://kurlin.org/projects/persistent-skeletons.cpp.
+
+[106]
+
+, A one-dimensional homologically persistent skeleton of an unstructured point cloud
+
+in any metric space, Computer Graphics Forum, 34 (2015), pp. 253–262.
+
+[107] R. Kwitt, S. Huber, M. Niethammer, W. Lin, and U. Bauer, Statistical topological data analysis - a kernel perspective, in Advances in Neural Information Processing Systems 28, C. Cortes, N. D. Lawrence, D. D. Lee, M. Sugiyama, and R. Garnett, eds., Curran Associates, Inc., 2015, pp. 3052–3060.
+
+[108] L. A. N. Laboratory, HIV Database. Available at http://www.hiv.lanl.gov/ content/index.
+
+[109] S. U. C. G. Laboratory, The stanford 3D scanning repository. Available at https: //graphics.stanford.edu/data/3Dscanrep.
+
+[110] Y. Lee, S. D. Barthel, P. Dlotko, S. Mohamad Moosavi, K. Hess, and B. Smit, Pore-geometry recognition: on the importance of quantifying similarity in nanoporous materials, ArXiv e-prints, (2017). 1701.06953.
+
+[111] G. Leibon, S. Pauls, D. Rockmore, and R. Savell, Topological structures in the equities market network, Proceedings of the National Academy of Sciences of the United States of America, 105 (2008), pp. 20589–20594.
+
+[112] M. Lesnick and M. Wright, Interactive visualization of 2-D persistence modules, ArXiv e-prints, (2015). 1512.00180.
+
+[113] M. Lesnick and M. Wright, RIVET: The rank invariant visualization and exploration tool, 2016. Software available at http://rivet.online/.
+
+[114] D. Lo and B. Park, Modeling the spread of the Zika virus using topological data analysis, ArXiv e-prints, (2016). 1612.03554.
+
+[115] L.-D. Lord, P. Expert, H. M. Fernandes, G. Petri, T. J. Van Hartevelt, F. Vaccarino, G. Deco, F. Turkheimer, and M. Kringelbach, Insights into brain architectures from the homological scaﬀolds of functional connectivity networks, Frontiers in Systems Neuroscience, 10 (2016).
+
+[116] R. MacPherson and B. Schweinhart, Measuring shape with topology, Journal of Mathematical Physics, 53 (2012), p. 073516.
+
+42
+
+[117] S. Maletic, Y. Zhao, and M. Rajkovic, Persistent topological features of dynamical systems, ArXiv e-prints, (2015). 1510.06933.
+
+[118] C. Maria, Algorithms and data structures in computational topology, (2014). PhD Thesis, Universit´e de Nice-Sophia Antipolis. Available at http://www-sop.inria.fr/members/ Clement.Maria/docs/ClementMaria_PhDdissertation.pdf.
+
+[119] C. Maria, J.-D. Boissonnat, M. Glisse, and M. Yvinec, The Gudhi library: Simplicial complexes and persistent homology, in Mathematical Software, ICMS 2014, H. Hong and C. Yap, eds., vol. 8592 of Lecture Notes in Computer Science, Springer Berlin Heidelberg, 2014, pp. 167–174. Software available at https://project.inria.fr/gudhi/ software/.
+
+[120] Y. Mileyko, S. Mukherjee, and J. Harer, Probability measures on the space of persistence diagrams, Inverse Problems, 27 (2011), p. 124007.
+
+[121] N. Milosavljevic´, D. Morozov, and P. Skraba, Zigzag persistent homology in matrix multiplication time, in Proceedings of the Twenty-seventh Annual Symposium on Computational Geometry, SoCG ’11, New York, NY, USA, 2011, ACM, pp. 216–225.
+
+[122] K. Mischaikow and V. Nanda, Morse theory for ﬁltrations and eﬃcient computation of persistent homology, Discrete & Computational Geometry, 50 (2013), pp. 330–353.
+
+[123] D. Morozov, Dionysus. Software available at http://www.mrzv.org/software/ dionysus/.
+
+[124]
+
+, Persistence algorithm takes cubic time in worst case, BioGeometry News, Dept.
+
+Comput. Sci., Duke Univ, (2005).
+
+[125] E. Munch, K. Turner, P. Bendich, S. Mukherjee, J. Mattingly, and J. Harer, Probabilistic Fr´echet means for time varying persistence diagrams, Electronic Journal of Statistics, 9 (2015), pp. 1173–1204.
+
+[126] V. Nanda, Perseus, the persistent homology software. Software available at http://www. sas.upenn.edu/~vnanda/perseus.
+
+[127]
+
+, Discrete morse theory for ﬁltrations, (2012). PhD Thesis. Rutgers, The State Uni-
+
+versity of New Jersey.
+
+[128] M. E. J. Newman, Finding community structure in networks using the eigenvectors of matrices, Physical Review E, 74 (2006), p. 036104.
+
+[129] M. Nicolau, A. J. Levine, and G. Carlsson, Topology based data analysis identiﬁes a subgroup of breast cancers with a unique mutational proﬁle and excellent survival, Proceedings of the National Academy of Sciences of the United States of America, 108 (2011), pp. 7265–7270.
+
+[130] S. Y. Oudot, Persistence Theory: From Quiver Representations to Data Analysis, vol. 209 of AMS Mathematical Surveys and Monographs, American Mathematical Society, 2015.
+
+[131] S. Pal, T. J. Moore, R. Ramanathan, and A. Swami, Comparative Topological Signatures of Growing Collaboration Networks, Springer International Publishing, Cham, 2017, pp. 201–209.
+
+[132] M. Penrose, Random Geometric Graphs, Oxford University Press, Oxford, UK, 2003.
+
+43
+[133] J. A. Perea, A. Deckard, S. B. Haase, and J. Harer, Sw1pers: Sliding windows and 1-persistence scoring; discovering periodicity in gene expression time series data, BMC Bioinformatics, 16 (2015), pp. 1–12.
+[134] P. Perry and V. de Silva, Plex, 2000–2006. Available at http://mii.stanford.edu/ research/comptop/programs/.
+[135] G. Petri, M. Scolamiero, I. Donato, and F. Vaccarino, Topological strata of weighted complex networks, PLoS ONE, 8 (2013), pp. 1–8.
+[136] F. T. Pokorny, M. Hawasly, and S. Ramamoorthy, Topological trajectory classiﬁcation with ﬁltrations of simplicial complexes and persistent homology, The International Journal of Robotics Research, 35 (2016), pp. 204–223.
+[137] K. T. Poole, Voteview. http://voteview.com, 2016.
+[138] J. Reininghaus, S. Huber, U. Bauer, and R. Kwitt, A stable multi-scale kernel for topological machine learning, in 2015 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2015, pp. 4741–4748.
+[139] A. Rizvi, P. Camara, E. Kandror, T. Roberts, I. Schieren, T. Maniatis, and R. Rabadan, Single-cell topological RNA-seq analysis reveals insights into cellular diﬀerentiation and development, Nature Biotechnology, Advance Online Publication (doi:10.1038/nbt.3854) (2017).
+[140] F. Robin, Morse theory for cell complexes, Advances in Mathematics, 134 (1998), pp. 90– 145.
+[141] S. E. Schaeffer, Graph clustering, Computer Science Review, 1 (2007), pp. 27–64.
+[142] D. R. Sheehy, Linear-size approximations to the Vietoris-Rips ﬁltration, Discrete & Computational Geometry, 49 (2013), pp. 778–796.
+[143] G. Singh, F. Me´moli, and G. Carlsson, Topological methods for the analysis of high dimensional data sets and 3D object recognition, in Eurographics Symposium on PointBased Graphics, 2007, pp. 91–100.
+[144] N. Singh, H. D. Couture, J. S. Marron, C. Perou, and M. Niethammer, Topological Descriptors of Histology Images, Springer International Publishing, Cham, 2014, pp. 231–239.
+[145] N. Singh, H. D. Couture, J. S. Marron, C. Perou, and M. Niethammer, Topological descriptors of histology images, in Machine Learning in Medical Imaging, G. Wu, D. Zhang, and L. Zhou, eds., vol. 8679 of Lecture Notes in Computer Science, Springer International Publishing, 2014, pp. 231–239.
+[146] A. Sizemore, C. Giusti, and D. Bassett, Classiﬁcation of weighted networks through mesoscale homological features, Journal of Complex Networks, 5 (2017), p. 245.
+[147] O. Sporns, Small-world connectivity, motif composition, and complexity of fractal neuronal connections, Biosystems, 85 (2006), pp. 55–64.
+[148] B. J. Stolz, H. A. Harrington, and M. A. Porter, Persistent homology of timedependent functional networks constructed from coupled time series, Chaos, 27 (2017), p. 047410.
+
+44
+[149] A. Tausz, M. Vejdemo-Johansson, and H. Adams, JavaPlex: A research software package for persistent (co)homology, in Proceedings of ICMS 2014, H. Hong and C. Yap, eds., Lecture Notes in Computer Science 8592, 2014, pp. 129–136. Software available at http://appliedtopology.github.io/javaplex/.
+[150] D. Taylor, F. Klimm, H. A. Harrington, M. Krama´r, K. Mischaikow, M. A. Porter, and P. J. Mucha, Topological data analysis of contagion maps for examining spreading processes on networks, Nature Communications, 6 (2015). Article number 7723.
+[151] The CGAL Project, CGAL user and reference manual, CGAL Editorial Board, 4.7 ed., 2015.
+[152] C. M. Topaz, L. Ziegelmeier, and T. Halverson, Topological data analysis of biological aggregation models, PLoS ONE, 10 (2015), pp. 1–26. Article number e0126383.
+[153] K. Turner, Y. Mileyko, S. Mukherjee, and J. Harer, Fr´echet means for distributions of persistence diagrams, Discrete & Computational Geometry, 52 (2014), pp. 44–70.
+[154] R. Vasudevan, A. Ames, and R. Bajcsy, Persistent homology for automatic determination of human-data based cost of bipedal walking, Nonlinear Analysis: Hybrid Systems, 7 (2013), pp. 101–115. IFAC World Congress 2011.
+[155] T. Vicsek, A. Cziro´k, E. Ben-Jacob, I. Cohen, and O. Shochet, Novel type of phase transition in a system of self-driven particles, Physical Review Letters, 75 (1995), pp. 1226–1229.
+[156] L. Vietoris, U¨ber den h¨oheren Zusammenhang kompakter R¨aume und eine Klasse von zusammenhangstreuen Abbildungen, Mathematische Annalen, 97 (1927), pp. 454–472.
+[157] H. Wagner, C. Chen, and E. Vuc¸ini, Eﬃcient computation of persistent homology for cubical data, in Topological Methods in Data Analysis and Visualization II, R. Peikert, H. Hauser, H. Carr, and R. Fuchs, eds., Mathematics and Visualization, Springer Berlin Heidelberg, 2012, pp. 91–106.
+[158] B. Wang and G.-W. Wei, Object-oriented persistent homology, Journal of Computational Physics, 305 (2016), pp. 276–299.
+[159] D. Watts and S. Strogatz, Collective dynamics of “small-world” networks, Nature, 393 (1998), pp. 440–442.
+[160] A. S. Waugh, L. Pei, J. H. Fowler, P. J. Mucha, and M. A. Porter, Party polarization in congress: A network science approach, arXiv:0907.3509, (2012). Data available at http://figshare.com/articles/Roll_Call_Votes_United_States_House_ and_Senate/1590036.
+[161] S. Weinberger, What is. . . Persistent Homology?, Notices of the AMS, 58 (2011), pp. 36– 39.
+[162] J. White, E. Southgate, J. Thomson, and S. Brenner, The structure of the nervous system of the nematode caenorhabditis elegans, Philosophical Transactions of the Royal Society of London B: Biological Sciences, 314 (1986), pp. 1–340.
+[163] A. C. Wilkerson, H. Chintakunta, and H. Krim, Computing persistent features in big data: A distributed dimension reduction approach, in 2014 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), May 2014, pp. 11–15.
+
+45
+
+[164] A. C. Wilkerson, H. Chintakunta, H. Krim, T. J. Moore, and A. Swami, A distributed collapse of a network’s dimensionality, in 2013 IEEE Global Conference on Signal and Information Processing, Dec 2013, pp. 595–598.
+
+[165] A. C. Wilkerson, T. J. Moore, A. Swami, and H. Krim, Simplifying the homology of networks via strong collapses, in 2013 IEEE International Conference on Acoustics, Speech and Signal Processing, May 2013, pp. 5258–5262.
+
+[166] K. Xia, X. Feng, Y. Tong, and G. W. Wei, Persistent homology for the quantitative prediction of fullerene stability, Journal of Computational Chemistry, 36 (2015), pp. 408– 422.
+
+[167] K. Xia, Z. Li, and L. Mu, Multiscale persistent functions for biomolecular structure characterization, ArXiv e-prints, (2016). 1612.08311.
+
+[168] K. Xia and G.-W. Wei, Persistent homology analysis of protein structure, ﬂexibility, and folding, International Journal for Numerical Methods in Biomedical Engineering, 30 (2014), pp. 814–844.
+
+[169] K. Xia and G.-W. Wei, A review of geometric, topological and graph theory apparatuses for the modeling and analysis of biomolecular data, ArXiv e-prints, (2016). 1612.01735.
+
+[170] J. Yoo, E. Y. Kim, Y. M. Ahn, and J. C. Ye, Topological persistence vineyard for dynamic functional brain connectivity during resting and gaming stages, Journal of Neuroscience Methods, 267 (2016), pp. 1 – 13.
+
+[171] W. Zhou and H. Yan, Alpha shape and delaunay triangulation in studies of proteinrelated interactions, Brieﬁngs in Bioinformatics, 15 (2014), pp. 54–64.
+
+[172] X. Zhu, A. Vartanian, M. Bansal, D. Nguyen, and L. Brandl, Stochastic multiresolution persistent homology kernel, in Proceedings of the Twenty-Fifth International Joint Conference on Artiﬁcial Intelligence, IJCAI’16, AAAI Press, 2016, pp. 2449–2455.
+
+[173] A. Zomorodian, Topology for Computing, Cambridge Monographs on Applied and Computational Mathematics, Cambridge University Press, 2009.
+
+[174]
+
+, Technical section: Fast construction of the Vietoris-Rips complex, Comput. Graph.,
+
+34 (2010), pp. 263–271.
+
+[175]
+
+, The tidy set: A minimal simplicial set for computing homology of clique complexes,
+
+2010, pp. 257–266. SCG10.
+
+[176]
+
+, Topological data analysis, in Advances in Applied and Computational Topology:
+
+American Mathematical Society Short Course on Computational Topology, January 4-5,
+
+2011, New Orleans, Louisiana, A. Zomorodian, ed., vol. 70 of Proceedings of symposia in
+
+applied mathematics, American Mathematical Society, 2012, pp. 1–39.
+
+[177] A. Zomorodian and G. Carlsson, Computing persistent homology, Discrete Comput. Geom., 33 (2005), pp. 249–274.
+

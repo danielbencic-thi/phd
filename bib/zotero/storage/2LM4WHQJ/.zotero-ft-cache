@@ -1,0 +1,1215 @@
+1
+
+arXiv:2205.00955v1 [cs.RO] 2 May 2022
+
+Coordination-free Multi-robot Path Planning for Congestion Reduction Using Topological Reasoning
+
+Xiaolong Wang, Alp Sahin and Subhrajit Bhattacharya
+
+Abstract— We consider the problem of multi-robot path planning in a complex, cluttered environment with the aim of reducing overall congestion in the environment, while avoiding any inter-robot communication or coordination. Such limitations may exist due to lack of communication or due to privacy restrictions (for example, autonomous vehicles may not want to share their locations or intents with other vehicles or even to a central server). The key insight that allows us to solve this problem is to stochastically distribute the robots across different routes in the environment by assigning them paths in different topologically distinct classes, so as to lower congestion and the overall travel time for all robots in the environment. We outline the computation of topologically distinct paths in a spatio-temporal conﬁguration space and propose methods for the stochastic assignment of paths to the robots. A fast replanning algorithm and a potential ﬁeld based controller allow robots to avoid collision with nearby agents while following the assigned path. Our simulation and experiment results show a signiﬁcant advantage over shortest path following under such a coordination-free setup.
+Index Terms— Path Planning for Multiple Mobile Robots or Agents, Multi-Robot Systems, Motion and Path Planning, Multi-robot Coordination
+I. INTRODUCTION
+A. Motivation and Problem Description
+We consider the problem of path planning for a large number of privacy-aware robots in a complex, cluttered environment with uncertainties (other unpredictable agents such as pedestrians), where the robots need to be welldistributed throughout the environment and avoid congestion in any region, but are not allowed to communicate or share their location data or intents with other robots. This, for example, is relevant to avoiding congestion in distributed vehicle routing problems when a vehicle’s location/intent cannot be shared due to privacy restrictions. We address the fundamental question of path planning under such circumstances without any inter-robot coordination, while trying to minimize the overall congestion in the environment. We assume that each robot knows the map of the environment and can localize itself in it. Furthermore, a robot can detect other agents in its immediate neighborhood (for example using on-board cameras or laser range sensors) so as to be able to avoid collisions with them, although they cannot broadcast or communicate any information with each other.
+B. Literature Review
+Multi-robot path planning in dynamic, cluttered and uncertain environments is a well-studied problem in robotics [1], [2], [3], [4]. Such dynamic environments exist in presence of pedestrians and other robots in busy indoor or urban environments. Robots employed in such environments to perform simple delivery tasks need to arrive at designated target locations while avoiding both static and dynamic
+Department of Mechanical Engineering and Mechanics, Lehigh University, 19 Memorial Drive West, Bethlehem, PA 18015, U.S.A., [xiw716,als421,sub216]@lehigh.edu.
+
+obstacles such as pedestrians. In a multi-robot setting this can lead to robot congestion if the robots’ routes are not well-distributed across the environment. While the presence of uncertain agents such as pedestrians in such planning problems have been considered [5], [6], [7], [8], the problem of reducing robot trafﬁc congestion by taking advantage of the structure of the environment without explicit inter-robot coordination remains open. Existing literature uses interrobot coordination or local methods (e.g., repulsive force) to avoid congestion [9], [10], [11], or use information stored in the environment (represented as a network) as a means of indirect coordination between the agents [12], [13], [14]. Most multi-robot persistent patrolling/surveillance methods use some centralized coordination [15], [16], [17], [18]. Action strategy planning for robots minimizing expected cost, while a well-researched area (and often addressed using reinforcement learning or game-theoretic methods [19], [20]), mostly focuses on local actions, do not take global topology of the environment into account, rely on shared information, or do not scale with the number of robots.
+C. Solution Overview
+In our setup, without any global coordination, robots exploit the topological structure of the environment for distributing themselves across different routes. If all robots choose the same/similar paths (e.g., shortest paths), certain regions of the environment will inevitably be traversed more. Instead, a robot stochastically chooses between different topologically distinct classes of solutions with an aim of reducing overall congestion in the environment and to altruistically minimize overall travel time for any robot.
+In Section II we provide background on the computation of paths in topologically distinct classes using discrete search in Z2-homology augmented graphs. In Section III we describe the coordination-free computation of the probability values using which a robot stohastically chooses a path out of the available topologically distinct choices. We call a chosen path the reference path of the robot, and once chosen, a robot commits to it. Section IV describes the controller used by each non-holonomic robot to follow the reference path while locally avoiding collisions with other agents in its immediate neighborhood. This includes a prediction of the future position of agents in the immediate neighborhood and fast re-planning of path to avoid collision. Section V provides simulation results and results from real-robot experiments.
+II. TOPOLOGICAL PLANNING FOR REFERENCE PATHS IN SPATIO-TEMPORAL DOMAIN
+In this section we provide brief background on topological path planning that allows the computation of shortest path in different topological classes using a graph search-based approach. For further details on topological path planning the reader can refer to the author’s prior work [21], [22],
+
+2
+
+(a)
+
+(b)
+
+Fig. 1: (a) Homology classes of trajectories. τ and τ are in different
+
+classes in regular homology, but map to the same class in Z2coefﬁcient homology. As a consequence, in computing paths in
+
+different homology classes, searching in the H2-augmented graph does not return paths that loop around obstacles multiple times. (b)
+
+H2-signature in a spatio-temporal conﬁguration space.
+
+[23], [24]. The type of topological classes that we consider in particular is the Z2 homology class [25], [26], and we describe the path planning in spatio-temporal domain in order to account for dynamic agents during replanning.
+A. Background: Z2 Homology and H2-signature Two trajectories connecting the same start and goal points
+on a planar domain are said to be in the same homology class if the closed loop formed by the two trajectories forms the oriented boundary of a two-dimensional obstacle-free region [21]. The homology class of a loop can be quantiﬁed by winding numbers around the connected components of obstacles. In order to prevent the separate counting of the homology classes that loop around an obstacle multiple times, one can compute the homology in the “mod 2” coefﬁcient [25], [26], where every odd winding number is identiﬁed with 1 and every even winding number is identiﬁed with 0 (Figure 1a), and is referred to as Z2-homology.
+In order to quantitatively identify and represent Z2homology class of trajectories, we construct a homology invariant called H2-signature as follows: In an environment with o connected components of obstacles we place a representative point, ζi, on the ith connected component and construct non-intersecting rays, {ri}i=1,2··· ,o, emanating from the representative points. Then the H2-signature of a path τ is a vector of length o of integers from Z2 = {0, 1}, the ith element of which is the parity of the number of times the curve intersects the ray emanating from ζi (in counting the number of intersections, crossing from left to right is considered positive and that from right to left is considered negative). The H2-signature of a trajectory, τ , is represented as H2(τ ) = [h1, h2, · · · , ho] ∈ Zo2. B. Topological Plannings in H2-Augmented Graph In
+Spatio-Temporal Domain
+The conﬁguration space of each of the robots in our case is a discrete representation of the spatio-temporal domain. For a single robot, it is represented by the graph, G = (V, E), that is a discrete representation of the spatio-temporal domain, so that a vertex v ∈ V is represented by v = (x, y, t), and edges connect neighboring vertices. In order to keep track of the Z2 homology invariants, we deﬁne an H2-augmented graph, GH2 = (VH2 , EH2 ), based on the graph G, such that a vertex in it is represented as (v, H) ∈ VH2 , which
+
+contains the additional information of the H2-signature, H, of the trajectory leading from a start vertex vs ∈ V up to the vertex v. An edge connecting vertex (v, H) to vertex (v , H ) exists if (v, v ) ∈ E, and H is the sum of H and the H2-signature of the edge connecting v to v . In the spatio-temporal setup the rays emanating from obstacles are
+extruded in the temporal direction to construct half-planes
+(Figure 1b) and the intersections of trajectories are counted with these half-planes for computing the H2-signature.
+Searching in this H2-augmented graph from the start vertex (vs, 0) using A* search, paths to vertices of the form (vg, ∗) give paths in different Z2 homology classes connecting vs and vg (Figure 2). The vertices are generated on-the-ﬂy and as required during the execution of A* search
+on the graph. The paths obtained in the different homology
+classes are in ascending order of the cost.
+Figure 2: Three paths in different Z2homology classes (colored in pink) from the start to the goal in map “cage 1” computed using search in the H2augmented graph GH2 . Their base costs (travel time cost computed by the A* search) are CB(π1) = 8.803, CB(π2) = 9.803, CB(π3) = 10.603. Cyan shade shows the estimated trafﬁc density, ρ.
+
+C. Rationalized Discretization of the Spatio-Temporal Con-
+
+ﬁguration Space for Constructing G
+
+In order to construct the conﬁguration graph, G, we
+
+discretize the spatio-temporal domain into a grid and place
+
+a vertex in every discrete cell in the grid. The time axis
+
+is discretized uniformly with the time layers separated by
+
+δt (Figures 3b). In the initial planning for the reference
+
+path we assume a constant robot speed, Vmax, which is difﬁcult to achieve with a uniform spatial discretization of
+
+δr = Vmaxδt along X and Y directions (since diagonal edges are longer than the edges parallel to the coordinate axes).
+
+Instead, we discretize the spatial directions (both X and Y)
+
+using intervals of δr
+
+=
+
+δr 4
+
+and establish edges connecting a
+
+vertex (x, y, t) ∈ V with vertices of the form (x ± 3δr , y ±
+
+3δr , t + δt), (x ± 4δr , y, t + δt) and (x, y ± 4δr , t + δt).
+
+In doing so, the spatial length of edges parallel to X or
+
+Yedgaexsesareare√δ2r43,δrwh=ile
+
+the 1.06
+
+spatial · · · δr
+
+length of the ≈ δr (Figure
+
+diagonal 3a), thus
+
+allowing the implementation of almost-isotropic (direction-
+
+independent) velocity of Vmax along the edges. We call this the “Rationalized Discretization”.
+
+D. Cost Function and Heuristic Function
+
+For the topological planning of the paths in different Z2homology classes for a particular robot, the cost function
+
+accounts for the traversal time for the edges. To correct the
+
+error brought by rationalized disretization, the cost of an edge
+
+connecting vertices (x, y, t, h) and (x , y , t + δt, h ) in EH2
+
+is chosen to be (x − x)2 + (y − y√)2/Vmax. From a vertex
+
+(x, y, t, h) it will take at least Tg =
+
+(xg −x)2+(yg −y)2 Vmax
+
+time
+
+to reach a goal vertex of the form (xg, yg, ∗, ∗) using any Z2
+
+homology class, which is used as the heuristic function for
+
+A* search in GH2 .
+
+3
+
+(a)
+
+(b)
+
+Fig. 3: Successors (cyan) or a vertex (x, y, t) ∈ V (in red) using
+
+the rational discretization.
+
+III. STOCHASTIC TOPOLOGICAL PATH ASSIGNMENT FOR COORDINATION-FREE MULTI-ROBOT SYSTEM
+We consider a planar indoor or urban environment with multiple robots navigating from one location to another within the environment while trying to avoid global trafﬁc congestion. While the robots are rational agents (their actions are determined by an algorithm that altruistically tries to reduce global trafﬁc congestion), there also exists irrational agents (pedestrians) that do not attempt to reduce congestion in their path planning. Robots need to maintain a minimum safe distance from other robots as well as pedestrians. Because of that, if a passage or route in the environment becomes too crowded, some may have to slow down or wait for the congestion to reduce. Due to lack of inter-robot coordination and the unpredictable nature of the pedestrians, it is virtually impossible to predict such congestion ahead of time. As a consequence, the overall travel time of all robots could increase signiﬁcantly. The key insight in addressing this problem is to distribute the robots across different routes in the environment so as to lower the probability of congestion. Assigning the robots paths in different topological (Z2 homology) classes in the environment can help achieving that. In this section we describe the algorithm that each robot uses to stochastically choose a path from the topologically distinct paths available to it for reaching its goal. 1) Types of Agents and the “Planning Robot”
+In the environment we assume that there are two types of agents – i. irrational agents, also refereed to as pedestrians, that always chooses the shortest path without consideration for global congestion reduction, and ii. rational agents, also referred to as robots, that stochatically chooses one of the multiple topologically distinct paths available to it with an aim of reducing global congestion. Without coordination between the robots, all computation of the paths and stochastic path selection for a particular robot happen onboard the robot itself in a decentralized manner, without communication with other robots. In the following sections we describe the computations made by a particular robot from the perspective of that individual robot, referred to as “the planning robot”. It is to be noted that all robots are planning robots in their own rights, and the same algorithm is used for each robot for its individual computation. 2) Decoupling the Problem to Reason About Global Agent
+Distribution and Local Path Selection A planning robot needs to not only reason about other robots that may have similar start and goal locations as itself,
+
+but also the robots that may have different start/goal location as well as the pedestrians. Without knowing the location, intent or choices of other agents in the environment, a planning robot decouples this complex problem into two parts: i. Estimation of global trafﬁc density, ρ, in the environment based on a prior belief of agent trajectories (Section III-A), and, i. Probabilistic choice of topologically distinct paths for avoiding congestion (Sections III-B–III-D).
+A. Estimation of Trafﬁc Density in an Environment
+This density estimation not only accounts for pedestrians, but also potentially accounts for robots that have start & goal locations that are widely different from the planning robot. We refer to such agents as distant agents. This density is used in formulating the optimization problem for computing the probability values associated with the different topologically distinct path options available to the planning robot.
+The distant agents’ trafﬁc density, ρ : V → R+, is described by a real number associated with each cell (pixel) in the discrete representation of the environment. While ρ can be computed from historic trafﬁc data, in absence of such data it can also be estimated from the structure of the environment. In order to do that, trafﬁc is randomly generated with thousands of shortest paths connecting random starts to goals. Then each path is thickened by Minkowski summing it with the pedestrians’ disk-shaped footprint, and for each discrete cell in the map the number of such thickened paths that pass through it is counted. This distribution is then normalized to obtained the density function, ρ. Some examples of trafﬁc density maps computed this way are shown in Figure 4. This trafﬁc density is an estimation only, related to the map’s topology and geometry, and needs to be computed only once for a given environment.
+
+(a) Map: cage 2.
+
+(b) Map: lehigh (based on road network around
+
+Lehigh University Asa Parker campus) Fig. 4: Two examples of trafﬁc density maps. The darker cyan it
+
+is, the busier the potential trafﬁc there exists.
+
+Outline of the remaining sub-sections: In the following sub-sections we ﬁrst formulate the optimization problem for computing the said probabilities for stochastically choosing a path by the planning robot from its available topologically distinct paths (Section III-B). The estimated trafﬁc density in the environment is incorporated within this optimization problem itself through a model for travel cost estimation (described in Section III-C). Finally we formulate couple of approximations of the full optimization problem in order to simplify and speed-up the computation of its solution (Section III-D).
+
+4
+
+B. Probabilistic Choice of a Topological Class
+
+In order to avoid congestion along the possible routes
+
+that the planning robot can choose to reach its goal, the
+
+robot reasons about the choices made by other robots that
+
+have similar start and goal locations as itself. To that end
+
+the robot can choose from multiple topological classes of
+
+paths representing distinct routes leading to its goal. Without
+
+coordination between the robots, a probabilistic approach is
+
+taken in which the planning robot reasons about n other
+
+robots, including itself, with similar start and goal (refereed
+
+to as contending robots) and chooses a topological class
+
+stochastically based on probability values computed to min-
+
+imize the travel time for all the contending robots.
+
+The planning robot starts by computing m topologically
+
+distinct paths connecting its start to its goal location (Sec-
+
+tion II). The paths are referred by by their number/index
+
+from the set S = {1, 2, . . . , m}. The planning robot needs
+
+to choose one out of these m classes stochastically. Suppose
+
+Pj is the probability with which the robot chooses the jth path. In order to compute the path choice probabilities,
+
+{Pj}j∈S, the robot reasons about the time of travel if all the contending robots choose the paths from S according to the
+
+probabilities {Pj}j∈S (the contending robots being rational agents will use the same probability computation method
+
+themselves, thus arriving at the same probability values).
+
+1) Path Choice Probability Computation – The Complete
+
+Formulation
+
+The value of n, while unknown, can be estimated based on
+
+the a priori knowledge of agent density in the environment
+
+or through local sensing. However, the planing robot uses
+
+the value n only for the computation of its own path choice
+
+probability values {Pj}j∈S, while in reality there is no real coordination between the planing robot and the other robots.
+
+We denote the set of contending robots as R =
+
+{1, 2, · · · , n}. Suppose the i-th contending robot’s choice of
+
+path is σi ∈ S, for i ∈ R. We deﬁne a joint path choice made by the n contending robots to be σ = (σ1, σ2, . . . , σn) ∈ Sn. Given a joint path choice σ ∈ Sn, suppose C(σ) is the
+
+estimated travel time cost of the entire group of contending
+
+robots (which is determined by the geometry of the m paths,
+
+the prior estimated trafﬁc density, ρ, along those paths, and
+
+the number of contending robots in each of those paths due to
+
+the joint path choice, σ – the computation of the cost C(σ)
+
+is described in details in Section III-C). Since the robots
+
+make their individual choices independently, the probability
+
+of making the joint path choice σ is
+
+n i=1
+
+Pσi
+
+.
+
+We
+
+thus
+
+formulate the following optimization problem for minimizing
+
+the expected cost:
+
+n
+
+min
+P1,P2,··· ,Pm m
+
+σ∈Sn
+
+C (σ )
+
+i=1
+
+Pσi
+
+(1)
+
+s.t.
+
+Pj = 1 , 0 ≤ Pj ≤ 1, ∀j ∈ S
+
+j=1
+where the summation in the objective function is over all possible joint path choices, and hence involves mn terms. It
+
+is easy to show that this optimization problem is convex.
+
+However, the number of terms in the objective function
+
+grows exponentially (or factorilly, upon some simpliﬁcation)
+
+with n. Hence, for all practical purposes a direct solution to
+
+this optimization problem is not feasible since the evaluation
+
+of the objective function takes a lot of time. Hence in
+
+Section III-D we will formulate two simpliﬁed optimization
+
+problems that are computationally more amenable.
+
+C. Travel Time Cost Computation
+
+In this section we describe the computation of the travel
+
+time cost function C : Sn → R+ that estimates the travel
+
+time of the team of contending robots for a joint path choice,
+
+σ. We ﬁrst observe that the individual travel time of the i-th
+
+contending robot will not only depend on its own chosen
+
+path, σi, but also the choices made by the other contending
+
+robots, since that will determine the level of congestion along
+
+the different parts of the path. Deﬁne the set of contending
+
+robots that choose the path j ∈ S as Rj = {i | σi = j} ⊆
+
+R and the number of those contending robots as Nj(σ) =
+
+|Rj(σ)|. Due to uniformity between the contending robots,
+
+if two contending robots, i1 and i2, choose the same path
+
+(say, j = σi1 = σi2 ), then their estimated individual travel times will be the same. Thus, for a given joint path choice
+
+σ, we deﬁne the estimated travel time cost for the j-th path
+
+as Dj(σ). We deﬁne two possible types of travel time cost
+
+functions for use in the objective function of (1):
+
+1.
+
+Average
+
+Travel
+
+Time
+
+Cost:
+
+Cavg(σ) =
+
+1 n
+
+m
+
+Nj (σ)Dj (σ),
+
+j=1
+
+using which would try to minimize the average of the
+
+travel times of all the contending robots.
+
+2. Maximum Travel Time Cost: Cmax(σ) = max Dj(σ),
+j∈S
+using would try to minimize the maximum out of the
+
+travel times of all the contending robots.
+
+The estimated travel time cost for the j-th path, Dj(σ), for a given joint path choice σ, not only depends on the number of contending robots assigned to the path in the j-th class, but
+
+also the number of contending robots assigned to the other paths in S, since those paths can potentially have geometric overlaps with the j-th path (Figure 5). As described earlier, we use A* search in the H2-augmented graph (Section IIB) to compute distinct paths in the m different topological
+
+classes connecting the start and the goal location of the planning robot. Let’s refer to these paths as {πj}j∈S. The travel cost for the j-th path is then computed as
+
+Dj (σ) = CB(πj )+a Q CT (πj )+b Nj (σ) CP (πj , πj ) (2)
+
+where,
+
+j ∈S
+
+i. CB(πj) is the base travel cost as computed by the search in the H2-augmented graph (i.e. estimated time taken to follow the path without consideration for any
+
+other agent in the environment).
+
+ii. The second term computes the additional cost due to
+the a priori belief of trafﬁc density, ρ, modeled to be proportional1 to the net estimated trafﬁc density along the path, CT (πj) = s∈πj ρ(s)2 – referred to as the trafﬁc-weighted travel cost, and scaled by the estimated
+number of distant agents, Q, in the environment. The
+proportionality constant, a, is determined experimen-
+
+tally (described in the next paragraph).
+
+1Assuming a linearized model 2Here the summation over the path refers to the summation over the discrete cells that constitute the path, with ρ(s) being the density in cell s.
+
+5
+
+Fig. 5: In the proximity penalty computation, the overlap of two paths is determined by drawing a corridor around the path, πj, then measuring the part of the path πj that lies within that corridor.
+
+iii. The last term computes the proximity penalty or overlap cost between pairs of paths due to multiple contending robots from different (or the same) paths creating congestion along the regions of πj where there is a geometric overlap with πj (Figure 5). This includes self-overlap cost (when j = j) due to the multiplicity of contending robots following the j-th path. The cost is proportional1 to the number of additional contending robots, Nj (σ), in the overlapping path and the amount of overlap, CP (πj, πj ). The amount of overlap itself consists of two parts: CP (πj, πj ) = CP,B(πj, πj ) + a Q CP,T (πj, πj ), where the ﬁrst part is the time cost of the part of the path πj that overlaps with πj as is computed by the search in the H2-augmnted graph (with the overlap being determined by the proximity between the points on the two paths – Figure 5), and CO,T (πj, πj ) is the net estimated trafﬁc density on the overlapping parts of πj .
+The values of a and b are determined experimentally by running multiple simulations in a simple single-passage map (Figure 6) with a varying number of distant agents (we choose pedestrians only) and a varying number of contending robots. The width and the length of the passage in this map are chosen to be similar to those in the maps used in experiments and simulations. For more details on implementation of the simulations, refer to Section IV.
+
+D. Simpliﬁed Formulations
+
+The optimization problem in (1) is referred to as the complete model and has O(mn) terms in the objective function, making it extremely computationally expensive to solve with a large number of robots and available topological classes. We thus propose couple of approximations to simplify the optimization problem. These approximations rely on the fact that the number of contending robots, n, that the planning robot assumes is an estimate and is purely for the purpose of computing its own path choice probabilities. In reality, there is no coordination or communication between nearby robots. We thus use extreme values of n to simplify the models.
+
+1) Two-robot Model
+
+In this model we assume that the number of contending
+
+robots the planning robot considers is n = 2, so that the
+
+objective function in (1) becomes quadratic, which can be
+
+solved efﬁciently using a quadratic program. However, in
+
+computing the travel time cost for the j-th path, Dj(σ), with
+
+σ ∈ S2, we can still account for a number n other than
+
+2
+
+by
+
+simply
+
+replacing
+
+each
+
+of
+
+the
+
+2
+
+robots
+
+with
+
+n 2
+
+robots
+
+when computing the overlap costs. This is effectively done
+
+in (2) by scaling & redeﬁning the robot counting function as
+
+Nj
+
+(σ) =
+
+n 2
+
+|Rj
+
+(σ)|,
+
+σ
+
+∈ S2.
+
+2) Ensemble Model
+
+In this model the planing robot assume a large number
+
+of contending robots so that the number of robots in the j-
+
+th class is approximately nPj. Considering the problem of minimizing the maximum travel time cost (i.e., the maximum
+
+out of the travel times of all the contending robots) This
+
+allows us to reformulate the optimization problem as
+
+min
+
+max Kj (P1, P2, . . . , Pm)
+
+(3)
+
+Pm1,P2,··· ,Pm j∈S
+
+s.t.
+
+Pj = 1 , 0 ≤ Pj ≤ 1, ∀j ∈ S
+
+j=1
+where Kj(P1, P2, . . . , Pm) is the estimated travel time cost
+for a robot assigned to the j-th path if the number of robots
+
+following the l-th path is nPl for all l ∈ S. The expression of Kj is derived naturally from the deﬁnition of Dj in (2):
+Kj (P1, P2, . . . , Pm)
+= CB(πj ) + a Q CT (πj ) + b CP (πj , πj ) nPj
+
+j ∈S
+
+≈ nb CP (πj, πj )Pj (since n is large)
+
+(4)
+
+j ∈S
+
+Note that Kj(P1, P2, . . . , Pm) is afﬁne in {Pj}l∈S, and hence the objective function in (3) being max of afﬁne
+
+functions, is convex [27]. As a consequence, the optimization
+
+problem in (3) can be solved using efﬁcient numerical
+
+methods, and does not have exponentially large number of
+
+terms as was the case in (1). It is worth noting that there is
+
+no meaningful analogous ensemble model for minimization
+
+of the average travel time cost since the average of the
+
+afﬁne functions, {Kj}j∈S, would result in an afﬁne objective
+
+function in (3), which would result in a linear program,
+
+the solutions to which is always trivial with one of the
+
+probabilities in {Pj}j∈S being equal to 1 and rest 0.
+
+3) Path Choice Probability Values
+
+Given a planing robot’s start and goal location in an
+
+environment, the path choice probabilities, {Pj}j∈S, depend
+
+on the choice of the model (complete model, 2-robot model or
+
+ensemble model) as well as the number of contending agents,
+
+n. For the ensemble model, with the large n assumption, it
+
+is clear from (3) and (4) that the probability values are inde-
+
+pendent of the choice of n. A comparison of the probability
+
+values computed using the different models and different n is
+
+shown in Table I. The similarity among the values computed
+
+using the complete model and the 2-robot model is apparent,
+
+while the values from the ensemble model get closer to the
+
+2-robot model as the value of n increases. This allows us
+
+to choose a simpliﬁed model for fast computation of the
+
+probabilities in experiments and simulations with a large
+
+number of contending robots.
+
+IV. IMPLEMENTATIONS FOR SIMULATIONS AND EXPERIMENTS
+
+The overall algorithm for each robot is as follows: A robot stochastically chooses a reference path from the paths {πj}j∈S that it computed using A* search in the H2augmented graph according to its own computed probability distribution {Pj}j∈S. Once a robot chooses its own reference path, it commits to that path, since without inter-robot coordination and without live global trafﬁc updates, there is not new information to warrant a full-blown replanning of reference path. Each robot then starts executing its reference
+
+6
+
+(a) The single-passage map used to exper- (b) Max travel time increases with the number of (c) Max travel time increases with the number of
+
+imentally compute the proportionality con- contending robots, with the ﬁxed number of pedes- pedestrians, with the number of robots ﬁxed at 10.
+
+stants a and b, with the estimated trafﬁc trians. The slope of this curve computes the constant The slope of this curve computes the constant a.
+
+density, ρ colored in cyan.
+
+b.
+
+Fig. 6: Experimental estimation of the proportionality constants a and b in (2). The curves in different colors in (b) and (c) are with
+
+different ratios of the robot’s safety distance to the passage’s width as that is different for different environments.
+
+TABLE I: A comparison of probability distribution over classes by different models on Map cage 1 without irrational agents. The paths of classes are shown in Figure 2.
+
+Contd. Rbt. # n
+
+Probability Distribution (m = 3)*
+
+Class 1
+
+Class 2
+
+Class 3
+
+Complete Model: Average Travel Time Cost
+
+5
+
+0.64071
+
+0.35917
+
+0.00012
+
+10
+
+0.54207
+
+0.35219
+
+0.10574
+
+15
+
+0.49175
+
+0.35085
+
+0.15740
+
+20
+
+—**
+
+—**
+
+—**
+
+Complete Model: Maximum Travel Time Cost
+
+5
+
+0.76014
+
+0.23985
+
+0.00000
+
+10
+
+0.67781
+
+0.32215
+
+0.00004
+
+15
+
+0.54728
+
+0.38163
+
+0.07109
+
+20
+
+—**
+
+—**
+
+—**
+
+2-robot Model: Average Travel Time Cost
+
+5
+
+0.70690
+
+0.29310
+
+0.00000
+
+10
+
+0.55048
+
+0.34206
+
+0.10746
+
+15
+
+0.48449
+
+0.33841
+
+0.17710
+
+20
+
+0.45323
+
+0.33669
+
+0.21009
+
+25
+
+0.43499
+
+0.33568
+
+0.22933
+
+30
+
+0.42304
+
+0.33502
+
+0.24194
+
+2-robot Model: Maximum Travel Time Cost
+
+5
+
+0.63448
+
+0.36552
+
+0.00000
+
+10
+
+0.46863
+
+0.36812
+
+0.16325
+
+15
+
+0.42046
+
+0.35715
+
+0.22239
+
+20
+
+0.40036
+
+0.35227
+
+0.24737
+
+25
+
+0.38933
+
+0.34950
+
+0.26117
+
+30
+
+0.38237
+
+0.34772
+
+0.26991
+
+Ensemble Model: Maximum Travel Time Cost
+
+Any n
+
+0.36570
+
+0.33185
+
+0.30245
+
+* All methods use a = 0.1625, b = 0.04548, and Q = 0. ** Not computable due to the memory overﬂow in computation of 320
+terms in the objective function of the complete model.
+
+path while performing a fast replanning at regular intervals of time with an appropriately chosen heuristic function in order to follow the reference path while avoiding collision with pedestrians and other robots. The fast replanning is performed using A* search in the H2-augmented graph, GH2 , and does not compute the path choice probabilities, but simply avoids high pedestrian/robot density regions as estimated in the immediate future in the spatio-temporal domain using sensing of the immediate vicinity. Feedback linearization and a potential-based approach allows control of the robot while avoiding collision. The following subsections give more details.
+
+A. Spatio-temporal Representation of Other Agents’ Nearfuture Occupancy Probability Distribution
+
+For each agent in its immediate vicinity, a robot performs
+
+a short-term prediction of the agent’s occupancy probability
+
+distribution as a density function in its spatio-temporal
+
+conﬁguration space. Given the instantaneous position and
+
+velocity of a nearby agent (estimated using sensors on-
+
+board the robot), the robot employs a simple prediction-
+
+only Markov localization approach [28], [29] (a discrete
+
+analog of Kalman ﬁlter) that uses a motion model to predict
+
+the probability of occupancy distribution of the agent for the next mmax timesteps using the same discrete representation of the spatio-temporal domain as was used to construct G (Section II-C). These occupancy probability
+
+values from the different nearby agents are aggregated (point-
+
+wise maximum) to construct the probability of occupancy map, P(x, y, t), that assigns a value to every discrete cell.
+
+In practice, the probability computations are done on-the-ﬂy during the graph search and only for t between the current time and mmax time-steps into the future.
+
+B. Heuristic Function and Cost Function
+
+In order to perform a fast re-planning to avoid collision
+
+with other agents, while ensuring that a robot stays committed to its reference path, we design a reference-pathbased heuristic function for guiding an A* search on the H2-augmented graph GH2 for quickly computing a path in the same homology class as the reference path. The heuristic
+
+function for the re-planner. computes the estimated time
+
+taken to ﬁrst reach the closest point on the reference path,
+
+πref (described as a sequence of points on the planar domain),
+
+and then to follow the path to goal. More formally, the
+
+heuristic function evaluated at
+
+as
+
+hπref (x, t, h)
+
+=
+
+Ä α
+
+x−p∗ Vmax
+
+(x, t, h) ∈ VH2 is described
+
++
+
+Cπref
+
+(p∗
+
+ä ),
+
+where
+
+p∗
+
+=
+
+argminp∈πref x−p and Cπref refers to the cost (travel time)
+
+from p∗ along πref which was pre-computed as part of the
+
+reference path search in H2-augmented graph. α ≤ 1 is a
+
+constant to tune the inadmisibility of the heuristic function,
+
+with lower value of α allowing greater deviation of the re-
+
+planned path from the reference path.
+
+The cost function for fast replanning not only tries to
+
+minimize travel time, but also accounts for the computed
+
+nearby agent probability of occupancy, P. In particular, the
+
+cost of an edge, e ∈ E, connecting two points in the spatio-
+
+temporal domain is described by CG(e) =
+
+e
+
+1+ι 1+ι−P (x,y,t)
+
+dt,
+
+where the integration is a line integration on the segment
+
+7
+
+representing the edge and is performed numerically using linear interpolation of P along the uniformly discretized segment, and ι = 0.001 is a small positive constant used for numerical stability. Note that if the probability of occupancy is close to 1 at some point, that point will have very high cost and will hence be avoided.
+C. Non-holonomic Robot Control and Potential-based Collision Avoidance
+In the experiments, each non-holonomic differential drive robot controls a lookahead point to track the replanned trajectory [30] by computing the corresponding linear and angular velocities. A potential-based approach is used for collision avoidance, where the presence of another agent or obstacle within a half-disk shaped region in front of the robot results in a repulsive velocity component against the agent, which increases inversely with the distance from the agent.
+V. RESULTS AND DISCUSSIONS We run the simulations on three maps: “cage 1” (Figure 2), “cage 2” (Figure 4a), and “lehigh” (Figure 4b). All distant agents are modeled as pedestrians and their trajectories are randomly generated. We compare our proposed topological planning algorithm (a robot stochastically choosing paths from available topological classes) with a shortest-path algorithm (each robot, without any inter-robot coordination, chooses the shortest path to goal) for each setup. In the topological planning, the robots are allowed to choose one out of up to m = 6 classes. In each environment we vary the number of robots, n, and the number of pedestrians, Q, and note the average travel time of the robots and the maximum travel time (the time taken by the last robot to reach its goal). We also measure the average time spent on collision avoidance per robot. A simulation with the same initial conditions is performed using each of the topological algorithm and the shortest path algorithm. Tables II and III shows a performance comparison. Each of the percentage numbers is the ratio of travel time (average or maximum) between the simulations using the topological algorithm and that using the shortest path algorithm. For collisions we show the difference between the time spent avoiding collisions using the topological algorithm and that using the shortest path algorithm3 In computing the path assignment probability values for the topological algorithm we can use either the maximum travel time cost, Cmax, or the average travel time cost, Cavg, and choose one out of the two simpliﬁed formulations – 2-robot model (solved using QP library ‘qpOASES’) or the ensemble model (solved using NLP library ‘NLopt’). This is indicated in the ﬁrst column of the tables. As evident from the results, as the number of robots and pedestrians increase (i.e., the potential of congestion increases), our proposed topological algorithm signiﬁcantly outperforms the shortest path algorithm in all aspects. It is also worth noting that in the larger lehigh map, using the travel time costs Cmax, the advantage is higher in the maximum travel time than the average travel time.
+3in order to avoid divisions by zero, we choose not to compute percentage values.
+
+Real-robot experiments were run only on the cage 2 map with 9 robots and 9 pedestrians (Fig 7). The results from each of the 10 runs are summarized in Table IV and demonstrate similar advantage as seen in simulations.
+
+TABLE II: Performance of our proposed topological algorithm as compared to a shortest path algorithm in simulations for map “cage 1”, using two time-cost & assignment probability computation models. Darker cyan indicates bigger advantage of the topological algorithm over the shortest-path one, while darker red indicates cases where it underperformed. Each cell shows the the average over 10 simulation runs with different initial conditions. See multimedia attachment for sample simulation runs.
+
+Method
+
+Feature
+
+Ped. #
+
+Robot #
+
+5
+
+10
+
+15
+
+20
+
+Ensemble Model, minimizing Max. Travel Time Cost 2-robot Model, minimizing Avg. Travel Time Cost Collision (s) Max. travel time Avg. travel time Collision (s) Max. travel time Avg. travel time
+
+0 95.27% 87.67% 80.52% 75.44%
+
+5 93.78% 86.59% 82.05% 72.41%
+
+10 94.60% 80.00% 78.87% 71.12%
+
+15 90.68% 76.95% 66.80% 60.63%
+
+20 78.51% 104.11% 74.36% 72.50%
+
+25 94.08% 115.45% 93.12% 72.28%
+
+30 80.32% 65.95% 56.22% 54.44%
+
+0 90.72% 80.78% 73.41% 67.27%
+
+5 90.60% 82.18% 75.30% 69.17%
+
+10 90.19% 70.53% 74.91% 70.06%
+
+15 83.84% 73.83% 61.88% 58.50%
+
+20 77.07% 111.23% 76.51% 71.93%
+
+25 98.84% 128.70% 96.81% 70.97%
+
+30 82.64% 63.98% 48.89% 53.23%
+
+0
+
+-0.01
+
+-0.05 -0.35 -0.49
+
+5
+
+-0.03
+
+-0.13 -0.88 -1.63
+
+10
+
+-0.05
+
+-0.10 -1.22 -1.54
+
+15
+
+-0.08
+
+-0.27 -1.57 -2.55
+
+20
+
+-0.21
+
+-3.92 -3.41 -5.17
+
+25
+
+-0.20
+
+-4.86 -4.95 -5.41
+
+30
+
+-0.34
+
+-0.17 -1.24 -2.84
+
+0 111.56% 90.25% 82.04% 75.55%
+
+5 115.29% 90.41% 79.99% 71.99%
+
+10 108.19% 83.36% 82.94% 69.79%
+
+15 99.85% 74.00% 70.07% 62.32%
+
+20 89.91% 98.68% 72.78% 69.40%
+
+25 94.89% 109.67% 87.84% 74.45%
+
+30 82.13% 66.33% 59.58% 55.01%
+
+0 109.48% 83.52% 73.95% 66.68%
+
+5 112.16% 85.17% 74.40% 64.25%
+
+10 100.58% 75.71% 85.01% 65.39%
+
+15 89.90% 69.52% 64.88% 61.92%
+
+20 96.68% 105.01% 75.10% 68.03%
+
+25 98.23% 124.14% 87.29% 72.70%
+
+30 82.95% 61.12% 52.84% 52.27%
+
+0
+
+-0.01
+
+-0.05 -0.31 -0.34
+
+5
+
+-0.04
+
+-0.08 -1.01 -1.50
+
+10
+
+-0.05
+
+-0.15 -1.13 -1.42
+
+15
+
+-0.10
+
+-0.33 -1.46 -2.02
+
+20
+
+-0.19
+
+-3.89 -3.30 -4.62
+
+25
+
+-0.21
+
+-4.91 -5.11 -5.67
+
+30
+
+-0.30
+
+-0.45 -1.00 -3.60
+
+* All methods use a = 0.1625, b = 0.04548.
+
+%
+
+values:
+
+time taken in topological algorithm time taken in shortest path algorithm
+
+× 100%
+
+Collision numbers: (colliding duration per robot in topological algorithm)
+
+- (colliding duration per robot in shortest-path algorithm)
+
+REFERENCES
+[1] M. Mohanan and A. Salgoankar, “A survey of robotic motion planning in dynamic environments,” Robotics and Autonomous Systems, vol. 100, pp. 171 – 185, 2018. [Online]. Available: http://www.sciencedirect.com/science/article/pii/S0921889017300313
+[2] A. Kushleyev and M. Likhachev, “Time-bounded lattice for efﬁcient planning in dynamic environments,” in 2009 IEEE International Conference on Robotics and Automation, 2009, pp. 1662–1668.
+[3] K. Cai, C. Wang, J. Cheng, C. W. De Silva, and M. Q. H. Meng, “Mobile Robot Path Planning in Dynamic Environments: A Survey,” arXiv e-prints, p. arXiv:2006.14195, Jun. 2020.
+[4] A. H. Hasan and A. Majid Mosa, “Multi-robot path planning based on max–min ant colony optimization and d* algorithms in a dynamic
+
+8
+
+TABLE III: Performance comparisons in the other two maps.
+
+Ensemble Model, Max. Time Cost
+
+Collision (s) Max (%)
+
+Avg (%)
+
+2-robot Model, Avg. Time Cost Collision (s) Max (%) Avg (%)
+
+Method Md Ft
+
+Feature
+
+Ped. #
+
+Robot #
+
+5
+
+10
+
+15
+
+Map: cage 2
+
+0 95.85% 90.29%
+
+5 86.65% 79.37%
+
+10 85.97% 69.49%
+
+15 75.84% 73.91%
+
+20 76.86% 61.80%
+
+0 93.18% 85.70%
+
+5 86.11% 79.69%
+
+10 84.49% 66.14%
+
+15 80.55% 76.35%
+
+20 76.73% 58.49%
+
+0 -0.04 -0.05
+
+5 -0.02 -0.13
+
+10 -0.01 -0.13
+
+15 -0.18 -0.23
+
+20 -0.18
+
+0.21
+
+84.85% 76.02% 70.12% 58.37% 51.63% 78.55% 69.92% 69.57% 57.79% 53.16%
+0.23 -0.05 0.27 -0.02 -2.20
+
+Map: lehigh
+
+Ped
+
+10
+
+20
+
+30
+
+40
+
+0 104.20% 97.99% 91.13% 91.27%
+
+20 101.19% 93.67% 91.53% 83.36%
+
+40 98.09% 97.74% 89.98% 84.98%
+
+60 95.61% 91.20% 82.21% 77.04%
+
+80 119.92% 92.39% 80.57% 73.80%
+
+100 99.30% 85.08% 75.62% 72.94%
+
+0 110.32% 95.62% 85.99% 85.78%
+
+20 106.89% 95.49% 89.06% 80.53%
+
+40 105.61% 105.41% 89.96% 81.80%
+
+60 98.76% 89.79% 76.87% 69.52%
+
+80 132.74% 89.90% 72.13% 66.38%
+
+100 99.15% 84.85% 68.58% 67.18%
+
+0
+
+0.00
+
+0.02
+
+0.00 -0.01
+
+20
+
+0.00
+
+0.00 -0.55 -0.02
+
+40
+
+0.00
+
+-0.30
+
+0.25 -0.05
+
+60
+
+0.00
+
+-0.02 -0.01 -0.09
+
+80
+
+-1.38
+
+0.01 -0.09
+
+0.06
+
+100
+
+-0.01
+
+0.04 -0.14 -0.45
+
+20
+80.81% 68.26% 61.40% 57.25% 51.70% 74.66% 64.10% 62.41% 50.84% 50.63%
+0.41 0.48 -0.28 -4.58 -6.96
+50 91.77% 81.93% 80.06% 72.55% 70.18% 71.27% 88.53% 80.11% 76.91% 66.96% 60.62% 60.94%
+-3.04 -0.02 -0.05 -0.09 -0.89 -1.72
+
+Figure 7: Real robot experiment in map “cage 2”. Virtual (augmented reality) pedestrians are used in experiment (see multemidia attachment).
+
+environment,” in 2018 International Conference on Advanced Science and Engineering (ICOASE), 2018, pp. 110–115. [5] R. Kirby, R. Simmons, and J. Forlizzi, “Companion: A constraintoptimizing method for person-acceptable navigation,” in RO-MAN 2009-The 18th IEEE International Symposium on Robot and Human Interactive Communication. IEEE, 2009, pp. 607–612. [6] E. A. Sisbot, L. F. Marin-Urias, R. Alami, and T. Simeon, “A human aware mobile robot motion planner,” IEEE Transactions on Robotics, vol. 23, no. 5, pp. 874–883, 2007. [7] G. Ferrer, A. Garrell, and A. Sanfeliu, “Social-aware robot navigation in urban environments,” in 2013 European Conference on Mobile Robots. IEEE, 2013, pp. 331–336. [8] M. Shiomi, F. Zanlungo, K. Hayashi, and T. Kanda, “Towards a socially acceptable collision avoidance for a mobile robot navigating among pedestrians using a pedestrian model,” International Journal of Social Robotics, vol. 6, no. 3, pp. 443–455, 2014. [9] V. G. Santos and L. Chaimowicz, “Hierarchical congestion control for robotic swarms,” in 2011 IEEE/RSJ International Conference on Intelligent Robots and Systems. IEEE, 2011, pp. 4372–4377. [10] J. Toutouh and E. Alba, “A swarm algorithm for collaborative trafﬁc in vehicular networks,” Vehicular Comms., vol. 12, pp. 127–137, 2018. [11] P. Antoniou, A. Pitsillides, T. Blackwell, A. Engelbrecht, and L. Michael, “Congestion control in wireless sensor networks based on bird ﬂocking behavior,” Computer Networks, vol. 57, no. 5, pp. 1167–1191, 2013. [12] B. Tatomir and L. Rothkrantz, “Hierarchical routing in trafﬁc using swarm-intelligence,” in 2006 IEEE Intelligent Transportation Systems
+
+TABLE IV: Statistic from individual real-robot experiments on map “cage 2”. All runs are with 9 robots and 9 virtual pedestrians, using the 2-robot model minimizing average travel time cost, Cavg.
+
+Expt.#
+1 2 3* 4 5 6 7 8 9 10
+
+Topological (s) Avg Max Coll 56.82 86.20 0.00 70.04 120.27 0.20 76.32 94.45 0.17 60.69 116.82 0.00 57.32 85.92 0.04 57.69 99.05 0.43 46.83 55.03 0.34 51.59 82.63 0.07 63.45 81.31 0.20 65.42 140.28 0.29
+
+Shortest (s) Avg Max Coll 86.93 143.14 0.02 72.76 116.96 0.19 111.68 162.72 0.70 106.08 138.78 0.68 79.75 96.77 0.37 98.10 201.87 0.44 90.86 132.60 0.61 83.15 105.48 0.43 86.74 129.86 0.54 130.53 169.16 0.67
+Avg
+
+* See this run in the supplementary video. ** All experiments use a = 0.0001, b = 0.7222.
+
+Avg (ratio) 65.37% 96.26% 68.34% 57.21% 71.87% 58.81% 51.55% 62.04% 73.15% 50.12% 65.47%
+
+Max (ratio) 60.22% 102.83% 58.04% 84.18% 88.79% 49.07% 41.50% 78.34% 62.61% 82.92% 70.85%
+
+Coll (diff.) -0.02
+0.01 -0.53 -0.68 -0.32 -0.01 -0.27 -0.37 -0.34 -0.38 -0.29
+
+Conference, 2006, pp. 230–235. [13] M. Gunes, U. Sorges, and I. Bouazizi, “Ara-the ant-colony based rout-
+ing algorithm for manets,” in Proceedings. International Conference on Parallel Processing Workshop. IEEE, 2002, pp. 79–85. [14] G. Di Caro, F. Ducatelle, and L. M. Gambardella, “Anthocnet: an adaptive nature-inspired algorithm for routing in mobile ad hoc networks,” European Transactions on Telecommunications, vol. 16, no. 5, pp. 443–455, 2005. [15] E. Stump and N. Michael, “Multi-robot persistent surveillance planning as a vehicle routing problem,” in IEEE International Conference on Automation Science and Engineering, 2011, pp. 569–575. [16] K. Leahy, D. Zhou, C.-I. Vasile, K. Oikonomopoulos, M. Schwager, and C. Belta, “Persistent surveillance for unmanned aerial vehicles subject to charging and temporal logic constraints,” Auton. Robots, vol. 40, no. 8, p. 1363–1378, Dec. 2016. [Online]. Available: https://doi.org/10.1007/s10514-015-9519-z [17] T. Kusnur, S. Mukherjee, D. M. Saxena, T. Fukami, T. Koyama, O. Salzman, and M. Likhachev, “A planning framework for persistent, multi-uav coverage with global deconﬂiction,” in Proceedings of the 12th Conference on Field and Service Robotics, August 2019. [18] D. Thakur, M. Likhachev, J. Keller, V. Kumar, V. Dobrokhodov, K. Jones, J. Wurz, and I. Kaminer, “Planning for opportunistic surveillance with multiple robots,” in IEEE/RSJ International Conference on Intelligent Robots and Systems, November 2013. [19] S. M. LaValle, “Robot motion planning: A game-theoretic foundation,” Algorithmica, vol. 26, no. 3, pp. 430–465, 2000. [20] C. He, Y. Wan, Y. Gu, and F. L. Lewis, “Integral reinforcement learning-based multi-robot minimum time-energy path planning subject to collision avoidance and unknown environmental disturbances,” IEEE Control Systems Letters, vol. 5, no. 3, pp. 983–988, 2020. [21] S. Bhattacharya, M. Likhachev, and V. Kumar, “Topological constraints in search-based robot path planning,” Autonomous Robots, pp. 1–18, June 2012, dOI: 10.1007/s10514-012-9304-1. [22] S. Bhattacharya and R. Ghrist, “Path homotopy invariants and their application to optimal trajectory planning,” Annals of Mathematics and Artiﬁcial Intelligence, vol. 84, no. 3-4, pp. 139–160, December 2018. [23] X. Wang and S. Bhattacharya, “A topological approach to workspace and motion planning for a cable-controlled robot in cluttered environments,” IEEE Robotics and Automation Letters, vol. 3, no. 3, pp. 2600–2607, July 2018. [24] V. Govindarajan, S. Bhattacharya, and V. Kumar, “Human-robot collaborative topological exploration for search & rescue applications,” in Intl. Symp. on Distributed Autonomous Robotic Sysystems, 2014. [25] S. Bhattacharya, R. Ghrist, and V. Kumar, “Persistent homology for path planning in uncertain environments,” IEEE Transactions on Robotics (T-RO), vol. 31, no. 3, pp. 578–590, March 2015. [26] W. Wu, S. Bhattacharya, and A. Prorok, “Multi-robot path deconﬂiction through prioritization by path prospects,” in Proceedings of IEEE Intl. Conference on Robotics and Automation (ICRA), May 2020. [27] S. Boyd, S. P. Boyd, and L. Vandenberghe, Convex optimization. Cambridge university press, 2004. [28] D. Fox, W. Burgard, and S. Thrun, “Active markov localization for mobile robots,” Robotics and Autonomous Systems, vol. 25, no. 3, pp. 195 – 207, 1998, autonomous Mobile Robots. [29] L. Zhang, A. Prorok, and S. Bhattacharya, “Pursuer assignment and control strategies in multi-agent pursuit-evasion under uncertainties,” Frontiers in Robotics and AI, vol. 8, p. 262, 2021. [30] B. d’Andrea Novel, G. Bastin, and G. Campion, “Dynamic feedback linearization of nonholonomic wheeled mobile robots,” in Proceedings 1992 IEEE International Conference on Robotics and Automation. IEEE Computer Society, 1992, pp. 2527–2528.
+

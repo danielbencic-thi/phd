@@ -1,0 +1,402 @@
+2012 IEEE International Conference on Robotics and Automation RiverCentre, Saint Paul, Minnesota, USA May 14-18, 2012
+
+Combining Global and Local Planning with Guarantees on Completeness
+Haojie Zhang†, Jonathan Butzke‡, Maxim Likhachev‡
+
+Abstract— Planning with kinodynamic constraints is often required for mobile robots operating in cluttered, complex environments. A common approach is to use a two-dimensional (2-D) global planner for long range planning, and a short range higher dimensional planner or controller capable of satisfying all of the constraints on motion. However, this approach is incomplete and can result in oscillations and the inability to ﬁnd a path to the goal. In this paper we present an approach to solving this problem by combining the global and local path planning problem into a single search using a combined 2-D and higher dimensional state-space.
+
+I. INTRODUCTION
+Mobile robots often have to operate in large complex environments. As such, path planning for these systems needs to account for the various kinodynamic constraints of the platform and the environment potentially resulting in a high dimensional state-space. Unfortunately, this high dimensionality often leads to a dramatic increase in the time and memory required to ﬁnd a path as the environment size increases. For a sufﬁciently large outdoor environment it can become computationally intractable for the robot’s onboard processing capability. Planning only in two dimensions (2D), such as planar position (x, y), does not sufﬁce as the resulting path may not be feasible due to motion constraints or asymmetric platform shapes. As a result, planning in a high dimensional (high-D) state-space is often necessary in order to guarantee executable paths. For example the 2D (x, y) path shown in Fig. 1(a) is difﬁcult for a nonholonomic robot to follow due to the instantaneous change in the orientation of the robot. On the contrary the 3-D (x, y, θ) path shown in Fig. 1(b) is relatively easy to execute.
+Current approaches to full-dimensional planning for navigation are either suboptimal [1], [2] or are limited in the size of the area they can handle [3]. For very large environments, a common alternative is to perform a global plan in 2-D and have a separate local controller or local planner perform a higher dimensional plan on a small local region around the robot [4], [5], [6]. While effectively ignoring a subset of the dimensions for the global plan can make these large environments tractable and improve planning times, they are
+This work was partially supported by the Department of Defense (DoD) through the National Defense Science & Engineering Graduate Fellowship (NDSEG) Program. This research has also been in part supported by the ONR DR-IRIS MURI project grant N00014-09-1-1052 and ONR ANTIDOTE MURI project grant N00014-09-1-1031.
+†Intelligent Vehicle Research Center, School of Mechanical Engineering, Beijing Institute of Technology, Beijing 100081, CHINA haojie.bit@gmail.com
+‡Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA jbutzke@andrew.cmu.edu, maxim@cs.cmu.edu
+
+Fig. 1: (a) Unfeasible 2D path for a non-holonomic robot, (b) feasible 3D path for a non-holonomic robot
+incomplete in that the robot may get stuck and never reach the goal even though there is a feasible path. The main reason for this is the inconsistency between the assumptions that local and global planners make.
+As an example, Fig. 2 depicts a scenario that many planners are incapable of successfully dealing with. In this scenario, a short path to the goal is available but due to the sharp turn initially being located outside of the range of the local high dimensional planner, it is infeasible unbeknownst to the robot. As the robot approaches the impassable area, the sharp turn enters the range of the local controller. At this point the system recognizes that the current path is no longer executable, replans, and produces a path that goes down the right hand route. However, once the robot leaves the vicinity of the obstruction such that the problem area is no longer within the planning area of the local planner, any replan by the global planner will once again attempt to route the robot down the left hand side. For some environments numerous such routes may exist resulting in a multi-state oscillation where the robot in turn tries each of them without ever producing a plan through the one correct route. A similar situation may occur in outdoor environments where states may be feasible but have high cost depending on which
+
+978-1-4673-1405-3/12/$31.00 ©2012 IEEE
+
+4500
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+R
+G
+Fig. 2: Example of environment that could be incomplete for systems with separate local and global planners. Robot R is at the start location in the upper left. The local planner operates within the grey circle surrounding the robot. The global planner initially generates red dashed path to the goal G. However the robots size prevents it from making the turn marked by the green “+”. At this point the global planner returns the green dotted path. Once the robot returns to the vicinity of the start location, any replan by the global planner would return a path similar to the red dashed path, potentially resulting in the robot oscillating between the two points.
+direction the robot is oriented. An example would be a steep slope. While traversing along the side of the slope the cost would be relatively low, however going straight up or down would be considerably more expensive. The na¨ıve approach to solving these problems by blocking off the offending path also results in an incomplete planning solution as the robot may need to partially enter the area in order to maneuver for the correct path, or in the slope example, may be required to pass through a position with a certain orientation.
+In this paper we show how to extend the concept of the local and global planners to a single graph in such a way that we can guarantee completeness while being efﬁcient enough for use as an online planner. Using ideas from adaptive dimensionality reduction [7] we can iteratively combine the 2-D global graph along with one or more higher dimensional areas. By selecting the areas in the vicinity of the robot and at key points in the environment for inclusion as high-dimensional areas we can improve
+
+upon the separate global and local planner paradigm. This approach relies on the notion that only certain areas need or even beneﬁt from the higher dimensional planning while the vast majority of states only need to be searched in the lower dimension. This results in substantial speedups and lower memory requirements while preventing oscillations. We show that the algorithm is complete with respect to the state-space discretization and can provably guarantee to ﬁnd a solution, if one exists, provided its actions are reversible (e.g. no one way streets). We also demonstrate the efﬁciency of the algorithm in simulation and applied to a real-world signiﬁcantly asymmetric differential drive robot.
+
+II. ALGORITHM
+A. Description
+The algorithm functions by forming a graph of the search space with a mix of 2-D and high-D states. It starts out by planning in high-D around the robot and everywhere else in 2-D (just as a standard combination of global and local planning). Then as the robot starts executing the trajectory, every time it encounters a situation where the re-planning ﬁnds a path that differs from the previous path or it recognizes the potential for oscillations to occur, the planner leaves a permanent high-D region at the current location. For our purposes we use 2-D synonymously with the low dimensional component of our algorithm, speciﬁcally using it to represent the planar position (x, y). The high-D state-space is typically translation and orientation (x, y, z, θ) although velocity v or other dimensions could be used as well.
+
+B. Notations and Assumptions
+
+We assume that the planning problem is represented as
+
+searching a directed graph G = (Sd, Ed) where Sd is a discretized ﬁnite state-space with dimensionality d, consisting
+
+of vertices s = (x1, x2, . . . , xd) and Ed is the set of directed
+
+edges in the graph. The transition between vertices e(si, sj) is associated with a cost c(si, sj). The objective of the search
+
+is to ﬁnd a least-cost path in G from start state sstart to goal
+
+state sgoal. We use the notation π(si, sj) to denote a path
+
+in graph G from state si to state sj and π (si, sj) to denote
+
+the least-cost path.
+
+Deﬁnition 1 (SH , SL): We deﬁne two auxiliary state-
+
+spaces that we use to construct our search state-space, a high
+
+dimensional state-space SH with dimensionality h and a low dimensional state-space SL with dimensionality l such that
+
+h > l.
+
+Deﬁnition 2 (λ(·)): Function returning the projection of a
+
+state into a lower-dimensional subspace. There also exists
+
+the inverse λ−1 which maps from a lower to a higher-
+
+dimensional space:
+
+λ(sh) = sl
+
+(1)
+
+λ−1(sl) = {sh}
+
+(2)
+
+λ(λ−1(sl)) = sl
+
+(3)
+
+λ−1(λ(sh)) = sh
+
+(4)
+
+4501
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+Notice that λ is a many to one mapping and λ−1 is a one to many mapping. Also note that the left-hand side of (4) results in a set of states not the single state provided as input.
+Deﬁnition 3 (Qc, Q1): Qc is the queue that stores the position of all high dimensional regions that have been introduced by the algorithm. Each high-D region can be represented by a single state. For example, a high-D sphere where the center state is stored in Qc. Q1 is a queue that stores potential centers of high-D regions and their corresponding lower bounds on cost-to-goal (glow).
+Deﬁnition 4 (Priority): For every high-dimensional state s, the priority of s according to the ith replan is:
+
+2 
+
+if s ∈ Qc
+
+P i(s) = 1 if s ∈ Q1
+
+ 0 otherwise
+
+Deﬁnition 5 (πi): The ith plan returned from COM-
+
+PUTEPATH. It consists of the ordered list of states {si0, si1, si2, . . . , sin} where sin = sgoal and si0 = scurr at the time when COMPUTEPATH was executed. We assume
+
+COMPUTEPATH executes a backward A search or one of its
+
+variants and as such it computes g-values which are the cost-
+
+to-goal for some states in the state-space. It is guaranteed
+
+to have been computed for all states on the returned path.
+
+The search is performed from the goal to the start state so gi(sij) > gi(sij+1) ∀j : 0 . . . n − 1.
+Deﬁnition 6 (Condition 1 (C1)): is a planner speciﬁc test
+
+for inserting high-D regions into the hybrid graph. For our
+
+implementation we use a change in homotopic class (Def. 7)
+
+to signal this condition. Our planner is guaranteed to be
+
+complete independent of what “Condition 1” stipulates or
+
+even if it is absent.
+
+Deﬁnition 7 (Homotopic Class): Two paths connecting
+
+the same start and goal coordinate are in the same homotopy
+
+class if they can be smoothly deformed into one another with-
+
+out intersecting any obstacle in the environment, otherwise
+
+they are in different homotopy class. The homotopic class of
+
+a path is dependent on which obstacles it went around and in
+
+which direction. In this way paths that take fundamentally different routes to the goal can be identiﬁed1 (see [8] for
+
+in-depth mathematical treatment).
+
+Assumption 1: The cost of transition between different
+
+high dimensional states is at least the cost of transition
+
+between the corresponding low dimensional states. For every
+
+pair of high-dimensional state si and sj, it will hold that c(si, sj) ≥ c∗(λ(si), λ(sj)). We further stipulate that all
+
+transitions are dynamically feasible. By only using feasible
+
+edges, the resulting trajectory through the graph is guaran-
+
+teed to be executable without additional smoothing or post-
+
+processing. For 3-D navigation typical motion primitive sets
+
+1Homotopic classes can be thought of like a road system. If one were to take Highway 1 from A → B, your path may vary depending on which lane you travel in, however, your homotopic class would remain the same since all lanes would travel on the same side and in the same direction around obstacles. If you were to take Highway 2 instead, your homotopic class would be different since it would not pass the obstacles in the same way.
+
+a.
+
+b.
+
+c.
+
+Fig. 3: Examples of motion primitives used to determine allowable edges in the search graph. (a) Non-holonomic robot capable of turning only while moving forwards. (b) A non-holonomic robot capable of turning in both directions. (c) An omni-directional robot capable of straﬁng sideways.
+
+are depicted in Fig. 3 Assumption 2: The map only changes a ﬁnite number of
+times. This assumption is required for completeness, as a map could be modiﬁed in an adversarial way to ensure no plan ever successfully reaches the goal state.
+Assumption 3: ∀s : e(scurr, s) ∈ EHL =⇒ s ∈ SH . To maintain the completeness property we assume that the high-D region around the robot is larger than the length of the longest high-D motion primitive. This ensures that the immediate successor of a robot state, scurr, is a high-D state. For the sake of efﬁciency in execution we assume that the cost of turning through an angle of α is no greater than the cost to drive along an arc of length rα, where r is the radius of the high-D circle.
+
+C. Search Graph Construction
+
+We construct a hybrid dimensional state space SHL as our search state-space by combining the high dimensional
+state-space SH and low dimensional state-space SL. The high dimensional state space in SHL consists of 1 . . . N small circular regions Rn, centered at key points (xn, yn) with one of these points always being the current robot
+position. For each high dimensional region, SHL is modiﬁed by removing all low dimensional states sl inside the high
+dimensional region Rn, replacing them with the set of high dimensional projections λ−1(sl). Thus, SHL contains both low dimensional and high dimensional states. Also, by
+construction
+
+sh ∈ SHL ⇔ λ(sh) ∈/ SHL
+
+(5)
+
+4502
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 4: Example of EHL construction for a 3-D/2-D environment. The states in the light grey area are 3-D while the white states are 2-D. The state in the lower left is completely in the 3-D region, and thus all of its possible edges are part of EHL. The 2-D state in the upper left contributes its 2-D edges to other 2-D states, and an edge to each element of the set λ−1(slj) depicted in red. Similarly, the 3-D state on the right has edges to the 2-D state λ(shj ) shown in blue.
+a high dimensional state sh and its corresponding low dimensional projection λ(sh) are never simultaneously members of SHL although one of them always is.
+In order to transition between the high dimensional regions and the low dimensional regions, the hybrid transition set EHL is deﬁned for SHL. The hybrid transition set is constructed as the union of the following edges:
+∀i, j : e(shi , shj ) ∈ EH , shi ∈ SHL ∧ shj ∈ SHL ⇒ e(shi , shj ) ∈ EHL (6)
+∀i, j : e(sli, slj ) ∈ EL, sli ∈ SHL ∧ slj ∈ SHL ⇒ e(sli, slj ) ∈ EHL (7)
+∀i, j : e(shi , shj ) ∈ EH , shi ∈ SHL ∧ λ(shj ) ∈ SHL ⇒ e(shi , λ(shj )) ∈ EHL (8)
+∀i, j : e(sli, slj ) ∈ EL, sli ∈ SHL ∧ shj ∈ SH ∧ shj ∈ λ−1(slj ) ⇒ e(sli, shj ) ∈ EHL (9)
+Notice that the above deﬁnition of EHL allows for transitions between states of different dimensionalities. Fig. 4 illustrates the set of transitions in the GHL graph in the case of 3D (x, y, θ) path planning and Algorithm 2 in Section II-D below details the pseudo-code.
+
+Algorithm 1 SEARCH(G, sstart, sgoal)
+
+1: Qc = {∅}, Q1 = {∅}, glow(s) = 0, g0(s) = ∞for∀s,
+
+sprev = scurr = sstart, i = 0
+
+2: while scurr = sgoal do
+
+3: update map with sensor data
+
+4: i = i + 1
+
+5: [πi, gi, C1] = COMPUTEPATH(scurr, sgoal,
+
+CONSTRUCT(G, {Qc ∩ scurr}))
+
+6: if C1 is satisﬁed then
+
+7:
+
+insert scurr in Qc
+
+8: end if
+
+9: if ∃s : (s ∈ πi) ∧ (s ∈ Q1) ∧ (gi(s) < glow(s)) then
+
+10:
+
+move s from Q1 to Qc
+
+11: end if
+
+12: if gi(scurr) ≥ gi−1(sprev) then
+
+13:
+
+glow(scurr)=max(gi(scurr), glow(scurr))
+
+14:
+
+insert/update scurr in Q1 with glow(scurr)
+
+15: end if
+
+16: sprev = scurr 17: scurr = πi(1)
+
+18: end while
+
+D. Graph Search
+The variable dimensional search algorithm is detailed in Algorithm 1. The variables speciﬁc to this algorithm are initialized on line 1 prior to the ﬁrst search. COMPUTEPATH on line 5 takes the current position and goal along with the set of all high dimensional regions and runs backward A or one of its variants on the hybrid graph to determine the optimal path to the goal. It returns this path, as well as updated g-values2 for all states on the returned path. The third return value is a variable used to denote whether the trajectory returned meets the conditions of “Condition 1” (Def. 6). Note that the current position is always passed into COMPUTEPATH as a location for a high-D region.
+The hybrid graph consisting of the hybrid vertex and edge elements, SHL and EHL is constructed as detailed in Section II-C and shown in Algorithm 2 and passed into the COMPUTEPATH function (line 5 of Algorithm 1). It initially sets the hybrid state-space to be equal to the low dimensional state-space. For each of the high-D regions it adds the appropriate high-D states and corresponding edges to the graph (lines 5-7). The REGION function on line 5 is also responsible for removing the corresponding low dimensional states from SHL. The ADDEDGES function generates EHL as described in section Section II-C above.
+In the event that “Condition 1” is satisﬁed (as detected by line 6 in Algorithm 1) then the current location is added to the set of high-D states. This is done because “Condition 1” should signal when new information, such as the inclusion of the higher dimensions in the search, has shown the current trajectory to not be optimal. By placing the current
+2Note: only the i and i − 1 g-values must be stored, older ones can be discarded.
+
+4503
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+Algorithm 2 CONSTRUCT(G, Q)
+1: SHL = SL 2: EHL =NULL 3: GHL = (SHL, EHL) 4: for all sl ∈ Q do 5: add REGION( sl ) to SHL 6: end for 7: EHL =ADDEDGES(SHL) 8: return (SHL, EHL)
+location into the list of high-D states, that information will be “remembered” during future planning cycles.
+States that had previously been priority 1 and are on the current trajectory to the goal and now have a lower g-value than the glow stored for that state are also added to the list of high-D states (lines 9-11). This is done in order to prevent oscillations as a drop in a g-value indicates a fundamental change in the path taken from that location to the goal, even if “Condition 1” was not true. As an example, consider a long, narrow hallway with a robot incapable of turning in place, a high penalty for traveling backwards and a goal state behind the robot. If the robot cannot sense the end of the hallway, it may choose to travel forward to the unseen area and turn around there. However, once reaching the end of the hallway, the robot will determine that it is unable to turn-around, and will travel in reverse back to the goal state. As it does this, it is undesirable for the robot to return to the end of the hallway once it leaves the sensor range. However, we can detect this phenomenon by the lowering of the g-values during the back-tracking portion and place high-D regions along the hallway. In this way, the robot is guaranteed to not oscillate.
+The check on line 12 is to ﬂag potential oscillation points along the path. As these points are elevated to priority 1, they become eligible for inclusion in the high-D areas as described in the above paragraph. This check is true when the g-value of the current robot pose is higher than the previously computed g-value of its previous pose. Since the search is made outwards from the goal, the values should be monotonically decreasing, thus any increase signals a potential oscillatory region.
+Finally the plan is passed to the drive control subsystem to conduct the actual move. After a (possibly zero) delay, the position is updated and the loop repeats (line 17).
+E. Theoretical Analysis
+The algorithm holds several theoretical properties due to the construction of the search graph. In the following we assume N is the number of high-D states in the original search graph, GH .
+Theorem 1: At the conclusion of every iteration i of lines 5-15 for i > 1, one of the following conditions holds prior to the execution of line 16:
+• case i gi−1(sprev) > gi(scurr) • case ii ∃ high-dimensional state s such that P i−1(s) <
+P i(s)
+
+• case iii ∃j < i such that Qcj < Qci and sjcurr = scurrand for∀k = j + 1, . . . , i − 1, skcurr = scurr, where sjcurr denotes the value of scurr right before line 16 is executed during the jth iteration.
+Proof sketch: Assume case i does not hold then gi−1(sprev) ≤ gi(scurr). If P i−1(scurr) = 0, by lines 12-15, scurr will be moved to Q1. As a result, P i(scurr) = 1 > P i−1(scurr) and case ii will hold. If P i−1(scurr) = 1, it indicates scurr has been the start state at least once before since only start states are inserted into
+Q1 (line 14). Let j be the most recent iteration that started from scurr and let gj(scurr) be the corresponding g-value. By line 13 glow(scurr) ≥ gj(scurr). Between the jth and ith plan, one of two cases must be true: ∃ si such that si is inserted in Qc or not.
+• If si is inserted in Qc, case iii will hold since the algorithm never removes a state from Qc.
+• If si inserted in Qc the hybrid graph did not change and gi(scurr) = gj(scurr). Since gi(scurr) ≥ gi−1(sprev) > gi−1(scurr) because sprev = si0−1, scurr = s1i−1 then due to Assumption 1 gi−1(si0−1) > gi−1(si1−1) from Def. 5, then glow(scurr) > gi−1(scurr) because glow(scurr) ≥ gj(scurr) = gi(scurr). In which case line 9 will be true (prior to glow being updated on line 13) and scurr will be moved from Q1 to Qc which is a contradiction to assuming si inserted in Qc.
+If P i−1(scurr) = 2, it indicates that scurr is already the center of the high dimensional space. Also gi−1(sprev) > gi−1(scurr) because of Def. 5. Between line 5 of the i − 1th and the ith iteration either a state s was added to Qc or Q1 in which case P i−1(s) < P i(s) and case ii holds or not.
+If not, then the COMPUTEPATH function was called with {Qc ∩ sprev} on the i − 1th iteration and {Qc} on the ith (since scurr is already in Qc). Since there are no additional high dimensional states being searched (and possibly less) gi−1(sprev) > gi−1(scurr) ≥ gi(scurr), which contradicts the assumption that case i does not hold.
+Lemma 1: On a ﬁnite graph, case i can only occur a
+maximum O(N ) times before case ii or case iii happen.
+Proof sketch: Since the g-values are ﬁnite, and, without
+loss of generality, decrease by integral amounts along the
+path, this leaves a limited number of moves before the robot
+reaches its goal or case ii or case iii happen.
+Lemma 2: On a ﬁnite graph, case ii can only occur a
+maximum O(2N ) times
+Proof sketch: When case ii occurs at least one state
+whose priority is increasing. Since each state can increase
+its priority twice and the priority never decreases, case ii
+can only occur at most O(2N ) times.
+Lemma 3: On a ﬁnite graph, case iii can only occur a
+maximum O(N ) times
+Proof sketch: When case iii occurs at least one state has
+been added to Qc which can happen N times.
+Theorem 2: On a ﬁnite graph, the robot is guaranteed to
+
+4504
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Melvin the Segbot
+
+(b) Footprint
+
+Fig. 5: a) Photo of the robot used for the experiments showing asymmetric footprint. b) The planners representation of the robot as seen from above.
+
+reach its goal if any state reachable from the start pose has a feasible path to the goal pose. Proof sketch: Since for every iteration one of case i , case ii , case iii will occur, there is a bounded number of times case i may occur prior to either case ii or case iii occurring and case ii and case iii are both themselves bounded in their number of occurrences, then the algorithm will terminate on a ﬁnite graph with a solution if one exists. Therefore, the algorithm is complete on ﬁnite graphs.
+III. EXPERIMENTAL RESULTS
+We initially tested our algorithm using a simulation environment similar to that shown in a very simpliﬁed form in Fig. 6. The robot model was a differentially driven robot with a signiﬁcantly asymmetric footprint (Fig. 5b). The map was provided to the robot at the start of the simulation, and the robot planned in 3-D (x, y, θ) for the high dimensional statespace. 50 maps of three different sizes and two types were randomly generated. The indoor maps consisted of many narrow hallways with the occasional larger room. In addition there were several thousand single point obstacles randomly placed (Fig. 7). The other type of map was more open with many rectangular obstacles and single point obstacles placed randomly (Fig. 8). For both map types, the start and goal states were placed in diagonally opposite corners with a heading of 0◦. Our algorithm and planning on a uniform 3-D state-space (both using optimal A were run on each of the maps and the results are presented in Table I and Table II. Since the maps were randomly generated, there were a few maps in each category that had no feasible solution, so the number of maps actually completed is presented and all statistics are based on only those maps.
+As can be seen our algorithm had comparable path costs to the optimal search (< 110% of the optimal cost on average for each map size and type), with signiﬁcantly lower planning times (42-67 times faster on average for each map size and type). In the outdoor environments with their “more convex” obstacles and less dead-ends the algorithm put very few highD regions into the search graph in comparison with the more complex indoor maps.
+After verifying that the algorithm performed satisfactorily in the simulation environment, we ran it on our differential drive robot. In order to make it a fair comparison with full 3-D A type searches we added a long boom on the robot so
+
+Fig. 7: Example 2000 × 2000 indoor map for the simulation environment. Black areas are obstacles, in addition there are several thousand single cell obstacles randomly spread across the map. Start is in the upper left corner and the goal is in the lower right corner.
+Fig. 8: Example 2000×2000 outdoor map for the simulation environment. Coloring and positions are the same as for the indoor map.
+that its orientation played a key roll in whether a particular area of the map was traversable as shown in Fig. 5a. We ran a series of test runs an example of which is shown in Fig. 9. During each of the test runs the robot replans every meter of distance traveled and used a ﬁve meter radius for the 3-D circles. For this particular example (the full motion video is included in the accompanying video submission3), the robot was attempting to go around the corner near some obstacles in the middle of the hallway. The spacing of the obstacles was enough for the robot to ﬁt through, if the robot did not have the boom attached, it would have been able to make the corner. Once the 3-D circle encompasses the obstacles, the planner ﬁnds a better path going around the central core of the map. A 3-D circle was placed at this point due to the homotopic class changing so that as the robot replanned it retained the knowledge that the upper right corner was not traversable.
+REFERENCES
+[1] K. Bekris and L. Kavraki, “Greedy but safe replanning under kinodynamic constraints,” in Robotics and Automation, 2007 IEEE
+3http://www.youtube.com/watch?v=Y1TZMQTEahs
+
+4505
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Fig. 6: Simple environment, black areas are obstacles, robot R with active 3-D search areas depicted by the colored circles. (a) Robot at start (b) Robot reaches obstacles and determines it cannot ﬁt, replans and leaves permanent 3-D area (in purple) (c) Robot determines it also cannot traverse the far left gap, replans, and leaves 3-D area (in purple, previous circle in blue) (d) Robot reaches goal
+TABLE I: Combined Graph Algorithm Simulation Results
+
+Map Type Outdoor
+Indoor
+
+Map Size (cells)
+2000 × 2000 3000 × 3000 4000 × 4000
+2000 × 2000 3000 × 3000 4000 × 4000
+
+# of Maps
+43 45 48
+50 49 45
+
+Initial Plan Time (s)
+0.84 1.68 2.42
+1.95 5.13 10.18
+
+Avg Plan Time (s)
+0.14 0.33 0.59
+0.83 2.84 5.15
+
+# of 2-D Expands
+64062 149268 234310
+319069 850135 1426658
+
+# of 3-D Expands
+7241 7734 7209
+7718 9095 8051
+
+# of Circles
+2.19 5.09 7.40
+32 64 63
+
+Final Path Cost
+275823 419057 493062
+653451 1076430 1325369
+
+TABLE II: A Comparison Results
+
+Map Type Outdoor
+Indoor
+
+Map Size (cells)
+2000 × 2000 3000 × 3000 4000 × 4000
+2000 × 2000 3000 × 3000 4000 × 4000
+
+# of Maps
+43 45 48
+50 49 45
+
+Initial Plan Time (s)
+35.56 93.36 162.14
+108.14 339.23 594.39
+
+# of Expands
+2328883 5280830 8506620
+7292373 18380536 29472991
+
+Final Path Cost
+257108 388813 458966
+610800 978386 1233831
+
+International Conference on, april 2007, pp. 704–710. [2] S. Petti and T. Fraichard, “Safe motion planning in dynamic environ-
+ments,” in Intelligent Robots and Systems, 2005. (IROS 2005). 2005 IEEE/RSJ International Conference on, aug. 2005, pp. 2210–2215. [3] M. Likhachev and D. Ferguson, “Planning long dynamically feasible maneuvers for autonomous vehicles,” Int. J. Rob. Res., vol. 28, pp. 933–945, August 2009. [Online]. Available: http://dl.acm.org/citation.cfm?id=1577179.1577184 [4] O. Brock and O. Khatib, “High-speed navigation using the global dynamic window approach,” in Robotics and Automation, 1999. Proceedings. 1999 IEEE International Conference on, vol. 1, 1999, pp. 341–346 vol.1. [5] A. Kelly, “An intelligent predictive control approach to the highspeed cross-country autonomous navigation problem,” Robotics Institute, Pittsburgh, PA, Tech. Rep. CMU-RI-TR-95-33, September 1995. [6] R. Philippsen and R. Siegwart, “Smooth and efﬁcient obstacle avoidance for a tour guide robot,” in Robotics and Automation, 2003. Proceedings. ICRA ’03. IEEE International Conference on, vol. 1, sept. 2003, pp. 446–451. [7] K. Gochev, B. J. Cohen, J. Butzke, A. Safonova, and M. Likhachev, “Path planning with adaptive dimensionality.” in SOCS, D. Borrajo, M. Likhachev, and C. L. Lpez, Eds. AAAI Press, 2011. [8] S. Bhattacharya, V. Kumar, and M. Likhachev, “Search-based path planning with homotopy class constraints,” in Third Annual Symposium on Combinatorial Search, 2010.
+
+(a) Start
+
+(b) Replan
+
+Fig. 9: (a) the robot initially plans a path through the upper right corner to the goal. (b) once the robot reaches the corner it discovers that it cannot maneuver past the obstacles and plans a path around the loop, leaving a 3-D circle at its present location.
+
+4506 Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 18,2022 at 10:59:33 UTC from IEEE Xplore. Restrictions apply.
+

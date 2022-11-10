@@ -1,0 +1,463 @@
+2019 International Conference on Robotics and Automation (ICRA) Palais des congres de Montreal, Montreal, Canada, May 20-24, 2019
+
+Real-Time Planning with Multi-Fidelity Models for Agile Flights in Unknown Environments
+Jesus Tordesillas1, Brett T. Lopez1, John Carter2, John Ware2 and Jonathan P. How1
+
+Abstract— Autonomous navigation through unknown environments is a challenging task that entails real-time localization, perception, planning, and control. UAVs with this capability have begun to emerge in the literature with advances in lightweight sensing and computing. Although the planning methodologies vary from platform to platform, many algorithms adopt a hierarchical planning architecture where a slow, low-ﬁdelity global planner guides a fast, high-ﬁdelity local planner. However, in unknown environments, this approach can lead to erratic or unstable behavior due to the interaction between the global planner, whose solution is changing constantly, and the local planner; a consequence of not capturing higher-order dynamics in the global plan. This work proposes a planning framework in which multi-ﬁdelity models are used to reduce the discrepancy between the local and global planner. Our approach uses high-, medium-, and low-ﬁdelity models to compose a path that captures higher-order dynamics while remaining computationally tractable. In addition, we address the interaction between a fast planner and a slower mapper by considering the sensor data not yet fused into the map during the collision check. This novel mapping and planning framework for agile ﬂights is validated in simulation and hardware experiments, showing replanning times of 5-40 ms in cluttered environments.
+I. INTRODUCTION
+UAV autonomous navigation in unknown environments has received special interest in the last few years because of its unlimited applications, ranging from aerial surveying and inspection to search and rescue. However, these applications are often reduced to low-speed ﬂights due to the current limitations and low rates of the state-of-the-art mappers and planners. The inherent non-convexity of the path planning optimization problem, together with the high mapping and planning rate needed for agile ﬂights make this problem especially hard. This work presents a novel framework to perform high-rate mapping and planning in unknown environments suitable for agile maneuvers, addressing the fundamental problem between the interaction of a global planner and a local planner.
+Computational tractability of the planning problem leads to the use of a low-ﬁdelity global planner that computes a cost-to-go (CTG) needed by the high-ﬁdelity local planner. However, the fact that the global planner does not account for the dynamics results in erratic behaviors when the world model is changing rapidly. There is therefore a need of an accurate CTG calculation that captures both the global environment and the dynamic feasibility, maintaining relatively
+1J. Tordesillas, B. Lopez, J. How are with the Aerospace Controls Laboratory, MIT, 77 Massachusetts Ave., Cambridge, MA, USA {jtorde, btlopez, jhow}@mit.edu 2 J. Carter and J. Ware are with the MIT Robust Robotics Group. {jakeware, jcarter}@csail.mit.edu
+
+Fig. 1: Global optimum and our method. When the map is completely known, the optimal trajectory computed using the approach of [1] is shown in blue ( ). The red trajectory ( ) is the solution found by our method, where the world is not known and it is being discovered as the UAV ﬂies forward. The grid is 1m ×1m, and the sensing range is 10 m.
+low computation times at the same time. Moreover, the choice of the representation of the envi-
+ronment and the size of the “global” map (larger scale than the sensor FOV and the local representation, but typically does not contain all information observed to reduce effort) have a signiﬁcant impact on the computational cost, but for most systems updates of these models cannot be done at the sensor frame rates (∼30 Hz) and updates are typically slower than the re-plan rate. Thus a second design challenge is how to combine the global knowledge (available at a slower rate) with the high-rate local information in the planner representation of the environment. Finally, the state-of-the-art mappers and planners run onboard at ∼5 Hz, so the the third key challenge is how to optimize the planning and mapping algorithms to achieve higher rates, suitable for aggressive ﬂights.
+This work addresses these challenges with the following contributions:
+• A novel formulation of the planning problem that takes into account the dynamics of the vehicle in the costto-go calculation to solve the negative interaction that usually occurs between the global and local planners when operating in unknown environments.
+• A lightweight fused-based mapping framework using a sliding map to reduce the estimation error inﬂuence that runs onboard fusing a depth image in 50 ms.
+• An integration of a high-rate planner with a slower-rate mapper, with a collision check algorithm that accounts for both the most recent fused information and the
+
+978-1-5386-6027-0/19/$31.00 ©2019 IEEE
+
+725
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+available sensed data not included in that map. • Simulation and hardware experiments showing agile
+ﬂights in completely unknown cluttered environments, achieving replanning times of 5-40 ms.
+II. RELATED WORK
+Different methods have been proposed in the literature for planning, mapping, and the integration of this two.
+For planning, most of the current state-of-the-art methods exploit the differential ﬂatness of the quadrotors, and solve the planning problem minimizing the squared norm of a derivative of the position [2], [3] to ﬁnd a dynamically feasible smooth trajectory [4]. On the one hand, there are approaches where the obstacle constraints, and sometimes also input constraints, are checked after solving the optimization problem: Some of them use stitched polynomial trajectories that pass through several waypoints obtained running RRT-based methods [2], [4], [5]. Others use Pontryagin’s Minimum Principle to ﬁnd closed-form solutions [6]. These closed-form solutions are also used to search over the state space [7], [1]. Alternatively, there are works that use the cost function to penalize the distance to the obstacles [8], [9], requiring usually computationally expensive distance ﬁelds representations. Finally, there are also approaches that add the obstacle constraints in the optimization problem, like Mixed-Integer Programming (MIP) [10], convex decompositions [11], [12], [13] and Successive Convexiﬁcation [14], [15], [16].
+Most of the approaches described above either assume that the global map is known, and the optimization is done using the global map. Others assume that there is a global planner (RRT or exploration based planners) that gives the waypoints to the local planner. In agile ﬂights, this leads to oscillatory behaviors, since the world is being discovered and the solution of the global planner changes constantly.
+Moreover, two main categories can be highlighted in the mapping methods proposed in the literature: memory-less and fused-based methods. The ﬁrst category includes the approaches that rely only on instantaneous sensing data, using only the last measurement, or weighting the data [17], [18]. These approaches are in general unable to reason about obstacles observed in the past [19], [20]. The second category is the fusion-based approach, in which the sensing data are fused into a map, usually in the form of an occupancy grid or distance ﬁelds [21], [22]. Two drawbacks of these approaches are the inﬂuence of the estimation error, and the fusion time (which means that the planner usually uses an out-of-date fused map).
+Finally, several approaches have been proposed for the integration between the planner and the mapper: reactive and map-based planners. Reactive planners often use a memory-less representation of the environment, and closedform primitives are usually chosen for planning [19] and [20]. These approaches often fail in complex cluttered scenarios. On the other hand, map-based planners usually use occupancy grids or distance ﬁelds to represent the environment. These planners either plan all the trajectory at once or implement a Receding Horizon Planning Framework,
+
+optimizing trajectories locally and based on a global planner. Moreover, when unknown space is also taken into consideration, several approaches are possible: [23] and [24] used optimistic planners (considering unknown space as free), while in [8] and [9], an optimistic global planner is used combined with a conservative local planner.
+
+III. PROBLEM FORMULATION
+
+A. Planning
+Computing a dynamically feasible trajectory from the start to the goal is typically intractable, which is the standard argument for the distinction between the global and local planners. The global planner gives the local planner a notion of cost-to-go (CTG) or traversability in certain directions; while the local planner deviates around the nearby obstacles and chooses the terminal point accordingly. Key to this CTG calculation is the trade-off between accuracy and computation time. Issues include the sophistication of the dynamics used in the calculation and the number of points at which the CTG is computed.
+In our proposed framework, Jump Point Search (JPS) is used as a global planner to ﬁnd the shortest path from the current position to the goal. JPS was chosen instead of A* because it runs an order of magnitude faster, while still guaranteeing completeness and optimality [25], [12]. The only assumption of JPS is a uniform grid, which holds in our case. JPS is only done for position (not velocity or acceleration) to reduce the computational burden.
+Our local planner monitors the JPS solution for drastic changes between each replan. If a large change is detected, a new path, composed of a high, medium, and low ﬁdelity model (where the model order is reduced farther away from the vehicle) is created for the current and last JPS solution. This procedure is able to capture a subset of the dynamics while maintaining computational tractability. The resulting multi-ﬁdelity paths are compared and the path with lowest cost is selected for execution. This hierarchical trajectory consists of a jerk-controlled part, a velocity-controlled part, and a geometric part.
+The jerk-controlled primitive is the part of the trajectory nearest to the current position, and it is the one that will be actually executed. The quadrotor is modeled using triple integrator dynamics with state xT = xT x˙ T x¨T = xT vT aT and control input u = .x.. = j (where x, v, a, and j are the vehicle’s position, velocity, acceleration, and jerk, respectively), and the following convex optimization problem is solved using CVXGEN [26] to ﬁnd this trajectory:
+
+N −1
+
+min
+u0:N−1 i=0
+
+ui 2 + (xN − xf )T Q(xN − xf )
+
+(1)
+
+subject to x0 = xinit
+
+xk+1 = M1xk + M2uk ∀k = 0 : N − 1
+
+vk ∞ ≤ vmax
+
+∀k = 1 : N
+
+ak ∞ ≤ amax
+
+∀k = 1 : N
+
+uk ∞ ≤ jmax
+
+∀k = 0 : N − 1.
+
+726
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 2: Sliding map and goal projection. The sliding map M has
+
+occupied space O, unknown space Umap and free space F . Total
+
+unknown space the map of the
+
+is U = Umap terminal goal
+
+∪ Uout Gterm
+
+minapth. eQdiirsecthtieonproofje−Ac−tiG−on−te−ir→ nmto.
+
+The closest free or unknown frontier point to Q (G in the ﬁgure)
+
+is selected as the goal.
+
+In this problem, the number of discretization steps N is ﬁxed. The time step dt (embedded in M1 and M2) is computed as
+dt = max{Tvx , Tvy , Tvz , Tax , Tay , Taz , Tjx , Tjy , Tjz }/N
+where Tvi , Tai and Tji are the solution for each axis i = {x, y, z} of the constant-velocity, constant-acceleration and constant-jerk motion equations applying vmax, amax and jmax respectively. This dt is a tight lower bound that is increased in each iteration until the problem converges.
+The second key part of the trajectory is a velocitycontrolled primitive. It is a trade-off between the sophistication of the dynamic model (lower order than jerk input model), but sufﬁciently accurate to capture the UAV CTG (more accurate than the distance-based cost). Moreover, it ensures that the computation times are maintained in the order of 300 μs, four times faster than the ones required when the input is higher. The ﬁnal part of the trajectory is the part of the JPS solution that goes from the end of the velocity-controlled primitive to the goal. This provides an indication of how to avoid traps and avoid obstacles, but there is little attempt to capture to vehicle dynamics at that distance away – that is done when the receding horizon controller gets closer.
+B. Mapping
+A sliding map, which moves with the UAV, is used to represent the world. This is a compromise between storing the whole world and relying only on local maps. It also tries to minimize the accumulated estimation error. This map M contains free space F, (known) obstacles O and unknown space Umap (see Fig. 2). In this way,
+R3 = O ∪ F ∪ Umap ∪ UOut map = M ∪ UOut map
+Using this map, the collision check for each of the three primitives presented above is done as follows: the jerkcontrolled trajectory is considered collision-free if it does not intersect O ∪ U. The velocity-controlled primitive is forced to pass through the waypoints of the JPS solution. Finally, the JPS path is guaranteed not to hit O. In this way, and
+
+Fig. 3: Illustration of the Alg. 1. The radii ra and rb deﬁne the spherical surfaces Sa and Sb. JPS is used to compute the paths JP S1 and JP S2. The UAV chooses the jerk-controlled primitive P rimji that has lowest cost, considering the cost of that primitive, the velocity-controlled primitive P rimvi and the distance from Ci to G following JP Si. Unknown space U is shown in blue. Note that the ﬁgure is in 2D for visualization purposes, but the planning is in 3D.
+Fig. 4: Iteration k in the Alg. 1. JP S2 is the modiﬁed version of JP S{k−1}, that avoids the new obstacles detected. The algorithm chooses the jerk-controlled primitive P rimji that has the lowest associated cost-to-go Ji. The terms in green are only computed if ∠B 1AB {k−1} is greater than α0.
+similar to [9], JPS is an optimistic global planner, while the local planner is conservative.
+IV. ALGORITHM
+Let us introduce some notation ﬁrst (see also Fig. 3): Let A be the state taken (in the previous planned trajectory) some steps ahead of the current position of the UAV. Let Sa and Sb be two concentric spheres with center in A, and with radius ra and rb respectively. JP S will denote the shortest piece-wise linear path found by running JPS between A and the goal G. For this path, deﬁne the tuples J P Swp := (q1, q2, . . . , qn) and J P Spath := (q1q2, . . . , qn−1qn), where J P Swp has the n waypoints qi ∈ R3 of the solution of JPS (being q1 the start and qn the goal) and JP Spath contains the segments between these waypoints.
+Deﬁne the point B := ∩f (Sa, J P Spath), where ∩f (S, JP Spath) is a function that computes the first intersection between the spherical surface S and the path J P Spath. Similarly, C := ∩l(Sb, J P Spath) will be the last intersection. In an analogous way, ∩int(Sa, Sb, J P Swp) will denote all the elements of JP Swp that are intermediate between B and C. Hence, JP Swp can be written as:
+J P Swp = (q1, ...qr−1, qr, . . . , qs−1 , qs, . . . , qn)
+∩int(Sa,Sb,J P Swp)
+where qr is the ﬁrst point outside the sphere Sa and qs−1
+
+727
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+is the last point inside the sphere Sb. The subindex {·} will indicate the iteration number. Finally, the subindex 1 in JP S
+will denote the JPS solution of the current iteration, while
+2 will be the modiﬁed (i.e not intersecting any obstacles) version of JP S{k−1} (chosen in the previous iteration). Same applies to B and C. The concept of modiﬁed is
+explained later on. In our algorithm, the whole trajectory planned is divided
+into three primitives: P rimj ∪ P rimv ∪ P rimd, which are deﬁned as follows:
+
+1) P rimj is a jerk-controlled primitive that has A as initial state and a ﬁnal stop condition in the point B, which is deﬁned as the point in the sphere Sa near to B that guarantees that P rimj ∩ (O ∪ U ) = ∅.
+2) P rimv is deﬁned as the composition of several velocity-controlled primitives between each pair of consecutive points of (B, qr, . . . , qs−1, C).
+3) Finally, P rimd is the part of JP S that goes from C to the goal G, and therefore P rimd ∩ O = ∅.
+The time-normalized costs associated with each one of these
+primitives are:
+
+JP rimj
+
+=
+
+N · dt jm2 ax
+
+N −1
+·
+i=0
+
+ji
+
+2 2
+
+s−r
+JP rimv =
+k=0
+
+N · dtk vm2 ax
+
+N −1
+·
+i=0
+
+vki
+
+2 2
+
+JP rimd =
+
+qs − C
+
+n−1
+2+
+
+vmax
+
+k=s
+
+qk+1 − qk 2 vmax
+
+The total cost of the planned trajectory is then J := JP rimj + JP rimv + JP rimd . In this total cost we combine a high-
+ﬁdelity model near the UAV, a medium-ﬁdelity model in the
+
+medium part, and model without dynamics for the farthest
+
+part of the trajectory. This cost is an approximation of the
+
+total cost of the jerk-controlled trajectory that goes from A
+
+to G, but it is much faster to compute. Also, it is more
+
+accurate than relying only on jerk for the ﬁrst part, and
+
+distance in the JPS path for the rest, since an intermediate
+
+velocity-controlled primitive is included.
+
+The proposed approach is shown in Alg. 1 and Fig. 3.
+
+For iteration k, it proceeds as follows — ﬁrst (line 3), the
+
+t−Ae−rG−m−ti−enr−a→m l gotoaloGbttaeinrmQis(spereojFeicgt.ed2)i.nTtoheMneianrethste
+
+direction unknown
+
+of or
+
+free point to Q is selected as the (intermediate) goal G, and
+
+JPS is run from the actual position A to G to obtain JP S1. The intersection of JP S1 with the inner sphere Sa deﬁnes the point B 1. This point indicates the direction towards
+
+which the jerk-controlled planner should optimize. As a jerk-
+
+controlled primitive from A to B 1 is not guaranteed to be collision free, we sample ≈ 30 points in the sphere
+
+Sa around B1 to obtain a ﬁnal position that makes this primitive collision-free, storing them in the priority queue
+
+K (line 19). We prioritize points near to B that have at the
+
+same time a high probability of the primitive being collision-
+
+free. As the geometry of JP S encodes where the obstacles
+
+are, we sample these points in the following way (Fig. 5):
+
+First, the points q2,. . . ,qr−1 are projected onto Sa to obtain
+
+Algorithm 1: Replan
+
+Data: A, Gterm, O, F , U , α0 > 0,
+
+Rb > Ra,max > Ra,min > 0
+
+1 Function Replan():
+
+2
+
+k ← k + 1 , J1 ← 0 and J2 ← ∞
+
+3
+
+G ← Project Terminal Goal Gterm
+
+4 5 6
+
+JP S1 ← Run JPS A → G
+
+ra rb
+
+← ←
+
+mmiinn((Rsabt,ur−Aa→GteRR2aa),,m mainx
+
+(
+
+−A−→q2
+
+2),
+
+−A→G
+
+2)
+
+7
+
+P rimj1 ← GetP rimj(1)
+
+8
+
+if ∠B1AB{k−1} > α0 then
+
+9
+
+J P S2 ← J P S{k−1}
+
+10
+
+if J P S{k−1} ∩ O = ∅ then
+
+11
+
+JP S2 ← Run JPS A → I1 → I2 → G
+
+12
+
+P rimj2 ← GetP rimj(2)
+
+13
+
+J1 ← GetCost(1) and J2 ← GetCost(2)
+
+14
+
+Choose i with lowest cost Ji
+
+15
+
+J P S{k} ← J P Si and B{k} ← Bi
+
+16
+
+return P rimji
+
+17 Function GetPrimj(i):
+
+18
+
+Bi ← ∩f (Sa, J P Si,path)
+
+19
+
+K ← SampleP oints(Bi)
+
+20
+
+for Size(K) times do
+
+21
+
+Bi ← P op(K)
+
+22
+
+P rimji ← Compute Jerk Primitive A → Bi
+
+23
+
+return P rimji if P rimji ∩ (O ∪ U ) = ∅
+
+24 Function GetCost(i):
+
+25
+
+Ci ← ∩l(Sb, J P Si,path)
+
+26
+
+WP ← ∩int(Sa, Sb, J P Si,wp)
+
+27
+
+P rimvi ← Compute Vel. Primitives Bi → WP → Ci
+
+28
+
+return JP rimji + JP rimvi + JP rimdi
+
+P q2 ,. . . ,P qr−1 . Then we sample from B to P qr−1 , from P qr−1 to P qr−2 , and so on. Finally, we append to this priority queue some samples taken in concentric circles to
+B , to increase the probability of ﬁnding a feasible ﬁnal
+condition.
+Then we iterate over each point in K (setting it as the
+ﬁnal position in the optimization problem 1) and stop when
+a collision free primitive (i.e that does not intersect O ∪U ) is
+found (lines 20-23). At this point, the algorithm computes the
+angle ∠B 1AB {k−1}, where B {k−1} is the intersection of Sa with J P S{k−1}. This angle gives a measure of how much the JPS solution has changed from the iteration k−1. A small
+angle indicates that J P S1 and J P S{k−1} are very similar (at least within the sphere Sa), and that therefore the local plan will not differ much from the iteration k − 1. Hence, if this angle is smaller than a threshold α0 (typically ≈ 15◦), the algorithm ﬁnishes, and P rimj1 is returned. If it is bigger, the algorithm needs to decide whether obtaining the local
+plan using J P S1, or relying on the previous path J P S{k−1}. To do this, in lines 10-11 ﬁrst we modify JP S{k−1} by obtaining I1 and I2 (ﬁrst and last intersections of J P S{k−1} with O) and run JPS three times to obtain the paths A → I1, I1 → I2, and I2 → G. The union of these paths is JP S2. Once JP S2 is obtained, a very similar process as explained before is done, but with JP S2 in this case, to obtain P rimj2 (line 12).
+The decision between P rimj1 or P rimj2 is made (lines 14-16) choosing the one that has the lowest cost Ji :=
+
+728
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+TABLE I: Distances obtained by seven different methods in the cluttered forest simulation. The distance values are computed for the cases that reach the goal. The improvement percentages are computed for the minimum and the maximum of each column. The results for the other planners were provided by the authors of [9].
+
+Method
+Incremental Rand. Goals Opt. RRT Cons. RRT NBVP [29] SL Expl. [9] Ours
+
+Number of Successes 0 10 9 9 6 8 10
+
+Min/Max improvement (%)
+
+Avg -
+138.0 105.3 155.8 159.3 103.8 84.5
+19/47
+
+Distance (m)
+
+Std Max
+
+-
+
+-
+
+32.0 210.5
+
+10.3 126.4
+
+52.6 267.9
+
+45.6 246.9
+
+21.6 148.3
+
+11.7 109.4
+
+-14/78 13/59
+
+Min -
+105.6 95.5 106.2 123.6 86.6 73.2
+16/41
+
+Fig. 5: Priority queue K. Given JP S ( ), the priority queue K returned by SampleP oints(B ) contains points in this order: First samples along the spherical arc B → P q3 . Then along the arc from P q3 to the next projection, and so on. After that, several samples are taken from concentric circumferences to B .
+Fig. 6: Instantaneous sensing data and occupancy grid pipeline. Sensing data from the depth sensor ( ) is received at fsensor. New point clouds are fused into the Occupancy Grid ( ). Collision check at t1 is done using an array of k-d trees that contains the k-d tree of the last map fused ( ), and the k-d trees of some of the last point clouds received that are not included in the map ( ).
+JP rimji + JP rimvi + JP rimdi , i = {1, 2}. A. Mapping and Planning Integration
+We fuse a depth map into the occupancy grid using the 3D Bresenham’s line algorithm for ray-tracing [27]. However, as discussed earlier, the mapper update rate is slower than the sensor frame rate, and problems can arise when the local planner only relies on this (out-of-date) map to generate a primitive. This issue is addressed here by storing the k-d trees of the point clouds that have arrived since the most recent map was published (see Fig. 6). Collision checks are then done using the occupancy grid and some of the saved k-d trees of the instantaneous point clouds. This combination ensures that the local planner relies both on the most recent fused map with global knowledge of the world, and on upto-date point clouds that contain the instantaneous sensing data.
+V. EXPERIMENTAL RESULTS A. Simulation
+We evaluate the performance of the proposed algorithm in different simulated scenarios. The simulator uses C++
+
+custom code for the dynamics engine, and Gazebo [28] to simulate perception data (in the form of a depth map and a point cloud). In all these simulations, the depth camera has a horizontal FOV of 90◦, and a sensing range of 10 m.
+We ﬁrst compare our method against six different methods: Incremental approach (no goal selection), random goal selection, optimistic RRT (unknown space = free), conservative RRT (unknown space=occupied), “next-best-view” planner (NBVP) [29], and Safe Local Exploration [9]. These six methods are described deeper in [9]. The scenario setting is a random cluttered forest with an obstacle density of 0.1 obstacles/m2 (see Fig. 8) and a sliding map size of 20m×20m, with a voxel size of 10 cm. The results for ten different random forests are shown in Table I. Our method succeeds in all 10 simulations and obtains a path that is in average 19–47 % shorter than the other methods.
+The map and voxel size chosen have a strong impact on the computation times and performance. For a given map, a small voxel size provides a more accurate solution, at the expense of more computation time running JPS and collision check. For a map size of 20m×20m, the timing breakdown of the replan function in the forest simulation for different map voxel sizes is shown in Fig. 7. The replan function takes 37 ms in average when the voxel size is 10 cm, and is reduced to less than 10 ms when the voxel size is bigger than 15 cm. JPS takes ≈ 80% of the total replanning time when the voxel size is low, and ≈ 15% when the voxel size is higher. This is due to the fact that the computation time of JPS depends on the number of cells, which is reduced by the cube of the voxel size. Note that the values of Cvxjerk and Cvxvel indicate the total computation time for all the jerk-controlled and velocity-controlled primitives computed in each replanning step. The mean time per primitive is 1.3 ms for jerk and 0.3 ms for velocity. The distances of these primitives range from 0.5 to 4 m and from 2 to 5.5 m (depending on the geometry of the obstacles) for the jerk-controlled and velocity-controlled primitives respectively.
+To compare the trajectory found by our approach (in which the map is discovered as the UAV proceeds) with the optimal trajectory when the map is completely known, we use two simulation environments: a bugtrap scenario (Fig. 1) and a cluttered ofﬁce scenario (Fig. 9). In the bugtrap scenario,
+
+729
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+60 55 50 45 40 35 30 25 20 15 10
+5 0 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40
+
+Fig. 8: Forest simulation. The UAV must ﬂy from A to Gterm in a 50m×50m forest with an obstacle density of 0.1 obstacles/m2.
+
+Fig. 7: Timing breakdown for different voxel sizes in the forest
+simulation. The replan function takes less than 10 ms when the voxel size is bigger than 15 cm. The sliding map is 20m×20m.
+
+our method produces a trajectory of 56.8 m, approximately the same length as the optimal trajectory (56.3 m). In the ofﬁce simulation, the total length with our approach is 41.5 m (optimal trajectory is 35.9 m). In this simulation, the UAV enters two rooms, but when it detects that there is no exit, turns back and ﬁnds another path to the goal. In both simulations, the optimal trajectory has been obtained using the approach proposed in [1], which is optimal in the discretized space. As in our approach the world is being discovered gradually, our solution is not globally optimal, and it requires more control effort than the optimal one. However, the similarity between these two paths reﬂects the performance of our algorithm, able to obtain a near-optimal path even when the world is discovered gradually.
+
+Fig. 9: Ofﬁce simulation. The UAV must ﬂy from A to Gterm in an ofﬁce environment. The optimal trajectory is shown in blue ( ). The red trajectory ( ) is the solution found by our method.
+
+B. Hardware Experiments
+The UAV used for the hardware experiments is shown in Fig. 10. All the perception, planning and control runs onboard, and the position, velocity, attitude, and IMU biases are estimated by fusing propagated IMU measurements with an external motion capture system via a Kalman ﬁlter. The mapping fusion times achieved onboard are 50ms and 80ms for depth image resolutions of 480 × 270 and 640 × 480 respectively. All these experiments are available in this video.
+VI. CONCLUSIONS
+This work presented a novel planning a mapping framework suitable for agile ﬂights in unknown environments. The key properties of this framework is its ability to solve the interaction between the global planner and the local planner considering the dynamics of the vehicle, and its ability to address efﬁciently the integration between a fast planner and a slower mapper. The replanning and mapping rates are several times faster than the state of the art.
+The Gazebo worlds and the code for the optimizer used in this paper are available here.
+
+Fig. 10: UAV used in the experiments. It is equipped with a Qualcomm R SnapDragon Flight, an Nvidia R Jetson TX2 and an Intel R RealSense Depth Camera D435.
+ACKNOWLEDGMENT
+Thanks to Boeing Research & Technology for support of the hardware, to Helen Oleynikova (ASL-ETH) for the data of the forest simulation, and to Pablo Tordesillas (ETSAM-UPM) for his help with some ﬁgures of this paper. Supported in part by Defense Advanced Research Projects Agency (DARPA) as part of the Fast Lightweight Autonomy (FLA) program, HR0011-15-C-0110. Views expressed here are those of the authors, and do not reﬂect the ofﬁcial views or policies of the Dept. of Defense or the U.S. Government.
+
+730
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] Sikang Liu, Kartik Mohta, Nikolay Atanasov, and Vijay Kumar. Search-based motion planning for aggressive ﬂight in se (3). IEEE Robotics and Automation Letters, 3(3):2439–2446, 2018.
+[2] Daniel Mellinger and Vijay Kumar. Minimum snap trajectory generation and control for quadrotors. In Robotics and Automation (ICRA), 2011 IEEE International Conference on, pages 2520–2525. IEEE, 2011.
+[3] Michiel J Van Nieuwstadt and Richard M Murray. Real-time trajectory generation for differentially ﬂat systems. International Journal of Robust and Nonlinear Control: IFAC-Afﬁliated Journal, 8(11):995– 1020, 1998.
+[4] Charles Richter, Adam Bry, and Nicholas Roy. Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments. In Robotics Research, pages 649–666. Springer, 2016.
+[5] Giuseppe Loianno, Chris Brunner, Gary McGrath, and Vijay Kumar. Estimation, control, and planning for aggressive ﬂight with a small quadrotor with a single camera and imu. IEEE Robotics and Automation Letters, 2(2):404–411, 2017.
+[6] Mark W Mueller, Markus Hehn, and Raffaello D’Andrea. A computationally efﬁcient motion primitive for quadrocopter trajectory generation. IEEE Transactions on Robotics, 31(6):1294–1310, 2015.
+[7] Sikang Liu, Nikolay Atanasov, Kartik Mohta, and Vijay Kumar. Search-based motion planning for quadrotors using linear quadratic minimum time control. In Intelligent Robots and Systems (IROS), 2017 IEEE/RSJ International Conference on, pages 2872–2879. IEEE, 2017.
+[8] Helen Oleynikova, Michael Burri, Zachary Taylor, Juan Nieto, Roland Siegwart, and Enric Galceran. Continuous-time trajectory optimization for online uav replanning. In Intelligent Robots and Systems (IROS), 2016 IEEE/RSJ International Conference on, pages 5332–5339. IEEE, 2016.
+[9] Helen Oleynikova, Zachary Taylor, Roland Siegwart, and Juan Nieto. Safe local exploration for replanning in cluttered unknown environments for microaerial vehicles. IEEE Robotics and Automation Letters, 3(3):1474–1481, 2018.
+[10] Arthur Richards and Jonathan P How. Aircraft trajectory planning with collision avoidance using mixed integer linear programming. In American Control Conference, 2002. Proceedings of the 2002, volume 3, pages 1936–1941. IEEE, 2002.
+[11] Changliu Liu, Chung-Yen Lin, and Masayoshi Tomizuka. The convex feasible set algorithm for real time optimization in motion planning. SIAM Journal on Control and Optimization, 56(4):2712–2733, 2018.
+[12] Sikang Liu, Michael Watterson, Kartik Mohta, Ke Sun, Subhrajit Bhattacharya, Camillo J Taylor, and Vijay Kumar. Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3d complex environments. IEEE Robotics and Automation Letters, 2(3):1688–1695, 2017.
+[13] Michael Watterson, Sikang Liu, Ke Sun, Trey Smith, and Vijay Kumar. Trajectory optimization on manifolds with applications to so (3) and r 3× s2. Robotics: Science and Systems (RSS), 2018.
+[14] Yuanqi Mao, Michael Szmuk, and Behcet Acikmese. Successive convexiﬁcation: A superlinearly convergent algorithm for non-convex optimal control problems. arXiv preprint arXiv:1804.06539, 2018.
+
+[15] Federico Augugliaro, Angela P Schoellig, and Raffaello D’Andrea. Generation of collision-free trajectories for a quadrocopter ﬂeet: A sequential convex programming approach. In Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on, pages 1917–1922. IEEE, 2012.
+[16] John Schulman, Yan Duan, Jonathan Ho, Alex Lee, Ibrahim Awwal, Henry Bradlow, Jia Pan, Sachin Patil, Ken Goldberg, and Pieter Abbeel. Motion planning with sequential convex optimization and convex collision checking. The International Journal of Robotics Research, 33(9):1251–1270, 2014.
+[17] Debadeepta Dey, Kumar Shaurya Shankar, Sam Zeng, Rupesh Mehta, M Talha Agcayazi, Christopher Eriksen, Shreyansh Daftry, Martial Hebert, and J Andrew Bagnell. Vision and learning for deliberative monocular cluttered ﬂight. In Field and Service Robotics, pages 391– 409. Springer, 2016.
+[18] Peter R Florence, John Carter, Jake Ware, and Russ Tedrake. Nanomap: Fast, uncertainty-aware proximity queries with lazy search over local 3d data. arXiv preprint arXiv:1802.09076, 2018.
+[19] Brett T Lopez and Jonathan P How. Aggressive 3-D collision avoidance for high-speed navigation. In Robotics and Automation (ICRA), 2017 IEEE International Conference on, pages 5759–5765. IEEE, 2017.
+[20] Brett T Lopez and Jonathan P How. Aggressive collision avoidance with limited ﬁeld-of-view sensing. In Intelligent Robots and Systems (IROS), 2017 IEEE/RSJ International Conference on, pages 1358– 1365. IEEE, 2017.
+[21] Boris Lau, Christoph Sprunk, and Wolfram Burgard. Improved updating of euclidean distance maps and voronoi diagrams. In Intelligent Robots and Systems (IROS), 2010 IEEE/RSJ International Conference on, pages 281–286. IEEE, 2010.
+[22] Helen Oleynikova, Zachary Taylor, Marius Fehr, Roland Siegwart, and Juan Nieto. Voxblox: Incremental 3d euclidean signed distance ﬁelds for on-board mav planning. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2017.
+[23] Mihail Pivtoraiko, Daniel Mellinger, and Vijay Kumar. Incremental micro-uav motion replanning for exploring unknown environments. In Robotics and Automation (ICRA), 2013 IEEE International Conference on, pages 2452–2458. IEEE, 2013.
+[24] Jing Chen, Tianbo Liu, and Shaojie Shen. Online generation of collision-free trajectories for quadrotor ﬂight in unknown cluttered environments. In Robotics and Automation (ICRA), 2016 IEEE International Conference on, pages 1476–1483. IEEE, 2016.
+[25] Daniel Damir Harabor, Alban Grastien, et al. Online graph pruning for pathﬁnding on grid maps. In AAAI, 2011.
+[26] Jacob Mattingley and Stephen Boyd. Cvxgen: A code generator for embedded convex optimization. Optimization and Engineering, 13(1):1–27, 2012.
+[27] Jack E Bresenham. Algorithm for computer control of a digital plotter. IBM Systems journal, 4(1):25–30, 1965.
+[28] Nathan P Koenig and Andrew Howard. Design and use paradigms for gazebo, an open-source multi-robot simulator. In IROS, volume 4, pages 2149–2154. Citeseer, 2004.
+[29] Andreas Bircher, Mina Kamel, Kostas Alexis, Helen Oleynikova, and Roland Siegwart. Receding horizon” next-best-view” planner for 3d exploration. In Robotics and Automation (ICRA), 2016 IEEE International Conference on, pages 1462–1468. IEEE, 2016.
+
+731 Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 08:27:42 UTC from IEEE Xplore. Restrictions apply.
+

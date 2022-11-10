@@ -1,0 +1,436 @@
+2021 IEEE International Conference on Robotics and Automation (ICRA 2021) May 31 - June 4, 2021, Xi'an, China
+
+2021 IEEE International Conference on Robotics and Automation (ICRA) | 978-1-7281-9077-8/21/$31.00 ©2021 IEEE | DOI: 10.1109/ICRA48506.2021.9560773
+
+High-Speed Planning in Unknown Environments for Multirotors Considering Drag
+Charbel Toumieh and Alain Lambert
+
+Abstract— In this paper, we propose a new planning scheme for high-speed ﬂight in an unknown environment while taking into account drag forces. Drag forces become non-negligible at high speeds and may lead to unfeasible trajectories. The method leverages a new Mixed-Integer Quadratic Program/Model Predictive Control formulation that allows to easily account for drag forces. This formulation makes use of a state-of-the-art Safe Corridors generator to guarantee safety. It uses state-ofthe-art mapping algorithms and solvers to achieve a higher computational efﬁciency than similar state-of-the-art methods. To the best of our knowledge, our method is the ﬁrst highspeed planner that generates safe trajectories while accounting for drag. The proposed method is tested in simulation and compared to similar state-of-the-art methods for planning in unknown environments in terms of quality and computation time.
+I. INTRODUCTION
+High-speed navigation in complex environments has numerous applications [1] such as infrastructure inspection [2], exploration [3], search and rescue [4] and cinematography [5]. In these applications, high-speed planning is favorable as it prolongs the covered distance on a single battery charge.
+The motivation behind this work is to create a planner for high-speed ﬂight (mean: 3.5 m/s, max: 6 m/s) in unknown environments while taking into account drag forces and the limitations of embedded computing.
+The paper is organized as follows: we will ﬁrst present brieﬂy the current state-of-the-art methods for multirotor planning and state the main contributions of our paper. We will then describe the multirotor model used for planning and how it accounts for drag forces. The planning method is then presented with each step explained in a separate subsection. Finally, the simulation results are shown and comparisons with the state-of-the-art are done.
+A. Related Work
+Most of the current state-of-the-art planning methods rely on the differential ﬂatness property of quadrotors [6]. Differential ﬂatness allows expressing all states and inputs of the quadrotor in terms of its position and yaw angle (ﬂat outputs), and their derivatives. This allows them to simplify the planning problem by transforming the quadrotor dynamics to an integrator model. To generate smooth trajectory, they minimize the squared euclidean norm of a derivative of the position [6], [7], [8]. Some of these methods take into account static obstacles when solving the optimization
+The two authors are with the Universite´ Paris-Saclay, CNRS, Laboratoire de recherche en informatique, 91405, Orsay, France https://www.lri. fr
+
+Fig. 1. Schematics of the multirotor model with the used coordinate systems.
+problem, while others account for them after solving it. None of these methods can take into account drag or the unknown aspect of environments.
+Other planning methods use motion primitives or closedform solutions to transform the planning problem into a graph search in the state space [9], [10], [11], [12]. These methods usually require a computationally expensive search in order to be able to generate complex maneuvers around obstacles.
+There are methods that take into account obstacles when solving for the optimal trajectory by using Euclidean Signed Distance Fields (ESDF) that transform the 3D space into voxels encoding the distance to the nearest obstacle [13], [14], [15], [16]. These methods generate problems that are non convex, and lead to local minima problems. Others use successive convexiﬁcation to solve the non-convex problem that results from including obstacles in the problem formulation [17]. These methods rely heavily on a good initialization and may have some convergence difﬁculties while handling complex environments.
+In [18], obstacles must be decomposed into overlapping convex shapes which is non trivial when dealing with cluttered environments. Another set of methods rely on a convex decomposition of the free space: in [19], [20], [21], [22], [23], [24], polynomials or Be´zier curves were used, and drag forces are not accounted for.
+B. Contribution
+None of the aforementioned works include drag forces in the planning framework. Our work takes inspiration from
+
+978-1-7281-9077-8/21/$31.00 ©2021 IEEE
+
+7844
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+previous planners that use Safe Corridors, notably [19] and [24]. The main contributions of our paper are:
+• The integration of a state-of-the-art method for Safe Corridor generation in a new planning framework.
+• A novel planning algorithm that takes into account drag forces, and is signiﬁcantly more computationally efﬁcient than similar state-of-the-art methods.
+We validate the feasibility of our generated trajectories by testing them in the simulation engine Airsim [25]. The physics engine is state-of-the-art and takes into account drag forces.
+II. MAV MODEL
+
+TABLE I. Nomenclature
+
+g m p v a j zW zB R D φ θ ψ ccmd
+
+gravity multirotor mass position vector x, y, z in the world frame velocity vector vx, vy, vz in the world frame acceleration vector from thrust and gravity in the world frame jerk vector jx, jy, jz in the world frame world frame z body frame z rotation matrix from body to world frame quadratic drag matrix roll angle pitch angle yaw angle total thrust command
+
+We assume a low-level controller that allows for controlling the attitude and thrust. We use the nomenclature deﬁned in Table I. The equations of motion are:
+
+p˙ = v
+
+(1)
+
+v˙
+
+=
+
+−gzW
+
++
+
+ccmd m
+
+zB
+
+−
+
+RDR
+
+v||v||2
+
+(2)
+
+φ˙ = φ˙cmd
+
+(3)
+
+θ˙ = θ˙cmd
+
+(4)
+
+ψ˙ = ψ˙cmd
+
+(5)
+
+We reformulate the ﬁve equations of motion to get the
+following: p˙ = v
+
+v˙ = a − Dlin maxv
+
+(6)
+
+a˙ = j
+
+Dlin max a diagonal matrix representing the maximum possible linear drag coefﬁcient in all directions (identiﬁed ofﬂine). We replace the quadratic drag force model with a linear worst-case scenario model at any given direction, because this will allow us to account for drag while maintaining the linearity of the dynamics. The linearity of the model allows us to solve the MPC problem using solvers that are very efﬁcient for linear constraints. External forces (such as disturbances identiﬁed online) can also be added to the model to further guarantee feasibility, without affecting its linearity (and thus computation time). The online estimation of such forces can be done using [26].
+
+Drag coefﬁcients ofﬂine identiﬁcation: We ﬁrst identify
+
+the z component of the quadratic drag matrix (D3,3) by
+
+moving at full thrust ccmd,max in the zW direction (vx =
+
+vy = 0). The velocity approaches a maximum constant
+
+value vmax,z asymptotically. D3,3 is then calculated using
+
+equation (2) at the
+
+ccmd,max m
+
+)/vm2 ax,z
+
+.
+
+steady state Note that in
+
+(v˙z this
+
+= 0): D3,3 = (−g + experiment the rotation
+
+matrix R is the identity matrix and zW = zB. Then we
+
+identify D2,2 by moving at full thrust in the y direction
+
+(vz = vx = 0). In this case we need to tilt only around the
+
+x axis of the body frame such that a fraction of ccmd,max
+
+compensates the gravity (v˙z = 0), and the remaining force
+
+of ccmd,max is in the y direction. The velocity approaches a
+
+maximum constant value vmax,y asymptotically. By using
+
+equation (2), we get 1 equation (v˙y = 0) with the only
+
+unknown D2,2. We identify D1,1 similarly to D2,2. Finally,
+
+the elements on the diagonal of Dlin max are all chosen equal to: . max(D1,1,D2,2,D3,3)
+min(vmax,x,vmax,y ,vmax,z )
+
+III. THE METHOD
+
+The planner takes in the position of the multirotor, a voxel grid partitioning space into free, occupied, and unknown voxels (centered at the robot position), and a goal in 3D space. It then proceeds to plan/explore until it reaches the goal.
+The method is divided into 4 steps: 1) Generating a global path. 2) Creating a Safe Corridor around the global path. 3) Generating a safe local reference trajectory. 4) Solving the Mixed-Integer Quadratic Program
+(MIQP)/Model Predictive Control (MPC) problem. All these steps are run at constant rates in a loop (Fig. 2). In the ﬁrst step, we generate a global path to the goal. At every iteration, this step takes as input the current position of the robot and the goal. The second step generates a Safe Corridor using the last generated global path (last in Fig. 2), and the Safe Corridor and MIQP/MPC solution generated in the previous iteration (k − 1). The third step generates a local reference trajectory using the last generated global path, the Safe Corridor of the current iteration (k), and the MIQP/MPC solution and local reference solution generated in the previous iteration (k − 1). The fourth step generates the optimal and safe trajectory using the Safe Corridor and local reference trajectory of the current iteration (k). The ﬁnal trajectory is ﬁnally fed to the controller for execution. Steps 2-4 are run at the same frequency (10Hz) whereas step 1 can be run at an equal or lower frequency than 10Hz. The controller can be run at an equal or greater frequency than 10Hz. Our method has the following properties: • Resolution Completeness: we guarantee that we will
+ﬁnd a path from point A to point B as long as there exists a path and the local grid map is big enough and ﬁne enough. This property is inherited from Jumping Point Search (JPS) [27] (used to ﬁnd a global path). • Feasibility: we guarantee feasibility by accounting for drag and limiting input constraints to the quadrotor’s dynamical limits.
+
+7845
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 2. We show the global pipeline of our planning framework at iteration k. The last generated global path is always used at every iteration, and some steps use results generated at step k − 1.
+Fig. 3. Choosing the intermediate goal when the ﬁnal goal is outside the local voxel grid.
+• Smoothness and Local Optimality: we get optimality in the sense of minimizing the jerk on a given time horizon.
+• Safety: we guarantee the trajectory is collision-free through Safe Corridors and by using the Distance Map Planner (DMP) [28] on top of JPS, which pushes the trajectory away from obstacles.
+A. Generating a global path In this step, we will generate a global path from the robot
+position to the goal using a local voxel gird generated by [29] using a point cloud.
+The local voxel grid spans a given volume. If the goal is outside this volume, we ﬁnd the intersection between the borders of the grid and the line from the center of the multirotor to the goal (Fig. 3). This will determine the intermediate goal to which we plan. We free the intermediate goal voxel as well as all voxels on the border of the voxel grid to guarantee that we will ﬁnd a path to the intermediate
+
+goal (if there exists a path). We use Jumping Point Search (JPS) [27] to ﬁnd a feasible
+path between the position of the multirotor and the goal (or intermediate goal). JPS is a shortest path algorithm that preserves A*’s optimality, while potentially lowering the computation time by an order of magnitude. We then use the Distance Map Planner (DMP) [28], to generate a safer path. It uses the artiﬁcial potential ﬁeld to push away the path from the obstacles (Fig. 4). Pushing away the trajectory from obstacles not only provides a safety margin for disturbances, but also allows for better vision/coverage when turning corners i.e. to see/cover more space behind a corner before turning it. This increases the overall trajectory speed.
+The DMP adds time to the computation but as long as the map size is small enough or the voxel size is big enough i.e. the total number of voxels in the grid is small enough, the combined computation time of both JPS and DMP is lower than the MIQP/MPC solving time.
+B. Creating a Safe Corridor around the global path
+After ﬁnding a path, we decompose the space around the path into overlapping convex polyhedra (Safe Corridor). Many methods exist in the literature to create Safe Corridors [19] [30]. We use the algorithm described in [30] as it provides better safety guarantees and a lower solving time for the MIQP/MPC. It takes a voxel grid with occupied, free, and unknown voxels, and a path around which we would like to ﬁnd a Safe Corridor. It returns a series of overlapping polyhedra covering only the free space (Fig. 4).
+At the ﬁrst planning iteration, we ﬁnd the convex polyhedron around the voxel containing the starting position of the global path (seed voxel). Then we ﬁnd the intersection between the global path and the convex polyhedron, and ﬁnd an additional polyhedron with the voxel containing the intersection as its seed. Sometimes, the voxel containing the intersection is the same seed voxel as the one used for the last polyhedron (which would result in a duplication of the same polyhedron). In this case, we move further along the global path to ﬁnd the next closest voxel outside the last polyhedron. We then use this voxel as a seed for the next polyhedron. This algorithm is repeated until we reach the maximum number of polyhedra Phor (polyhedra horizon).
+At the next planning iterations, we ﬁrst determine the minimum number of the polyhedra generated at the previous iteration (Pmin) that contain the trajectory generated by the MIQP/MPC at the previous iteration, with preference given to the newest generated polyhedra. We then generate Prem = Phor − Pmin polyhedra using the aforementioned algorithm and add them to the Pmin polyhedra. These polyhedra will be used by the MIQP/MPC to generate a safe trajectory at the current iteration.
+C. Generating a safe local reference trajectory
+In this step, we use the global path and the Safe Corridor to generate a reference trajectory for the MIQP/MPC. We
+
+7846
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 4. We show the ﬁrst planning iteration of our algorithm. The global path is generated using JPS and DMP. DMP uses the artiﬁcial potential ﬁeld (pink) to push the path away from the obstacles. The convex polyhedra (blue) span only the free space. A local reference trajectory is sampled from the global path (green circles). It is then given with the overlapping convex polyhedra to the MIQP solver to generate a feasible trajectory (yellow circles).
+denote N the number of discretization steps and h the time step used in the MIQP/MPC.
+We ﬁrst determine the initial direction of the global path (ﬁrst two nodes of the DMP), then we project the velocity vector of the robot along this direction (dot product). This will determine the initial sampling velocity: if the projection is negative, we set the sampling velocity to 0, otherwise it is kept as is. We then move along the global path for a time h (time step) with the initial velocity, and the found point is set as the ﬁrst local reference point. The sampling velocity is then updated such as vsamp = min(vsamp,max, vsamp + h × asamp) with asamp the acceleration of the sampling (chosen close to the maximum quadrotor acceleration), and vsamp,max the maximum velocity of the sampling (chosen close to the maximum quadrotor velocity, which is limited by drag). The next point is sampled starting from the last reference point and with the updated sampling velocity. If a generated reference point is outside the Safe Corridor, the last reference point (which is inside the Safe Corridor) is duplicated and takes its place. We generate N reference points (Fig. 4).
+At each iteration, after solving the MIQP/MPC, we check if the ﬁnal state is close enough from the previous ﬁnal reference point (within thresh dist). If yes, we regenerate a new local reference trajectory using the aforementioned algorithm starting from x1,ref . If no, wait another time step h to give the MPC enough time to reach the ﬁnal reference point xN,ref .
+D. Solving the MIQP/MPC problem
+In this step, we generate a safe trajectory to be executed by the multirotor’s controller using the safe local reference trajectory generated in Sect. III-C and the Safe Corridor generated in Sect. III-B. We minimize the error to the reference trajectory as well as the jerk norm, which results in a smooth version of the local reference trajectory (Fig. 4).
+At every iteration, the initial state x0 of the MPC is set to the ﬁrst state x1 of the last generated trajectory. The terminal
+
+velocity vN is set to 0 to make sure that the multirotor has a safe trajectory to execute in case subsequent MIQP optimizations fail to ﬁnd a solution. We can also set aN to 0, but this results in slower trajectories.
+In case the solver fails to ﬁnd a solution at a given iteration or the computation time exceeds the time step h, we skip the iteration (the solution is discarded), and at the next iteration, we solve the MIQP/MPC with the initial state x2 instead of x1. In case this also fails, we keep offsetting the initial position (which may reach xN in the worst case) until the solver converges to a solution within the time step h.
+1) Dynamics: With x = [p v a]T , u = j, f (x(t), u(t)) deﬁned by Eq. 6, the model is discretized using Euler or Runge-Kutta 4th order to obtain the discrete dynamics xk+1 = fd(xk, uk). We choose the Euler method as it results in faster solving times without any noticeable difference in the generated trajectory.
+2) State bounds: The acceleration resulting from the thrust and gravity, and the jerk obey the following equations at every discrete point k:
+
+a2x,k + a2y,k + (az,k + g)2 ≤ amax
+
+(7)
+
+az,k ≥ az,min
+
+(8)
+
+jx2,k + jy2,k + jz2,k ≤ jmax
+
+(9)
+
+The velocity is limited by the drag forces. The bounds amax, az,min (= −g) and jmax are imposed by the dynamical constraints. These constraints are quadratic. However, since we want them to be linear (faster solving time), each direction is decoupled and they are transformed into the following conservative constraints:
+
+|ax,k| ≤ ax,max, |ay,k| ≤ ay,max az,k ≤ az,max, az,k ≥ az,min |jx,k| ≤ jx,max, |jy,k| ≤ jy,min,
+
+|jz,k| ≤ jz,max
+
+(10) (11) (12)
+
+We choose the bounds of each direction such that:
+
+a2x,max + a2y,max + (az,max + g)2 ≤ amax
+
+(13)
+
+jx2,max + jy2,max + jz2,max ≤ jmax
+
+(14)
+
+3) Static obstacle avoidance: This is achieved by forcing
+
+every two consecutive discrete points (and thus the segment
+
+formed by them) to be in one of the overlapping polyhedra.
+
+Let’s assume we have P overlapping polyhedra. They are
+
+described by {(Ap, cp)}, p = 0 : P − 1. The constraint that
+
+the discrete position pk is in a polyhedron p is described by
+
+Ap.pk ≤ cp. We introduce binary variables bkp (P variables
+
+for each xk, k = 0 : N − 1) that indicate that pk and pk+1
+
+are in the polyhedron p. We force all the segments to be in at
+
+least one of the polyhedra with the constraint
+
+P −1 p=0
+
+bkp
+
+≥
+
+1.
+
+Typically, the number of polyhedra considered for opti-
+
+mization Phor is 2 to avoid high solving times.
+
+4) Formulation: We formulate our MPC under the follow-
+
+ing Mixed-Integer Quadratic Program (MIQP) formulation.
+
+The reference trajectory xk,ref is generated as described in
+
+Sect. III-C. Rx, RN and Ru are the weight matrix for
+
+7847
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+the discrete state errors without the ﬁnal state, the weight matrix for the ﬁnal discrete state error (terminal state), and the weight matrix for the input, respectively.
+
+minimize
+xk ,uk
+subject to
+
+N −1
+
+(||xk − xk,ref ||2Rx + ||uk||2Ru )
+
+k=0
+
++ ||xN − xN,ref ||2RN
+
+(15)
+
+xk+1 = fd(xk, uk), k = 0 : N − 1 (16)
+
+x0 = X0
+
+(17)
+
+vN = 0
+
+(18)
+
+|ax,k| ≤ ax,max
+
+(19)
+
+|ay,k| ≤ ay,max, az,k ≤ az,max
+
+(20)
+
+az,k ≥ az,min, |jx,k| ≤ jx,max
+
+(21)
+
+|jy,k| ≤ jy,min, |jz,k| ≤ jz,max
+
+(22)
+
+bkp = 1 =⇒ Appk ≤ cp, Appk+1 ≤ cp (23)
+
+Phor −1
+
+bkp ≥ 1
+
+(24)
+
+p=0
+
+bkp ∈ {0, 1}
+
+(25)
+
+The MIQP is solved using the Gurobi solver [31].
+
+IV. SIMULATION RESULTS
+The simulation is done using a quadrotor in Airsim [25], a photo-realistic state-of-the-art simulator. The state of the quadrotor is known. The obstacles are cylinders with a radius of 0.35 m and span a 50 m × 50 m area with a density of 0.1 obs/m2. They are generated randomly, following a uniform distribution. The Gurobi solver is set to use one thread only as this resulted in faster computation times during our simulations. All testing is done on the Intel Core i79750H up to 4.50 GHz CPU, and for the GPU we use NVIDIA’s GeForce RTX 2060 up to 1.62 GHz.
+
+A. Controller design
+
+We control our quadrotor using a nonlinear MPC [32],
+
+with the acados toolkit [33]. The MPC minimizes the cost
+
+function:
+
+T
+
+J=
+
+||x(t) − xref (t)||2Qx + ||u(t) − uref (t)||2Ru dt
+
+t=0
+
++ ||x(T ) − xref (T )||2P
+
+(26)
+
+We use the model described in section II with u = [ccmd φ˙cmd θ˙cmd ψ˙cmd]T and x = [p v φ θ ψ]T . The
+sampling time is h = 0.05s and the horizon Nh = 15 which
+gives a time horizon T = 0.75s. The weights are:
+
+P = Qx = diag(15, 15, 15, 0.01, 0.01, 0.01, 0, 0, 1) (27) Ru = diag(0.05, 0.1, 0.1, 0.1) (28)
+
+All parameters are set by approximation/experimentation and
+may not be optimal. They provide however some mea-
+surement to the feasibility of the generated trajectory. We limit |φ| ≤ 85 deg, θ ≤ 85 deg, |φ˙cmd| ≤ 120 deg/s, |θ˙cmd| ≤ 120 deg/s and |ψ˙cmd| ≤ 60 deg/s.
+
+Since the planning frequency is 10Hz and the control frequency is 20Hz, we interpolate linearly the reference trajectory generated by the planner (which has a time step of 100 ms) to get the reference trajectory of the controller (which has a time step of 50 ms). This means that a reference point will be added in the middle of every 2 consecutive reference points generated by the MIQP solver.
+B. Voxel grid generation
+We use a lidar to have omnidirectional coverage, which also can be provided by omnidirectional stereo cameras (with stereo matching). The point cloud is transformed into a voxel grid with occupied, free and unknown voxels using the stateof-the-art GPU accelerated voxelization algorithm [29]. We choose a voxel size (side length) of 0.3 m and a grid size of (sizex = 16, sizey = 16, sizez = 3). We inﬂate the obstacles by one voxel for the convex decomposition and 2 voxels for the JPS global pathﬁnding. The inﬂation is done on the GPU using [29].
+C. Planner parameters
+We choose the following parameters: N = 9, h = 100 ms, ax,max = ay,max = 0.7g, az,max = 0.4g, az,min = −g, jx,max = jy,max = jz,max = 15 m/s2, vmax,samp = 6m/s, asamp = 7m/s2 Dlin max = diag(1, 1, 1), thresh dist = 0.35 m, Phor = 2. The weight matrices are diagonal: Rx = RN = diag(100, 100, 100, 0, 0, 0, 0, 0, 0) and Ru = diag(0.01, 0.01, 0.01). Some of these parameters are identiﬁed from the quadrotor’s model in Airsim.
+The DMP planner pushes the JPS path 0.6 m away from obstacles (when possible). The planning frequency for the global path planning is 5Hz and that of the safe local trajectory generation, Safe Corridor generation, and MIQP/MPC optimization is 10Hz. However, due to the low computation time, it can be increased.
+D. Comparison with the state of the art
+We compare our planner with the state-of-the-art FASTER planner [24]. It was ﬁne-tuned to get a very good performance in terms of controller tracking and computation time.
+The comparison is done using 10 randomly generated maps of obstacles which span a 50 m × 50 m area with a density of 0.1 obs/m2. We show the trajectories generated by both methods on one of the maps in Fig. 5 and the overall results over all 10 maps in Table II. Both methods are similar in terms of ﬂight distance and ﬂight velocity with a slight advantage to FASTER, which outperforms our method by 2.5% in mean ﬂight distance and 3% in mean ﬂight velocity. However, in terms of computation time, our method far outperforms FASTER, with an advantage of 336% for the mean computation time and 516% for the maximum computation time.
+In Fig. 6 we show the breakdown of the computation time of our planner. The generation of overlapping convex polyhedra i.e. Safe Corridor takes on average 0.15 ms, has a median of 0.178 ms and a max of 0.607 ms. The generation of a global path through JPS and DMP takes on average
+
+7848
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+(a) FASTER [24]
+
+(b) Our planner
+
+Fig. 5. The trajectories and velocity of the quadrotor generated by FASTER [24] and our planner on the same map.
+
+FASTER [24] Our planner
+Difference
+
+Success 10/10 10/10
+-
+
+Flight distance (Mean/Max) 81.2/93 m 83.2/92.5 m +2.5/-0.5 %
+
+Flight velocity (Mean/Max) 3.55/6.14 m/s 3.45/5.95 m/s -3/-3 %
+
+Computation time (Mean/Max) 20.2/102.3 ms 6/19.8 ms -336/-516 %
+
+TABLE II. Comparison between FASTER [24] and our planner on 10 randomly generated maps of size 50 m × 50 m and with obstacle density 0.1 obst/m2. The better performer is shown in bold.
+
+Fig. 6. Boxplot of the computation times of the different functional blocks of the planner as well as the total computation time of the planner. The red segment represents the median. The lower and upper bounds of the box represent the 25th and 75th percentile respectively, and the lower and upper whiskers represent the minimum and maximum respectively.
+2.07 ms, has a median of 1.948 ms and a max of 7 ms. The MIQP/MPC solver takes on average 3.86 ms, has a median of 3.68 ms and a max of 18.2 ms. The total planner takes on average 6 ms, has a median of 5.6 ms and a max of 19.8 ms. Since the global path planning is run at 5Hz, its mean contribution to the total planning time (run at 10Hz) is halved. Setting up the Gurobi MIQP/MPC solver at every planning iteration takes on average 1 ms. The generation of a safe local trajectory (step 3) takes negligible time.
+During our 10 simulated ﬂights, the worst-case computation time for the Safe Corridor generation, global pathﬁnding, and MIQP/MPC solver don’t happen at the same time, otherwise, the maximum total planning time would be the
+
+sum of the 3 maximum computation times + solver setup time. If we assume the worst-case scenario i.e. worst-case computation time in each step simultaneously, the maximum total planning time would become 26.8 ms. This means that we can run our planner at 30Hz in the worst-case scenario.
+If we take an embedded system like the NVIDIA Jetson Nano [34] whose CPU runs at 1.43GHz i.e. 3.14× slower then the turbo-boosted clock of our CPU (4.5GHz), the theoretical worst case computation time would be 3.14 × 26.8 = 82.4 ms. This means that the results produced in this paper can be reproduced on a low-cost embedded system since the worst-case computation time is lower than the planning period which is 100 ms (since the planner runs at 10Hz).
+V. CONCLUSIONS AND FUTURE WORKS
+In this paper, we presented a novel method for high-speed planning in unknown environments that leverages the stateof-the-art in mapping (voxelization) and convex decomposition of free space to produce similar results to the stateof-the-art at a fraction of the computation cost. This makes it suitable for low-powered/low-cost embedded systems. The proposed planning method is, to the best of our knowledge, the ﬁrst in its class to account for drag forces which adds guarantees to the feasibility of the trajectory and allows for better exploitation of the full dynamics of the multirotor. We also tested our planner in a state-of-the-art simulation environment (Airsim) and compared it with a similar stateof-the-art method. Our method showed similar results while being signiﬁcantly more computationally efﬁcient. In the future, we plan to integrate our method in a full-ﬂedged autonomous system with SLAM capabilities.
+
+7849
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] S. Chung, A. A. Paranjape, P. Dames, S. Shen, and V. Kumar, “A survey on aerial swarm robotics,” IEEE Transactions on Robotics, vol. 34, no. 4, pp. 837–855, 2018.
+[2] A. Bircher, M. Kamel, K. Alexis, H. Oleynikova, and R. Siegwart, “Receding horizon path planning for 3d exploration and surface inspection,” Autonomous Robots, pp. 1–16, 2016.
+[3] ——, “Receding horizon ”next-best-view” planner for 3d exploration,” IEEE International Conference on Robotics and Automation (ICRA), 2016.
+[4] P. Oettershagen, T. Stastny, T. Mantel, A. Melzer, K. Rudin, P. Gohl, G. Agamennoni, K. Alexis, and R. Siegwart, “Long-endurance sensing and mapping using a hand-launchable solar-powered uav,” Field and Service Robotics, pp. 441–454, 2016.
+[5] R. Bonatti, Y. Zhang, S. Choudhury, W. Wang, and S. Scherer, “Autonomous drone cinematographer: Using artistic principles to create smooth, safe, occlusion-free trajectories for aerial ﬁlming,” arXiv preprint arXiv:1808.09563, 2018.
+[6] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in 2011 IEEE International Conference on Robotics and Automation. IEEE, 2011, pp. 2520–2525.
+[7] M. Burri, H. Oleynikova, M. W. Achtelik, and R. Siegwart, “Real-time visual-inertial mapping, re-localization and planning onboard mavs in unknown environments,” in 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2015, pp. 1872– 1878.
+[8] C. Richter, A. Bry, and N. Roy, “Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments,” in Robotics Research. Springer, 2016, pp. 649–666.
+[9] S. Liu, N. Atanasov, K. Mohta, and V. Kumar, “Search-based motion planning for quadrotors using linear quadratic minimum time control,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2017, pp. 2872–2879.
+[10] S. Liu, K. Mohta, N. Atanasov, and V. Kumar, “Search-based motion planning for aggressive ﬂight in se (3),” IEEE Robotics and Automation Letters, vol. 3, no. 3, pp. 2439–2446, 2018.
+[11] ——, “Towards search-based motion planning for micro aerial vehicles,” arXiv preprint arXiv:1810.03071, 2018.
+[12] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019.
+[13] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and E. Galceran, “Continuous-time trajectory optimization for online uav replanning,” in 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2016, pp. 5332–5339.
+[14] H. Oleynikova, Z. Taylor, M. Fehr, R. Siegwart, and J. Nieto, “Voxblox: Incremental 3d euclidean signed distance ﬁelds for on-board mav planning,” in 2017 Ieee/rsj International Conference on Intelligent Robots and Systems (iros). IEEE, 2017, pp. 1366–1373.
+[15] L. Han, F. Gao, B. Zhou, and S. Shen, “Fiesta: Fast incremental euclidean distance ﬁelds for online motion planning of aerial robots,” arXiv preprint arXiv:1903.02144, 2019.
+[16] F. Gao, W. Wu, Y. Lin, and S. Shen, “Online safe trajectory generation for quadrotors using fast marching method and bernstein basis polynomial,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 344–351.
+[17] Y. Mao, M. Szmuk, X. Xu, and B. Acikmese, “Successive convexiﬁcation: A superlinearly convergent algorithm for non-convex optimal control problems,” arXiv preprint arXiv:1804.06539, 2018.
+[18] C. Liu, C.-Y. Lin, and M. Tomizuka, “The convex feasible set algorithm for real time optimization in motion planning,” SIAM Journal on Control and optimization, vol. 56, no. 4, pp. 2712–2733, 2018.
+[19] S. Liu, M. Watterson, K. Mohta, K. Sun, S. Bhattacharya, C. J. Taylor, and V. Kumar, “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-d complex environments,” IEEE Robotics and Automation Letters, vol. 2, no. 3, pp. 1688–1695, 2017.
+[20] M. Watterson, S. Liu, K. Sun, T. Smith, and V. Kumar, “Trajectory optimization on manifolds with applications to so (3) and r3xs2.” in Robotics: Science and Systems, 2018.
+[21] F. Gao, W. Wu, W. Gao, and S. Shen, “Flying on point clouds: Online trajectory generation and autonomous navigation for quadrotors in cluttered environments,” Journal of Field Robotics, vol. 36, no. 4, pp. 710–733, 2019.
+
+[22] S.-p. Lai, M.-l. Lan, Y.-x. Li, and B. M. Chen, “Safe navigation of quadrotors with jerk limited trajectory,” Frontiers of Information Technology & Electronic Engineering, vol. 20, no. 1, pp. 107–119, 2019.
+[23] G. Rousseau, C. S. Maniu, S. Tebbani, M. Babel, and N. Martin, “Minimum-time b-spline trajectories with corridor constraints. application to cinematographic quadrotor ﬂight plans,” Control Engineering Practice, vol. 89, pp. 190–203, 2019.
+[24] J. Tordesillas, B. T. Lopez, M. Everett, and J. P. How, “Faster: Fast and safe trajectory planner for ﬂights in unknown environments,” arXiv preprint arXiv:2001.04420, 2020.
+[25] S. Shah, D. Dey, C. Lovett, and A. Kapoor, “Airsim: Highﬁdelity visual and physical simulation for autonomous vehicles,” in Field and Service Robotics, 2017. [Online]. Available: https: //arxiv.org/abs/1705.05065
+[26] B. Nisar, P. Foehn, D. Falanga, and D. Scaramuzza, “Vimo: Simultaneous visual inertial model-based odometry and force estimation,” IEEE Robotics and Automation Letters, vol. 4, no. 3, pp. 2785–2792, 2019.
+[27] D. D. Harabor and A. Grastien, “Online graph pruning for pathﬁnding on grid maps,” in Twenty-Fifth AAAI Conference on Artiﬁcial Intelligence, 2011.
+[28] K. Robotics, “Mrsl jump point search planning library v1.1,” https: //github.com/KumarRobotics/jps3d, accessed 2020-05-09.
+[29] C. Toumieh and A. Lambert, “Gpu accelerated voxel grid generation for fast mav exploration,” under review for the 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2021.
+[30] ——, “Voxel-grid based convex decomposition of 3d space for robot planning,” under review for the 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2021.
+[31] L. Gurobi Optimization, “Gurobi optimizer reference manual,” 2020. [Online]. Available: http://www.gurobi.com
+[32] M. Kamel, M. Burri, and R. Siegwart, “Linear vs nonlinear mpc for trajectory tracking applied to rotary wing micro aerial vehicles,” IFACPapersOnLine, vol. 50, no. 1, pp. 3463–3469, 2017.
+[33] R. Verschueren, G. Frison, D. Kouzoupis, N. van Duijkeren, A. Zanelli, R. Quirynen, and M. Diehl, “Towards a modular software package for embedded optimization,” in Proceedings of the IFAC Conference on Nonlinear Model Predictive Control (NMPC), 2018.
+[34] NVIDIA, “Nvidia jetson nano,” https://developer.nvidia.com/ embedded/jetson-nano-developer-kit, accessed 2020-05-09.
+
+7850
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 17:03:04 UTC from IEEE Xplore. Restrictions apply.
+

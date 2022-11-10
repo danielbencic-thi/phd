@@ -1,0 +1,559 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+1
+
+Deep Dense Multi-scale Network for Snow Removal Using Semantic and Geometric Priors
+
+Kaihao Zhang, Rongqing Li, Yanjiang Yu, Wenhan Luo, Changsheng Li, and Hongdong Li
+
+Abstract—Images captured in snowy days suffer from noticeable degradation of scene visibility, which degenerates the performance of current vision-based intelligent systems. Removing snow from images thus is an important topic in computer vision. In this paper, we propose a Deep Dense Multi-Scale Network (DDMSNet) for snow removal by exploiting semantic and geometric priors. As images captured in outdoor often share similar scenes and their visibility varies with depth from camera, such semantic and geometric information provides a strong prior for snowy image restoration. We incorporate the semantic and geometric maps as input and learn the semantic-aware and geometry-aware representation to remove snow. In particular, we ﬁrst create a coarse network to remove snow from the input images. Then, the coarsely desnowed images are fed into another network to obtain the semantic and geometric labels. Finally, we design a DDMSNet to learn semantic-aware and geometry-aware representation via a self-attention mechanism to produce the ﬁnal clean images. Experiments evaluated on public synthetic and real-world snowy images verify the superiority of the proposed method, offering better results both quantitatively and qualitatively.
+Index Terms—Snow removal, semantic segmentation, geometric prior, dense multi-scale network.
+!
+
+arXiv:2103.11298v1 [cs.CV] 21 Mar 2021
+
+1 INTRODUCTION
+As a common weather condition, snow can greatly affect the visibility of scene and objects in captured images. Its presence not only leads to poor visual quality but also degenerates the performance of subsequent image processing tasks, like object detection [1], object tracking [2] and scene analysis [3]. Therefore, snow removal from images is an important task and has attracted increasing attention in the computer vision community.
+Compared with its counterpart task of image deraining, the snow removal is more challenging due to two reasons. Firstly, although the rain can also affect the visibility of objects in the scene, it is transparent which provides more scene information to remove rain and recover the highquality clean images. On the contrary, the snow is opaque which makes it difﬁcult for desnowing models to recover the occluded regions. Secondly, based on the deﬁnition of [4], we consider only removing the snowﬂake in the air, rather than the snow falling on the ground or buildings. Because only the snowﬂake in the air can cover objects and has obviously negative impact on the vision-based intelligent systems. Therefore, it is important for snow removal models to understand semantic [5] and geometry information.
+• Kaihao Zhang and Hongdong Li are with the College of Engineering and Computer Science, Australian National University, Canberra, ACT, Australia. E-mail: {kaihao.zhang@anu.edu.au; hongdong.li@anu.edu.au}
+• Rongqi Li, Yanjing Yu and Changsheng Li are with the school of computer sciene and technology, Beijing Institute of Technology , Beijing, China. E-mail: {lirongqing99@gmail.com; yuyanjiang87@gmail.com; lcs@bit.edu.cn}
+• Wenhan Luo is with Tencent, Shenzhen, China. E-mail: {whluo.china@gmail.com}
+Manuscript received April 19, 2005; revised August 26, 2015.
+
+Existing single image desnowing methods adopt image priors [6] or develop deep convolutional neural network (CNN) [4] to remove snow via learning a snow map or directly transferring the snowy images to their corresponding clean versions. Though the current state-of-the-art methods have achieved great success in snow removal, they ignore the geometric information which can affect the visibility of the same between the camera and objects, and the semantic information which can help to remove the snow in the air through understanding scenes. In addition, most of them focus on removing snow, but ignore to ﬁll in the regions which are occluded by snow. Therefore, the recovered images fail to remove heavy snow and exhibit bad details.
+To this end, we design a new deep CNN for snow removal via learning semantic-aware and geometry-aware representation. We leverage the semantic and geometric information as priors to train a deep learning based framework. The proposed framework consists of four subnetworks: a coarse snow removal network, a semantic segmentation network, a depth estimation network, and DDMSNet. The snowy images are ﬁrst fed into the coarse snow removal network to generate the coarsely desnowed images, which are then utilized to predict semantic segmentation and depth maps via a pre-trained semantic segmentation network and a depth estimation network. In order to generate ﬁner results, a DDMSNet is proposed. Different from the traditional multi-scale networks, the DDMSNet applies dense connections between different scales in different dimensions, thus is able to achieve better performance to recover clean images with better details. In addition, DDMSNet takes the coarsely desnowed images, maps of semantic segmentation and depth as input to calculate the semanticaware and geometry-aware representation in an attention guided manner to restore clean images.
+Moreover, considering that the snow always degrades the quality of images captured in the outdoor scenarios,
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+2
+
+Fig. 1. Exemplar visual results of snow removal. The goal of image desnowing is to remove snow and restore high-quality snow-free images. The various scene, occlusion and illumination variations of objects make it difﬁcult to accomplish this task. Our proposed DDMSNet is able to remove the snow and recover clean images with the aid of semantic and geometric priors.
+
+which signiﬁcantly deteriorates the performance of various core applications in autonomous driving, we create two new datasets specialized for street scenarios. These two datasets can be conveniently employed to evaluate algorithms of autonomous driving in the condition of snow. Along with another public dataset, the proposed method achieves the state-of-the-art performance for the task of snow removal.
+Overall, the contributions of our method are summarized as follows.
+• Firstly, we propose a deep dense multi-scale network, named DDMSNet, for single image desnowing. Different from previous multi-scale networks, which mainly capture features from pixel-level input, the proposed DDMSNet can extract multi-scale representation from pixel-level and feature-level input.
+• Secondly, we exploit to use semantic and geometric information as priors for snow removal. Under a map-guided scheme, semantic and geometric features are obtained in different stages to help remove snow and recover clean images.
+• Thirdly, the two datasets we created will beneﬁt research in the community. Experiments on three datasets show that the proposed method achieves the state-of-the-art performance on snow removal. Meanwhile, the desnowed images can improve the performance of many core applications, like semantic segmentation and depth estimation.
+
+2 RELATED WORK
+Our work in this paper is closely related to snow removal, rain removal and haze removal, which are brieﬂy introduced respectively in the following.
+
+2.1 Snow Removal
+
+Removing snow from a single image is a highly ill-posed problem. Its formulation can be described as,
+
+O = A M + B (1 − M ) ,
+
+(1)
+
+where O, A, B and M are the observed snowy image, the chromatic aberration map, the latent clean image and the snow mask, respectively.
+
+Traditional methods utilize priors of snow-driven features to recover the clean images from the snowy versions. Bossu et al. [7] use a classical MoG model to separate the foreground from background. Then the snow can be detected from the foreground and removed to recover clean images under the help of HOG features. Similarly, Pei et al. [8] extract features in color space and shape to detect the position of snow to help remove snow. In addition, Rajderkar et al. [9] and Xu et al. [10], [11] employ frequency space separation and color assumptions to model the characteristics of snow for the snow removal task.
+Recently, deep learning witnesses great success in lowlevel image enhancing tasks such as super super-resolution [12], [13], image deblurring [14], [15], [16], [17], image deraining [4], [18], [19], which also include snow removal. Specially, Liu et al. [4] propose a DesnowNet, which is the ﬁrst deep learning based method to remove snow from a single image. The DesnowNet adopts translucency and residual generation modules to recover image details obscured by snow. In order to generate realistic desnowed images, Li et al. [20] adopt the GAN framework to restore better details. Li et al. [21] introduce a multi-scale network for snow removal. However, they only consider the different scales in the pixellevel space, ignoring the feature space. More recently, Li et al. [22] use the Network Architecture Search (NAS) framework to obtain a network, which achieves the state-of-the-art performance on snow removal. However, they ignore the semantic and geometric information, which are important priors for image restoration.
+2.2 Rain Removal
+Image deraining aims to remove the rain from rainy images and recover clean versions. The main difference from snow removal is that the snow is opaque and thus it is more difﬁcult to restore the occluded details. In the recent decades, a set of methods are proposed to successfully remove rain via modeling the physical characteristics of rain [23], [24], [25], [26], [27], [28]. Kang et al. [23] propose a framework to ﬁrst decompose the rainy images into low-frequency and high-frequency layers, and then use dictionary learning to remove rain in the high frequency layer. Chen et al. [29] and Luo [24] use classiﬁed dictionary atoms and discriminative
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+sparse coding to separate the rain and background. In [25], Li et al. introduce a method to remove rain streaks via Gaussian mixture models.
+It also has witnessed further promising achievement by the deep learning based deraining methods [20], [30], [31], [32], [33], [34], [35], [36], [37], [38]. Yang et al. propose a deep CNN model for joint rain detection and removal. Fu et al. [32] develop a deep detail network to remove rain and maintain texture details. However, it is difﬁcult to remove heavy rain. Li et al. [39] introduce a two-stage network to remove heavy rain. The ﬁrst physics based stage decomposes the entangled rain streaks and rain accumulation, while the second model-free stage includes a conditional GAN to produce the ﬁnal clean images.
+2.3 Haze Removal
+Image dehazing [40], [41], [42], [43], [44] aims to remove haze with other additional information such as atmospheric cues [45], [46] and depth information [47], [48].
+Early image dehazing methods rely on prior information to estimate the transmission maps and atmospheric light intensity. He et al. [49] calculate a dark channel prior (DCP) based on the statistics of the outdoor images to help estimate the transmission map. Apart from the DCP-based methods [48], [50], [51], [52], the attenuation prior is also utilized to recover clean images. Fattal [53] derives a local formation model to explain the color-line in the context of hazy images and recover clean images. Berman et al. [54] introduce a novel non-local method based on the assumption that images can be present with a few hundreds of colors. Though these methods have shown their effectiveness in image dehazing, their performance in the real-world scene is not satisﬁed.
+With the advance in deep learning methods, recent years have witnessed signiﬁcant success in image dehazing [55], [56], [57], [58]. Many approaches develop different kinds of CNN models to recover clean images via estimating the transmissions and atmospheric light. Specially, Ren et al. introduce a multi-scale dehazing network to remove haze with the coarse-to-ﬁne scheme. Zhang and Patel [57] and Li et al. [58] build a pyramid network and AOD-Net to estimate the transmission and atmospheric light for image restoration. Cheng et al. [59] propose a deep semantic dehazing network which veriﬁes the effectiveness of semantic information for image dehazing.
+3 OUR METHOD
+In this section, we ﬁrst give an overview of the proposed snow removal framework. Then the details of the proposed methodology are introduced.
+3.1 Overall
+The goal of our work is to remove snow and recover clean images from their corresponding snowy versions. In order to improve the capability of restoration, we introduce the proposed DDMSNet (Sec. 3.2), which is able to extract multiscale features from multiple dimensional representations. Considering that the semantic and geometric information can provide useful priors, we discuss in Sec. 3.3 and 3.4
+
+3
+how to obtain semantic-aware and geometry-aware representation using a map-guided manner to improve the performance. Finally, the loss functions are represent in Sec. 3.5 to illustrate how to train the proposed framework. Specially, the overall of the framework is shown in Fig. 2. The steps of the procedure are listed as follows.
+• A coarse image removal network is built to obtain coarsely desnowed images via reducing snow in the input images.
+• A semantic segmentation and a depth estimation network are utilized to extract semantic labels and depth knowledge from the coarsely desnowed images.
+• The coarsely desnowed images, semantic labels and depth maps are fed into the DDMSNet. Based on a map-guided manner, semantic-aware and geometryaware representation are obtained to help remove snow and obtain ﬁner results.
+
+3.2 Network Architecture
+Coarse snow removal network. We adopt a coarse-to-ﬁne strategy to handle the task of snow removal. An input snowy image is addressed in a coarse stage and then processed by a ﬁne stage with the semantic and geometry cues. To eliminate the possible negative effects of snow on the subsequent semantic understanding and depth estimation, we ﬁrstly in the coarse stage develop a coarse snow removal network to obtain pre-desnowed results, which can be represented as:
+
+Yc = Gc(O) ,
+
+(2)
+
+where O, Yc and Gc are the observed snowy image, coarsely desnowed images and the coarse snow removal network, respectively.
+To be speciﬁc, the coarse snow removal network consists of three modules, i.e., a pre-processing module, a core module and a post-processing module. The pre-processing module includes one convolutional layer and a residual dense block. The channel number of the output feature map is 16. The core module consists of 5 dense blocks [60]. Each dense block contains 4 convolutional layers. Within each dense block, there are densely connected shortcuts among the convolutional layers. The number of feature maps is 16 in the sequential dense blocks. The feature maps in the same row have the same scale. D represents the down-sampling module. Therefore, the scale of feature maps in the top row is double to the second row, whose scale is also double to the third row. Following the core module there is a postprocessing module, which contains another dense block. This dense block includes 4 convolutional layers with ReLU as the activation function. In addition, there are another two convolutional layers in the post-processing module. The output is an image which is the coarse result of the snow removal.
+Deep dense multi-scale network (DDMSNet). In order to obtain ﬁner results, this paper introduces a new multi-scale network, which is shown in the Fig. 3. The backbone in the Fig. 3 can refer to the Fig. 2. We name it as deep dense multi-scale network because it not only extracts multi-scale features from multi-scale RGB images, but also extracts multi-scale features from single-scale RGB images. There are a set of sub-networks in the proposed DDMSNet, each
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+4
+
+Block Block
+
+Block
+
+Block Block
+
+Block Block
+
+D
+
+U
+
+D
+
+Block Block
+
+Block
+
+Block Block
+
+U
+
+Conv
+
+Conv
+
+ReLU
+
+Conv
+
+D
+
+U
+
+D
+
+Block Block
+
+Block
+
+Block Block
+
+U
+
+Input snowy images
+
+Backbone
+
+Coarse desnowed images
+
+(a) The coarse snow removal network. D and U represent the down-sampling and up-sampling modules, respectively.
+
+Semantic segmentation network
+
+Semantics
+
+Coarse desnowed images
+
+Depth estimation network (b) Semantic and depth estimation
+
+Depth
+
+Fig. 2. The architecture of the proposed framework. The coarse snow removal network consists of several Denseblocks [60]. The semantic segmentation and depth estimation networks are from [61] and [62], respectively.
+
+sub-network corresponding to a scale. Specially, each subnetwork consists of a semantic-guided attention module, a transfer module (which is the same as that in Fig. 2(a)) and a depth-guided attention module.
+Roughly, in each sub-network of Fig. 3, the semanticaware module takes a RGB image and its corresponding semantic labels as input. With several convolutional layers and residual dense blocks (RDB) [63] in the semantic-aware module, feature maps are extracted, which are forwarded to the following transfer module to learn how to remove snow. The transfer module is an attention-based multiscale structure. It takes as input the feature maps generated by the semantic-attention module and extracts three-scale features. As the “Backbone” in Fig. 2 shows, the rows represent different scales and the D in each column are the connections between different scales. Each row consists of ﬁve RDB structures and the number of feature maps is ﬁxed during the processing. The columns consist of down-sample and up-sample modules. The down-sample module consists of two convolutional layers to reduce the feature map to its half, while the up-sample module also includes two convolutional layers to increase the number of the feature maps by a factor of 2, whose details can refer to the Fig. 2. In order to concatenate the features from different scales, we
+
+adopt a channel attention manner,
+
+Fa = αrFr + βcFc ,
+
+(3)
+
+where Fr and Fc are the features from the row and column, respectively. αr and βc are weights to balance different features. Finally, the geometry-aware module takes the features from the transfer module and geometry labels as input to recover ﬁnal snow-free images. To be speciﬁc, the geometry module consists of 3 layers of convolutional operation, and 3 residual dense blocks. The number of output feature channel is three, corresponding to an RGB image.
+
+3.3 Semantic-aware Representation
+In this section, we propose a method to explore the semantic information to help remove snow. We ﬁrst use a pretrained semantic segmentation network [61] to predict semantic labels based on the coarsely desnowed images, and then learn a semantic-aware representation under the guidance of semantic labels. Fig. 4 shows the architecture of the mechanism. It processes the input features and semantic labels. The output is input into a Softmax function to transfer a set of attention weights A1, A2, ..., An to W1, W2, ..., Wn. Each of them corresponds to a type of objects,
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+5
+
+Conv Conv
+
+Conv Conv
+Conv
+
+Coarse desnowed images (X4)
+Semantics (X4)
+
+Semantic-guided attention
+
+*
+
+Backbone
+
+Semanticattentional
+features
+
+Depth (X4) Up
+
+Depth-guided attention
+
+*
+Depth-attentional features
+
+Finer desnowed images (X4)
+
+Conv Conv
+
+Conv Conv
+Conv
+
+Coarse desnowed images (X2)
+Semantics (X2)
+
+Semantic-guided attention
+
+*
+
+Backbone
+
+Semanticattentional
+features
+
+Depth (X2) Up
+
+Depth-guided attention
+
+*
+Depth-attentional features
+
+Finer desnowed images (X2)
+
+Conv Conv
+
+Conv Conv
+Conv
+
+Coarse desnowed images (X1)
+Semantics (X1)
+
+Semantic-guided attention
+
+*
+
+Backbone
+
+Semanticattentional
+features
+
+Depth (X1)
+
+Depth-guided attention
+
+*
+Depth-attentional features
+
+Finer desnowed images (X1)
+
+Fig. 3. The ﬁne snow removal network. The ﬁne snow removal network is a dense multi-scale network, which extracts multi-scale features from both the RGB space and latent feature spaces. “X” represents the scale of down-sampling. “Up” means the up-sampling module.
+
+eAi
+
+Wi =
+
+n c=1
+
+eAc
+
+,
+
+(4)
+
+where c is the channel of features. The feature map before the semantic-aware representa-
+tion has 30 channels. We set n as 30 because the semantic label set has about 30 types of different objects. Therefore, feature maps are divided into 30 groups. The semanticaware representation is obtained based on W and feature channels in an element-wise manner. After that, we use group convolution in the 30 groups to process the semanticaware representation and merge all the features from different groups via a 1 × 1 CNN layer.
+
+3.4 Geometry-aware Representation
+Similar to the method of generating semantic-aware representation, we ﬁrst use a depth estimation network [62] to obtain depth information based on the coarsely desnowed images. Then the depth information is combined with features extracted from input images to obtain the geometryaware representation. However, it is different from the above part of semantic-aware representation in terms of two aspects. Firstly, we concatenate the geometry information in the last layer of DDMSNet. The input features are the output of the transfer module, rather than the low-level features.
+
+Secondly, the group number in Eq. 4 is set to 8, rather than 30. Finally, the geometry-aware representation is input into two CNN layers to recover clean images.
+
+3.5 Loss Function
+We train the coarse snow removal network and the DDMSNet with a smooth L1 and the perceptual loss function. For the coarse desnowing network, the smooth L1 loss function can be represented as:
+
+1N 3
+
+L1 = N
+
+Q(Ii(x) − Ii(x)) ,
+
+(5)
+
+x=1 i=1
+
+where
+
+Q(e) = 0.5e2, if |e|< 1,
+
+Q(e) = |e|−0.5, otherwise.
+
+(6)
+
+Ii(x) and Ii(x) are the intensity of the i-th color channel of pixel x in the desnowed image and the ground-truth image, respectively. N is the batch size.
+The perceptual loss function is deﬁned as:
+
+1C Lp = CW H
+
+W
+
+H
+(G(Iclean)x,y,c − G(Ide)x,y,c)2 ,
+
+c=1 x=1 y=1
+
+(7)
+
+where C, W and H are the channel, width and height
+
+of feature maps extracted from a pre-trained VGG16 [64]
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+6
+
+Softmax
+Conv
+
+Semantics/ Depths
+
+Block
+
+Block
+
+Block
+
+Fig. 4. The Architecture of network to learn the semantic and geometry attention weights.
+
+(a) Input
+
+(b) SnowCNN
+
+(c) MSNet
+
+(d) DDMSNet
+
+(e) DDMSNet (+)
+
+(f) DDMSNet (S)
+
+(g) DDMSNet(G)
+
+(h) DDMSNet(S+G)
+
+Fig. 5. Exemplar results on the SnowKITTI2012 dataset. From top to bottom: input, SnowCNN, MSNet, DDMSNet, DDMSNet(+), DDMSNet(S), DDMSNet(G) and DDMSNet(S+G). Best viewed in color.
+
+model. Ixcl,yea,cn is the pixel value of clean images at location (x, y, c), and G(Ide)x,y,c corresponds to the value of desnowed images.
+The loss functions of the DDSMNet are similar to those of
+the coarse desnowing network. The main differences come from the multi-scale scheme. Therefore, the smooth L1 and perceptual loss functions for DDSMNet are,
+
+Lf1
+
+=
+
+1 M
+
+M
+
+Lm 1 ,
+
+(8)
+
+m=1
+
+Lfp
+
+=
+
+1 M
+
+M
+
+Lm p ,
+
+(9)
+
+m=1
+
+where M is the number of different scales we adopt. We set it as 3 in our paper. Here the superscript f indicates the loss functions are for the ﬁne snow removal network.
+The total loss function is deﬁned by combining two different loss functions as follows,
+
+L = L1 + β ∗ Lp ,
+
+(10)
+
+where β is set to 0.05 in our paper. Note that, the formulation of loss function applies to both the coarse and the ﬁne snow removal networks.
+
+4 EXPERIMENTS
+In this section, we evaluate our proposed method on three datasets of snowy images. Considering that the existing datasets such as the Snow100K dataset [4] lack snowy images of street scenes, we ﬁrstly create two new datasets of snowy images of street scenes, which are introduced in Sec. 4.1. Then the implementation details of our framework are introduced in Sec. 4.2. We conduct an ablation study to show the effectiveness of different modules in Sec. 4.3.
+
+Finally, we compare the proposed method with the stateof-the-art methods on both synthesized snowy images and real-world images to demonstrate its superiority in Sec. 4.4.
+4.1 Datasets
+SnowKITTI2012 dataset. We ﬁrst use Photoshop to create a synthetic SnowKITTI2012 dataset based on the public KITTI 2012 dataset [65]. The training and testing sets of the proposed dataset include 1, 500 and 1, 000 pairs of images, respectively. In order to model different types of snow, each set contains three kinds of snow including light, medium and heavy snow. The size of images in both the training and the testing sets is 884 × 256.
+SnowCityScapes dataset. The SnowCityScapes dataset is created based on the Cityscapes dataset [66]. The training and testing sets consist of 2, 000 and 2, 000 pairs of images, respectively. The size of images in both the training and the testing sets is 512 × 256. Similar to the SnowKITTI2012 dataset, we also provides three kinds of snowy images.
+Snow100K dataset. This dataset is created by Liu et al. [4]. In order to model snowy images, they ﬁrst produce 5, 800 snowy masks and download 100K clean images. Then snowy images are synthesized based on the clean images and snowy masks. This dataset provides three kinds of snow, i.e., small, medium, and large particle sizes. They also provide 1, 329 realistic snowy images to evaluate models in terms of generalization in the real world.
+4.2 Implementation Details
+In this paper, we use a Gaussian distribution with zero mean and a standard deviation of 0.01 to initialize the parameters of our proposed networks. The size of mini-batch during the training stage is set to 8 for updating the models. In order to boost the variance of the data, we augment data by cropping
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+7
+
+TABLE 1 Performance comparison of different architectures on the SnowKITTI2012 dataset, in terms of PSNR and SSIM. Here “Small”, “Medium” and
+“Large” indicate the particle size of the snow.
+
+Methods SnowCNN MSNet DDMSNet DDMSNet (+) DDMSNet(G) DDMSNet(S) DDMSNet(G+S)
+
+Small 34.94/0.9724 36.17/0.9792 37.99/0.9840 37.23/0.9841 38.15/0.9871 38.89/0.9864 39.53/0.9877
+
+Medium 29.83/0.9396 32.61/0.9586 34.24/0.9677 34.66/0.9720 34.54/0.9736 35.41/0.9740 35.50/0.9745
+
+Large 31.14/0.9323 32.70/0.9473 34.12/0.9572 34.16/0.9642 34.94/0.9691 35.22/0.9678 35.55/0.9700
+
+Fig. 6. Exemplar results on the SnowKITTI2012 dataset. From top to bottom: input, DesnowNet, RESCAN, SPANet, and Ours. Best viewed in color.
+
+224 × 224 patches from images at random locations, and randomly ﬂipping them along the horizontal direction. The learning rate is set as 10−4 and then we decrease it to 10−6 after the training loss achieves convergence.
+4.3 Ablation Study
+The proposed DDMSNet has the advantage of extracting dense multi-scale features from the input images. Meanwhile, the semantic-aware and geometry-aware representations provide semantic and geometric priors to help update the DDMSNet to learn how to remove snow and restore clean images. In order to verify their effectiveness, we perform an ablation study by evaluating seven variant networks: SnowCNN, MSNet, DDMSNet, DDMSNet (+), DDMSNet (S), DDMSNet(G) and DDMSNet(S+G).
+• SnowCNN is a plain CNN network consisting of one convolutional layer, 7 RRDB and another convolutional layer. The input of this model is a pair of (clean and snowy) images of original size without scaling.
+• MSNet is a multi-scale version of the above SnowCNN architecture. The main difference is that MSNet uses a multi-scale scheme to conduct the snow removal task like [67]. The input images are resized to different scales to help achieve ﬁner results. The sub-networks in different scales share weights in our experiments.
+
+• DDMSNet is a dense multi-scale version of the above MSNet architecture. The main difference is that this model not only extracts features from images in different scales, but also extracts multi-scale features from images in a ﬁxed scale.
+• DDMSNet(+) is a coarse-to-ﬁne version of the above DDMSNet architecture. We ﬁrst use the SnowCNN to generate coarsely desnowed images and then feed them into the DDMSNet model to obtain ﬁner results.
+• DDMSNet(S) and DDMSNet(G) are two variants of the above DDMSNet(+). They majorly differ from the DDMSNet(+) due to that we use semantic-aware and geometry-aware representations to help update the DDMSNet, respectively.
+• DDMSNet(D+S) is our ﬁnal model. The snowy images are fed into a SnowCNN to obtain the coarse results, which are fed into the DDMSNet to learn the semantic-aware and geometry-aware representations to help restore the ﬁnal clean images.
+Fig. 5 and Table 1 show the ablation study results of different variants on the SnowKITTI2012 dataset. In general, both the plain SnowCNN and MSNet achieve reasonable performance, but the performance is inferior when compared with the variants of our DDMSNet. The DDMSNet(+) performs better than the original DDMSNet, suggesting the effectiveness of the “coarse-to-ﬁne” strategy. With ad-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+8
+
+TABLE 2 Performance comparison with state-of-the-art methods on the SnowKITTI2012, SnowCityScapes and Snow100K datasets.
+
+Dataset SnowKITTI2012 SnowCityScapes Snow100K
+
+Snow Small Medium Large Small Medium Large Small Medium Large
+
+RESCAN 35.68/0.9735 31.81/0.9489 32.33/0.9360 38.59/0.9815 33.63/0.9627 34.24/0.9624 31.51/0.9032 29.95/0.8860 26.08/0.8108
+
+SPANet 35.90/0.9781 32.08/0.9559 32.49/0.9468 39.66/0.9872 35.73/0.9741 35.50/0.9669 29.92/0.8260 28.06/0.8680 23.70/0.7930
+
+DesnowNet 32.11/0.9423 29.11/0.8903 29.14/0.8663 35.39/0.9603 33.58/0.9382 33.39/0.9148 32.33/0.9500 30.87/0.9409 27.17/0.8983
+
+Ours 39.53/0.9877 35.50/0.9740 35.55/0.9700 42.24/0.9913 38.30/0.9826 38.60/0.9822 34.34/0.9445 32.89/0.9330 28.85/0.8772
+
+Fig. 7. Exemplar results on the SnowCityScapes dataset. From top to bottom: input, DesnowNet, RESCAN, SPANet and Ours. Best viewed in color.
+
+ditional semantic-aware and the geometry-aware representation, the DDMSNet(S) and DDMSNet(G) respectively obtain better results compared with the variant DDMSNet(+). This veriﬁes the usefulness of the introduced semanticaware and geometry-aware attentions in the ﬁne snow removal network. Finally, the DDMSNet(S+G) achieves the best performance without doubt, indicating the effect of the combination of semantic-aware and geometry-aware representations.
+It is also notable that these variants perform best in the case of small particle size, i.e., light snow. And in general they perform worse when the snow becomes heavier, though with a few inconsistent cases. This is reasonable and consistent with human perception.
+
+4.4 Comparison with Existing Methods
+To verify our model, we compare it with the existing stateof-the-art methods on the three datasets described above. To the best of our knowledge, there seems difﬁcult to ﬁnd existing methods speciﬁcally for snow removal, except the DesnowNet [4]. To make the comparison more convincing, we additionally employ two learning-based rain removal approaches, RESCAN [35] and SPANet [68], for the comparison. To adopt to the snow scenery, we retrain their networks with the snow dataset in the comparison.
+Table 2 presents the quantitative results of different methods on the three datasets of SnowKITTI2012, SnowCityScapes and Snow100K. It shows that, the RESCAN and SPANet perform better than DesnowNet on the datasets of SnowKITTI2012 and SnowCityScapes, while worse on the
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+9
+
+Fig. 8. Exemplar results on the Snow100K dataset. From top to bottom: input, DesnowNet, RESCAN, SPANet and Ours. Best viewed in color.
+
+Snow100K dataset. On all the three datasets, the performance achieved by our proposed method is signiﬁcantly better than that of the counterparts.
+Fig. 6, Fig. 7 and Fig. 8 represent the visual comparison results on the three datasets of SnowKITTI2012, SnowCityScapes and Snow100K. Compared with RESCAN, SPANet and DesnowNet, the results of our method exhibit fewer artifacts. And we achieve the best visually appealing results for snow removal.
+4.5 Performance in Real-World Scenarios
+In order to further verify the effectiveness of the proposed model in the real-world scenery, we compare the performance of our method with current state-of-the-art methods on real-world snowy images from the dataset of Snow100K. The qualitative results are shown in Fig. 9, which validate that our method outperforms the current methods on realworld snowy images.
+
+semantic and geometric information as global priors to better remove snow and restore the clean images. Furthermore, based on the public KITTI and Cityscapes datasets, we synthesize two large-scale snowy datasets for snow removal. Experimental results demonstrate that the proposed method performs better than previous methods and achieves stateof-the-art performance.
+ACKNOWLEDGMENT
+This work is funded in part by the ARC Centre of Excellence for Robotics Vision (CE140100016), ARC-Discovery (DP 190102261) and ARC-LIEF (190100080) grants, as well as a research grant from Baidu on autonomous driving. The authors gratefully acknowledge the GPUs donated by NVIDIA Corporation. We thank all anonymous reviewers and editors for their constructive comments.
+
+5 CONCLUSION
+We propose a new multi-scale network, named as Deep Dense Multi-scale Network (DDMSNet), and demonstrate its superior performance for snow removal. We exploit the
+
+REFERENCES
+[1] N. Dalal and B. Triggs, “Histograms of oriented gradients for human detection,” in 2005 IEEE computer society conference on computer vision and pattern recognition (CVPR’05), vol. 1. IEEE, 2005, pp. 886–893.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+10
+
+Fig. 9. Exemplar results on the real-world snowy frames. From left to right: input, DesnowNet, RESCAN, SPANet and Ours. Best viewed in color.
+
+[2] T. U. Kaempfer, M. Hopkins, and D. Perovich, “A threedimensional microstructure-based photon-tracking model of radiative transfer in snow,” Journal of Geophysical Research: Atmospheres, vol. 112, no. D24, 2007.
+[3] L. Itti, C. Koch, and E. Niebur, “A model of saliency-based visual attention for rapid scene analysis,” IEEE Transactions on pattern analysis and machine intelligence, vol. 20, no. 11, pp. 1254–1259, 1998.
+[4] Y.-F. Liu, D.-W. Jaw, S.-C. Huang, and J.-N. Hwang, “Desnownet: Context-aware deep network for snow removal,” IEEE Transactions on Image Processing, vol. 27, no. 6, pp. 3064–3073, 2018.
+[5] D. Fourure, R. Emonet, E. Fromont, D. Muselet, A. Tremeau, and C. Wolf, “Residual conv-deconv grid network for semantic segmentation,” arXiv preprint arXiv:1707.07958, 2017.
+[6] Y. Wang, S. Liu, C. Chen, and B. Zeng, “A hierarchical approach for rain or snow removing in a single color image,” IEEE Transactions on Image Processing, vol. 26, no. 8, pp. 3936–3950, 2017.
+[7] J. Bossu, N. Hautie`re, and J.-P. Tarel, “Rain or snow detection in image sequences through use of a histogram of orientation of streaks,” International journal of computer vision, vol. 93, no. 3, pp. 348–367, 2011.
+[8] S.-C. Pei, Y.-T. Tsai, and C.-Y. Lee, “Removing rain and snow in a single image using saturation and visibility features,” in 2014 IEEE International Conference on Multimedia and Expo Workshops (ICMEW). IEEE, 2014, pp. 1–6.
+[9] D. Rajderkar and P. Mohod, “Removing snow from an image via image decomposition,” in 2013 IEEE International Conference ON Emerging Trends in Computing, Communication and Nanotechnology (ICECCN). IEEE, 2013, pp. 576–579.
+[10] J. Xu, W. Zhao, P. Liu, and X. Tang, “An improved guidance image based method to remove rain and snow in a single image,” Computer and Information Science, vol. 5, no. 3, p. 49, 2012.
+[11] ——, “Removing rain and snow in a single image using guided ﬁlter,” in 2012 IEEE International Conference on Computer Science and Automation Engineering (CSAE), vol. 2. IEEE, 2012, pp. 304–307.
+
+[12] C. Ledig, L. Theis, F. Husza´r, J. Caballero, A. Cunningham, A. Acosta, A. Aitken, A. Tejani, J. Totz, Z. Wang et al., “Photorealistic single image super-resolution using a generative adversarial network,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017.
+[13] J. Johnson, A. Alahi, and L. Fei-Fei, “Perceptual losses for realtime style transfer and super-resolution,” in European Conference on Computer Vision (ECCV), 2016.
+[14] K. Zhang, W. Luo, Y. Zhong, L. Ma, W. Liu, and H. Li, “Adversarial spatio-temporal learning for video deblurring,” IEEE Transactions on Image Processing (TIP), 2018.
+[15] K. Zhang, W. Luo, Y. Zhong, L. Ma, B. Stenger, W. Liu, and H. Li, “Deblurring by realistic blurring,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2020.
+[16] D. Li, C. Xu, K. Zhang, X. Yu, Y. Zhong, W. Ren, H. Suominen, and H. Li, “Arvo: Learning all-range volumetric correspondence for video deblurring,” arXiv preprint arXiv:2103.04260, 2021.
+[17] K. Zhang, W. Luo, B. Stenger, W. Ren, L. Ma, and H. Li, “Every moment matters: Detail-aware networks to bring a blurry image alive,” in Proceedings of the 28th ACM International Conference on Multimedia, 2020, pp. 384–392.
+[18] K. Zhang, D. Li, W. Luo, W. Ren, L. Ma, and H. Li, “Dual attentionin-attention model for joint rain streak and raindrop removal,” arXiv preprint arXiv:2103.07051, 2021.
+[19] K. Zhang, W. Luo, W. Ren, J. Wang, F. Zhao, L. Ma, and H. Li, “Beyond monocular deraining: Stereo image deraining via semantic understanding,” in European Conference on Computer Vision. Springer, 2020, pp. 71–89.
+[20] S. Li, I. B. Araujo, W. Ren, Z. Wang, E. K. Tokuda, R. H. Junior, R. Cesar-Junior, J. Zhang, X. Guo, and X. Cao, “Single image deraining: A comprehensive benchmark analysis,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2019.
+[21] P. Li, M. Yun, J. Tian, Y. Tang, G. Wang, and C. Wu, “Stacked
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+dense networks for single-image snow removal,” Neurocomputing, vol. 367, pp. 152–163, 2019.
+[22] R. Li, R. T. Tan, and L.-F. Cheong, “All in one bad weather removal using architectural search,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2020, pp. 3175–3185.
+[23] L.-W. Kang, C.-W. Lin, and Y.-H. Fu, “Automatic single-imagebased rain streaks removal via image decomposition,” IEEE transactions on image processing, vol. 21, no. 4, pp. 1742–1755, 2011.
+[24] Y. Luo, Y. Xu, and H. Ji, “Removing rain from a single image via discriminative sparse coding,” in Proceedings of the IEEE International Conference on Computer Vision, 2015, pp. 3397–3405.
+[25] Y. Li, R. T. Tan, X. Guo, J. Lu, and M. S. Brown, “Rain streak removal using layer priors,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2016, pp. 2736–2744.
+[26] Y. Chang, L. Yan, and S. Zhong, “Transformed low-rank model for line pattern noise removal,” in Proceedings of the IEEE International Conference on Computer Vision, 2017, pp. 1726–1734.
+[27] L. Zhu, C.-W. Fu, D. Lischinski, and P.-A. Heng, “Joint bi-layer optimization for single-image rain streak removal,” in Proceedings of the IEEE international conference on computer vision, 2017, pp. 2526–2534.
+[28] S. Du, Y. Liu, M. Ye, Z. Xu, J. Li, and J. Liu, “Single image deraining via decorrelating the rain streaks and background scene in gradient domain,” Pattern Recognition, vol. 79, pp. 303–317, 2018.
+[29] D.-Y. Chen, C.-C. Chen, and L.-W. Kang, “Visual depth guided color image rain streaks removal using sparse coding,” IEEE transactions on circuits and systems for video technology, vol. 24, no. 8, pp. 1430–1455, 2014.
+[30] H. Zhang, V. Sindagi, and V. M. Patel, “Image de-raining using a conditional generative adversarial network,” IEEE Transactions on Circuits and Systems for Video Technology (TCSVT), 2019.
+[31] X. Fu, J. Huang, X. Ding, Y. Liao, and J. Paisley, “Clearing the skies: A deep network architecture for single-image rain removal,” IEEE Transactions on Image Processing (TIP), 2017.
+[32] X. Fu, J. Huang, D. Zeng, Y. Huang, X. Ding, and J. Paisley, “Removing rain from single images via a deep detail network,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017.
+[33] W. Yang, R. T. Tan, J. Feng, J. Liu, Z. Guo, and S. Yan, “Deep joint rain detection and removal from a single image,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017.
+[34] H. Zhang and V. M. Patel, “Density-aware single image de-raining using a multi-stream dense network,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2018.
+[35] X. Li, J. Wu, Z. Lin, H. Liu, and H. Zha, “Recurrent squeeze-andexcitation context aggregation net for single image deraining,” in European Conference on Computer Vision (ECCV), 2018.
+[36] D. Eigen, D. Krishnan, and R. Fergus, “Restoring an image taken through a window covered with dirt or rain,” in Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2013.
+[37] R. Qian, R. T. Tan, W. Yang, J. Su, and J. Liu, “Attentive generative adversarial network for raindrop removal from a single image,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2018.
+[38] Y. Zheng, X. Yu, M. Liu, and S. Zhang, “Residual multiscale based single image deraining.” in British Machine Vision Conference (BMVC), 2019.
+[39] R. Li, L.-F. Cheong, and R. T. Tan, “Heavy rain image restoration: Integrating physics model and conditional adversarial learning,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2019, pp. 1633–1642.
+[40] Y. Y. Schechner, S. G. Narasimhan, and S. K. Nayar, “Instant dehazing of images using polarization,” in Proceedings of the 2001 IEEE Computer Society Conference on Computer Vision and Pattern Recognition. CVPR 2001, vol. 1. IEEE, 2001, pp. I–I.
+[41] S. Shwartz, E. Namer, and Y. Y. Schechner, “Blind haze separation,” in 2006 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (CVPR’06), vol. 2. IEEE, 2006, pp. 1984– 1991.
+[42] S. G. Narasimhan and S. K. Nayar, “Chromatic framework for vision in bad weather,” in Proceedings IEEE Conference on Computer Vision and Pattern Recognition. CVPR 2000 (Cat. No. PR00662), vol. 1. IEEE, 2000, pp. 598–605.
+
+11
+[43] ——, “Contrast restoration of weather degraded images,” IEEE transactions on pattern analysis and machine intelligence, vol. 25, no. 6, pp. 713–724, 2003.
+[44] S. K. Nayar and S. G. Narasimhan, “Vision in bad weather,” in Proceedings of the Seventh IEEE International Conference on Computer Vision, vol. 2. IEEE, 1999, pp. 820–827.
+[45] F. Cozman and E. Krotkov, “Depth from scattering,” in Proceedings of IEEE Computer Society Conference on Computer Vision and Pattern Recognition. IEEE, 1997, pp. 801–806.
+[46] S. G. Narasimhan and S. K. Nayar, “Vision and the atmosphere,” International journal of computer vision, vol. 48, no. 3, pp. 233–254, 2002.
+[47] J. Kopf, B. Neubert, B. Chen, M. Cohen, D. Cohen-Or, O. Deussen, M. Uyttendaele, and D. Lischinski, “Deep photo: Model-based photograph enhancement and viewing,” ACM transactions on graphics (TOG), vol. 27, no. 5, pp. 1–10, 2008.
+[48] J.-P. Tarel and N. Hautiere, “Fast visibility restoration from a single color or gray level image,” in 2009 IEEE 12th International Conference on Computer Vision. IEEE, 2009, pp. 2201–2208.
+[49] K. He, J. Sun, and X. Tang, “Single image haze removal using dark channel prior,” IEEE transactions on pattern analysis and machine intelligence, vol. 33, no. 12, pp. 2341–2353, 2010.
+[50] G. Meng, Y. Wang, J. Duan, S. Xiang, and C. Pan, “Efﬁcient image dehazing with boundary constraint and contextual regularization,” in Proceedings of the IEEE international conference on computer vision, 2013, pp. 617–624.
+[51] Y. Li, R. T. Tan, and M. S. Brown, “Nighttime haze removal with glow and multiple light colors,” in Proceedings of the IEEE international conference on computer vision, 2015, pp. 226–234.
+[52] K. Nishino, L. Kratz, and S. Lombardi, “Bayesian defogging,” International journal of computer vision, vol. 98, no. 3, pp. 263–278, 2012.
+[53] R. Fattal, “Dehazing using color-lines,” ACM transactions on graphics (TOG), vol. 34, no. 1, pp. 1–14, 2014.
+[54] D. Berman, S. Avidan et al., “Non-local image dehazing,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2016, pp. 1674–1682.
+[55] B. Cai, X. Xu, K. Jia, C. Qing, and D. Tao, “Dehazenet: An end-toend system for single image haze removal,” IEEE Transactions on Image Processing, vol. 25, no. 11, pp. 5187–5198, 2016.
+[56] W. Ren, S. Liu, H. Zhang, J. Pan, X. Cao, and M.-H. Yang, “Single image dehazing via multi-scale convolutional neural networks,” in European Conference on Computer Vision (ECCV), 2016.
+[57] H. Zhang and V. M. Patel, “Densely connected pyramid dehazing network,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2018, pp. 3194–3203.
+[58] B. Li, X. Peng, Z. Wang, J. Xu, and D. Feng, “Aod-net: All-inone dehazing network,” in Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2017.
+[59] Z. Cheng, S. You, V. Ila, and H. Li, “Semantic single-image dehazing,” arXiv preprint arXiv:1804.05624, 2018.
+[60] G. Huang, Z. Liu, L. Van Der Maaten, and K. Q. Weinberger, “Densely connected convolutional networks,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2017, pp. 4700–4708.
+[61] A. Tao, K. Sapra, and B. Catanzaro, “Hierarchical multi-scale attention for semantic segmentation,” arXiv preprint arXiv:2005.10821, 2020.
+[62] W. Yin, Y. Liu, C. Shen, and Y. Yan, “Enforcing geometric constraints of virtual normal for depth prediction,” in Proceedings of the IEEE International Conference on Computer Vision, 2019, pp. 5684– 5693.
+[63] X. Wang, K. Yu, S. Wu, J. Gu, Y. Liu, C. Dong, Y. Qiao, and C. Change Loy, “Esrgan: Enhanced super-resolution generative adversarial networks,” in Proceedings of the European Conference on Computer Vision (ECCV), 2018, pp. 0–0.
+[64] K. Simonyan and A. Zisserman, “Very deep convolutional networks for large-scale image recognition,” arXiv preprint arXiv:1409.1556, 2014.
+[65] A. Geiger, P. Lenz, C. Stiller, and R. Urtasun, “Vision meets robotics: The kitti dataset,” The International Journal of Robotics Research (IJRR), 2013.
+[66] M. Cordts, M. Omran, S. Ramos, T. Rehfeld, M. Enzweiler, R. Benenson, U. Franke, S. Roth, and B. Schiele, “The cityscapes dataset for semantic urban scene understanding,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2016, pp. 3213–3223.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+12
+
+[67] S. Nah, T. Hyun Kim, and K. Mu Lee, “Deep multi-scale convolutional neural network for dynamic scene deblurring,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2017, pp. 3883–3891.
+[68] T. Wang, X. Yang, K. Xu, S. Chen, Q. Zhang, and R. W. Lau, “Spatial attentive single-image deraining with a high quality real rain dataset,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2019, pp. 12 270–12 279.
+

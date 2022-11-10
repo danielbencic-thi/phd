@@ -1,0 +1,1201 @@
+566
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+Probabilistic Roadmaps for Path Planning in High-Dimensional Configuration Spaces
+Lydia E. Kavralu, Petr Svestka, Jean-Claude Latombe, and Mark H. Overmars
+
+Abstract- A new motion planning method for robots in static workspaces is presented. This method proceeds in two phases: a learning phase and a query phase. In the learning phase, a probabilistic roadmap is constructed and stored as a graph whose nodes correspond to collision-freeconfigurationsand whose edges correspond to feasible paths between these configurations. These paths are computed using a simple and fast local planner. In the query phase, any given start and goal configurations of the robot are connected to two nodes of the roadmap; the roadmap is then searched for a path joining these two nodes. The method is general and easy to implement. It can be applied to virtually any type of holonomic robot. It requires selecting certain parameters (e.g., the duration of the learning phase) whose values depend on the scene, that is the robot and its workspace. But these values turn out to be relatively easy to choose. Increased efficiency can also be achieved by tailoring some components of the method (e.g., the local planner) to the considered robots. In this paper the method is applied to planar articulated robots with many degrees of freedom. Experimental results show that path planning can be done in a fraction of a second on a contemporary workstation (E 150 MIPS), after learning for relatively short periods of time (a few dozen seconds).
+I. INTRODUCTION
+E present a new planning method which computes collision-free paths for robots of virtually any type moving among stationary obstacles (static workspaces). However, our method is particularly interesting for robots with many degrees of freedom (dof), say five or more. Indeed, an increasing number of practical problems involve such robots, while very few effective motion planning methods, if any, are available to solve them. The method proceeds in two phases: a learning phase and a query phase. In the learning phase a probabilistic roadmap is constructed by repeatedly generating random free configurations of the robot and connecting these configurations using some simple, but very fast motion planner. We call this planner the local planner. The roadmap thus formed in the free configuration
+Manuscript received August 18, 1994; revised May 1, 1995. This work was supported in part ARPA grant N00014-92-5-1809, ONR grant N00014-94-10721, the Rockwell Foundation, ESPRIT 111BRA Project 6546 (PROMotion), and by the Dutch Organization for Scientific Research (NWO). This paper was recommended by publication by Associate Editor M. Erdmann upon evaluation of reviewers’ comments.
+L. E. Kavraki and J.-C. Latombe are with the Robotics Laboratory, Department of Computer Science, Stanford University, Stanford, CA 94305 USA (e-mails: { kavraki, latombe@cs.stanford.edu).
+P. Svestka and M. H. Overmars are with the Department of Computer Science, Utrecht University, 3508 TB Utrecht, The Netherlands (e-mails: {petr, markov}@cs.tuu.ne).
+Publisher Item Identifier S 1042-296X(96)03830-X.
+
+space (C-space [37]) of the robot is stored as an undirected graph R. The configurations are the nodes of R and the paths computed by the local planner are the edges of R. The learning phase is concluded by some postprocessing of R to improve its connectivity.
+Following the learning phase, multiple queries can be answered. A query asks for a path between two free configurations of the robot. To process a query the method first attempts to find a path from the start and goal configurations to two nodes of the roadmap. Next, a graph search is done to find a sequence of edges connecting these nodes in the roadmap. Concatenation of the successive path segments transforms the sequence found into a feasible path for the robot.
+Notice that the learning and the query phases do not have to be executed sequentially. Instead, they can be interwoven to adapt the size of the roadmap to difficulties encountered during the query phase, thus increasing the learning flavor of our method. For instance, a small roadmap could be first constructed; this roadmap could then be augmented (or reduced) using intermediate data generated while queries are being processed. This interesting possibility will not be explored in the paper, though it is particularly useful to conduct trial-anderror experiments in order to decide how much computation time should be spent in the learning phase.
+To run our planning method the values of several parameters must first be selected, e.g., the time to be spent in the learning phase. While these values depend on the scene, i.e., the robot and the workspace, it has been our experience that good results are obtained with values spanning rather large intervals. Thus, it is not difficult to choose one set of satisfactory values for a given scene or family of scenes, through some preliminary experiments. Moreover, increased efficiency can be achieved by tailoring several components of our method, in particular the local planner, to the considered robots. Overall, we found the method quite easy to implement and run. Many details can be engineered in one way or another to fit better the characteristics of an application domain.
+We have demonstrated the power of our method by applying it to a number of difficult motion planning problems involving a variety of robots. In this paper we report in detail on experiments with planar articulated robots (or linkages) with many dofs moving in constrained workspaces. However, the method is directly applicable to other kinds of holonomic robots, such as spatial articulated robots in 3-D workspaces [29]. Additionally, a version of the method described here has been successfully applied to nonholonomic car-like robots [48]. In all cases, experimental results show that the learning
+
+1042-296W96$05.00 0 1996 IEEE
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI et al.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+561
+
+times required for the construction of adequate roadmaps, i.e., roadmaps that capture well the connectivity of the free C-space, are short. They range from a few seconds’ for relatively easy problems to a few minutes for the most difficult problems we have dealt with. Once a good roadmap has been constructed, planning queries are processed in a fraction of a second.
+The very small query times make our planning method particularly suitable for many-dof robots performing several point-to-point motions in known static workspaces. Examples of tasks meeting these conditions include maintenance of cooling pipes in a nuclear plant, point-to-point welding in car assembly, and cleaning of airplane fuselages. In such tasks, many dofs are needed to achieve successive desired configurations of the end-effector while avoiding collisions of the rest of the arm with the complicated workspace. Explicit programming of such robots is tedious and time consuming. An efficient and reliable planner would considerably reduce the programming burden.
+This paper is organized as follows. Section I1 gives an overview of some previous research and relates our work to this research. Section 111describes our motion planning method in general terms, i.e., without focusing on any specific type of holonomic robot. Both the learning and the query phases are discussed here in detail. Next, in Sections IV-VI we apply our method to planar articulated robots. In Section IV we describe specific techniques that can be substituted for general ones in the planner to handle these robots more efficiently (especially when these have many dofs). In Sections V and VI we describe a number of experiments and their results; we also analyze how variations of some parameter values affect planning results. Section V presents results obtained with a customized implementation of the method embedding the specific techniques of Section IV. Section VI discusses other experimental results obtained with a general implementation of the method. Section VI1 concludes the paper.
+11. RELATION TO PREVIOUS WORK
+Path planning for robots in known and static workspaces has been studied extensively over the last two decades [34]. Recently there has been renewed interest in developing heuristic, but practical path planners. For few-dof robots, many such planners have been designed and some are extremely fast (e.g., [5], [36]). Considerable attention is now directed toward the creation of efficient heuristic planners for many-dof robots. Indeed, while such robots are becoming increasingly useful in industrial applications, complete methods for such robots have overwhelming complexity. New emerging applications also motivate that trend, e.g., computer graphic animation, where motion planning can drastically reduce the amount of data input by human animators, and molecular biology, where motion planning can be used to compute motions of molecules (modeled as spatial linkages with many dofs) docking against other molecules.
+‘All running times reported in this paper have been obtained on a DEC Alpha workstation, except those given in Section VI which were obtained with a Silicon Graphics Indigo workstation.
+
+The complexity of complete path planning methods in highdimensional configuration spaces has led researchers to seek heuristic methods that embed weaker notions of completeness (e.g., probabilistic completeness) and/or can be partially adapted to specific problem domains in order to boost performance in those domains.
+In recent years, some of the most impressive results were obtained using potential field methods. Such methods are attractive, since the heuristic function guiding the search for a path, the potential field, can easily be adapted to the specific problem to be solved, in particular the obstacles and the goal configuration. The main disadvantage of these planners is the presence of local minima in the potential fields. These minima may be difficult to escape. Local minima-free potential functions (also called navigation functions) have been defined in [6], [31], [46]. But these functions are expensive to compute in high-dimensional configuration spaces and have not been used for many-dof robots.
+One of the first successful potential field planners for robots with many dof is described in [17]. This planner has been used to compute paths of an 8-dof manipulator among vertical pipes in a nuclear plant, with interactive human assistance to escape local minima. In [18] the same authors present a learning scheme to avoid falling into the local minima of the potential field. During the learning phase, probabilities of moving between neighboring configurations without falling into a local minimum are accumulated in an rn array, where n is the number of dofs and T is the number of intervals discretizing the range of each dof. During the planning phase, these probabilities are used as another heuristic function (in addition to the potential function) to guide the robot away from the local minima. This learning scheme was applied with some success to robots with up to 6 dofs. However, the size of the rn array becomes impractical when n grows larger.
+Techniques for both computing potential functions and escaping local minima in high-dimensional C-spaces are presented in [5], [6]. The Randomized Path Planner (RPP) described in [6] escapes local minima by executing random walks. It has been successfully experimented on difficult problems involving robots with 3 to 31 dofs. It has also been used in practice with good results to plan motions for performing riveting operations on plane fuselages [20], and to plan disassembly operations for the maintenance of aircraft engines [ l l ] . Recently, RPP has been embedded in a larger ‘‘manipulation planner” to automatically animate scenes involving human figures modeled with 62 dofs [32]. However, several examples have also been identified where RPP behaves poorly [lo], [50]. In these examples, RPP falls into local minima whose basins of attraction are mostly bounded by obstacles, with only narrow passages to escape. The probability that any random walk finds its way through such a passage is almost zero. In fact, once one knows how RPP computes the potential field, it is not too difficult to create such examples. One way to prevent this from happening is to let W P randomly use several potential functions, but this solution is rather time consuming. Our roadmap planner deals efficiently with problems that are difficult for RPP, as discussed in Section V.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+568
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+Other interesting lines of work include the method in [3] which is based on a variational dynamic programming approach and can tackle problems of similar complexity to the problems solved by RPP. In [21], [22] a sequential framework with backtracking is proposed for serial manipulators, and in [14] a motion planner with performance proportional to task difficulty is developed for arbitrary many-dof robots operating in cluttered environments. The planner in [33] finds paths for six-dof manipulators using heuristic search techniques that limit the part of the C-space that is explored, and the planner in [I] utilizes genetic algorithms to help search for a path in high-dimensional C-spaces. Parallel processing techniques are investigated in [lo], [38].
+The planning method presented in this paper differs significantly from the methods referenced above, which are for the most part based on potential field or cell decomposition approaches. Instead, our method applies a roadmap approach [34], that is, it constructs a network of paths in free Cspace. Previous roadmap methods include the visibility graph [39], Voronoi diagram [41], and silhouette [8] methods. All these three methods compute in a single shot a roadmap that completely represents the connectivity of the free C-space. The visibility graph and Voronoi diagram methods are limited to low-dimensional C-spaces. The silhouette method applies to C-spaces of any dimension, but its complexity makes it little practical.
+Roadmaps have also been built and used incrementally in several other planners. The planner in [9] incrementally builds the skeleton of the C-space using a local opportunistic strategy. This work has inspired the approaches in [15], [45] which construct retracts of the free C-space using sensor data and thus do not assume that the (static) environment in which the robot moves is knowri a priori. The approach in [12] builds a sparse network of robot subgoals with the use of a simple and a computationally expensive planner. This network can also include information to accommodate local changes in the environment [2], [131.
+Our method emphasizes efficiency and is primarily developed for robots with many dofs which move in static environments. We are not aware of other roadmap techniques that have been effectively applied to high-dimensional Cspaces. The approach we discuss in this paper uses probabilistic techniques to incrementally build a roadmap in the free C-space of the robot. It can produce a roadmap in any amount of allocated time. If the time spent on the construction of the roadmap is short, the roadmap may not adequately represent the connectivity of the free C-space. Actually, in our planner, the roadmap is never guaranteed to fully represent free C-space connectivity, though if we let our techniques run long enough it eventually will (but we don’t know how long is enough). However, while building the roadmap, our method heuristically identifies “difficult’ ’ regions in free C-space and generates additional configurations in those regions to increase network connectivity. Therefore, the final distribution of configurations in the roadmap is not uniform across free C-space; it is denser in regions considered difficult by the heuristic function. This feature helps to construct roadmaps of a reasonable size that represent free
+
+C-space connectivity well. In particular, it allows our implemented planner to efficiently solve tricky problems requiring proper choices among several narrow passages, i.e., the kind of problems that potential field techniques like RPP tackle poorly.
+Note also that, like most practical methods for many-dof robots (one exception is the method in [17]), RE’P is a oneshot method, i.e., it does not precompute any knowledge of the free C-space that is transferred from one run to another. Consequently, on problems that both RPP and our method solve well, the latter is usually much faster, once it has constructed a good roadmap. But, if the learning time is included in the duration of the path planning process (which should be the case whenever planning is done only once in a given workspace), there are many problems for which RPP is faster.
+The authors of this paper are from two different teams and the work presented here builds upon previous work they did separately. A single-shotrandom planner was described in [42] and was subsequently expanded into a learning approach in [43]. In these papers the emphasis was on robots with a rather low number of dofs. Similar techniques have been applied both to car-like robots that can move forward and backward (symmetrical nonholonomic robots) and car-like robots that can only move forward [47], [48]. In [49] these results are extended to simultaneous motion planning for multiple carlike robots. Independently, a preprocessing scheme similar to the learning phase was introduced in [28]. This scheme also builds a probabilistic roadmap in free C-space, but focuses on the case of many-dof robots. The need to expand the roadmap in “difficult’ ’ regions of C-space was noted there and addressed with simple techniques. Better expansion techniques were introduced in [28], [29]. That approach is described in detail in [25] and a theoretical analysis bounding the time spent by that planner is given in [4],[26], and [30]. The present paper combines the ideas of the experimental work in these previous papers. Since it only presents a limited subset of the experimental results we have obtained with our method, the interested reader is encouraged to look into our previous papers for additional results, in particular results involving other types of robots. Though computation times reported in these papers were obtained with different versions of our method, their orders of magnitude remain meaningful.
+Finally, it should be noted that another planner which bares similarities with our approach, but was developed independently of our two teams, is proposed in [23].
+111. THE GENERALMETHOD
+We now describe our path planning method in general terms for a holonomic robot without focusing on any specific type of robot. During the learning phase a data structure called the roadmap is constructed in a probabilistic way for a given scene. The roadmap is an undirected graph R = ( N ,E ) . The nodes in N are a set of configurations of the robot appropriately chosen over the free C-space. The edges in E correspond to (simple) paths; an edge ( a , b ) corresponds to
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI et al.: PROBABILISTIC ROADMAPS FOR PATH PLANNING 1N HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+569
+
+a feasible path connecting the configurations a and b. These phase, or the particular paths constructed in the query phase,
+
+paths, which we refer to as local paths, are computed by an or both. Even if the roadmap contained cycles, such smoothing
+
+extremely fast, though not very powerful planner, called the operations would eventually produce better paths. local planner. The local paths are not explicitly stored in the Whenever the local planner succeeds in finding a path roadmap, since recomputing them is very cheap. This saves between two nodes, the connected components of R are
+
+considerable space, but requires the local planner to succeed and fail deterministically. We assume here that the learning phase is entirely performed before any path planning query. As we already noted, however, the learning and query phases
+
+dynamically updated. Therefore, no graph search is required for deciding whether a node picked from N, is already connected to c, or not.
+To make our presentation more precise, let:
+
+can also be interwoven.
+
+A be a symmetrical function Cf x Cf -+ (0, l}, which
+
+In the query phase, the roadmap is used to solve individual
+
+returns whether the local planner can compute a path
+
+path planning problems in the input scene. Given a start
+
+between the two configurations given as arguments;
+
+configuration s and a goal configuration g, the method first
+
+D be a function C x C + R+ U {0}, called the distance
+
+tries to connect s and g to some two nodes s” and ij in N . If
+
+function, defining a pseudo-metric in C. (We only require
+
+successful, it then searches R for a sequence of edges in E
+
+that D be symmetrical and nondegenerate.)
+
+connecting s” to ij. Finally, it transforms this sequence into a feasible path for the robot by recomputing the corresponding
+
+The construction step algorithm can be outlined as follows:
+
+local paths and concatenating them. In the following, we let C denote the robot’s C-space and
+Cf its free subset (also called the free C-space).
+
+N+0 E+0 loop
+
+c + a randomly chosen free
+
+A. The Learning Phase
+
+configuration N,+ a set of candidate neighbors
+
+The learning phase consists of two successive steps, which
+
+of c chosen from N
+
+we refer to as the construction and the expansion step. The
+
+N +- N U { e }
+
+objective of the former is to obtain a reasonably connected
+
+for all n E N,, in order of
+
+graph, with enough vertices to provide a rather uniform cov-
+
+increasing D ( c , n ) do
+
+ering of free C-space and to make sure that most “difficult”
+
+if isame-connected-component(cn,)
+
+regions in this space contain at least a few nodes. The second
+
+AA(c, n ) then
+
+step is aimed at further improving the connectivity of this graph. It selects nodes of R which, according to some heuristic
+
+E +- E U { ( c , 4 )
+update R’s connected
+
+evaluator, lie in difficult regions of C-space and expands the
+
+components
+
+graph by generating additional nodes in their neighborhoods.
+
+Hence, the covering of Cf by the final roadmap is not uniform, A number of components of algorithm above are still
+
+but depends on the local intricacy of the C-space.
+
+unspecified. In particular, we need to define how random
+
+configurations are created in (4), propose a local planner for
+
+I ) The Construction Step: Initially the graph R = ( N ,E ) (8), clarify the notion of a candidate neighbor in (5), and
+
+is empty. Then, repeatedly, a random free configuration is choose the distance function D used in (7).
+
+generated and added to N . For every such new node c, we
+
+select a number of nodes from the current N and try to connect
+
+a ) Creation of random conJigurations: The nodes of R
+
+c to each of them using the local planner. Whenever this should constitute a rather uniform random sampling of Cf.
+
+planner succeeds to compute a feasible path between c and Every such configuration is obtained by drawing each of its
+
+a selected node n, the edge ( c , n ) is added to E . The actual coordinates from the interval of values of the corresponding
+
+local path is not memorized.
+
+dof using the uniform probability distribution over this inter-
+
+The selection of the nodes to which we try to connect c val. The obtained configuration is checked for collision. If it
+
+is done as follows. First, a set N , of candidate neighbors is is collision-free, it is added to N ; otherwise, it is discarded.
+
+chosen from N . This set is made of nodes within a certain Collision checking requires testing if any part of the robot
+
+distance of e, for some metric D . Then we pick nodes from N , intersects an obstacle and if two distinct bodies of the robot
+
+in order of increasing distance from e. We try to connect c to intersect each other. It can be done using a variety of existing
+
+each of the selected nodes if it is not already graph-connected general techniques. In the general implementation considered
+
+to c. Hence, no cycles can be created and the resulting graph in Section VI the test is performed analytically using optimized
+
+is a forest, i.e., a collection of trees. Since a query would routines from the PLAGE0 library [191. Alternatively, we
+
+never succeed thanks to an edge that is part of a cycle, it is could use an iterative collision checker, like the one described
+
+indeed sensible not to consume time and space computing and in [43], which automatically generates successive approxi-
+
+storing such an edge. However, in some cases, the absence mations of the objects involved in the collision test. In 2-D
+
+of cycles may lead the query phase to construct unnecessary workspaces, we may use a faster, but more specific collision
+
+long paths. This drawback can easily be eliminated by applying checker (see Section IV).
+
+smoothing techniques to either the roadmap during the learning
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+570
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+b ) The local planner: Our best experimental results have been obtained when the local planner is both deterministic and very fast. These requirements are not strict, however. We discuss briefly the tradeoffs involved in the choice of the local planner.
+If a nondeterministic planner was used, local paths would have to be stored in the roadmap. The roadmap would require more space, but this would not be a major problem.
+Concerning how fast the local planner should be, there is clearly a tradeoff between the time spent in each individual call of this planner and the number of calls. If a powerful local planner was used, it would often succeed in finding a path when one exists. Hence, relatively few nodes would be required to build a roadmap capturing the connectivity of the free C-space sufficiently well to reliably answer path planning queries. Such a local planner would probably be rather slow, but this could be somewhat compensated by the small number of calls needed. On the other hand, a very fast planner is likely to be less successful. It will require more configurations to be included in the roadmap; so, it will be called more often, but each call will be cheaper.
+The choice of the local planner also affects the query phase. The purpose of having a learning phase is to make it possible to answer path planning queries quasi-instantaneously. It is thus important to be able to connect any given start and goal configurations to the roadmap, or to detect that no such connection is possible, very quickly. This requires that the roadmap be dense enough, so that it always contains a few nodes (at least one) to which it is easy to connect each of the start and goal configurations. It thus seems preferable to use a very fast local planner, even if it is not too powerful, and build large roadmaps with configurations widely distributed over the free C-space. In addition, if the local planner is very fast, we can use the same planner to connect the start and goal configurations to the roadmap at query time. Local paths needed not be memorized since recomputing them at query time is inexpensive. We actually tried several local planners, some very fast, some slower but more powerful, and our experimental observations clearly confirmed this conclusion (e.g., see [40], [47]).
+A quite general such local planner, which is applicable to all holonomic robots, connects any two given configurations by a straight line segment in configuration space and checks this line segment for collision and joint limits (if any). Verifying that a straight line segment remains within the joint limits is straightforward. On the other hand, collision checking can be done as follows [6]. First, discretize the line segment (more generally, any path generated by the local planner) into a
+number of configurations c l , . . . ,e, such that for each pair
+of consecutive configurations ( e 2 ,c,+1) no point on the robot, when positioned at configuration e,, lies further than some eps away from its position when the robot is at configuration c,+l (eps is a predetermined positive constant).* Then, for each configuration c2, test whether the robot, when positioned at c2 and "grown" by eps, is collision-free, using the collision checker discussed above. If none of the m configurations yield
+'Throughout this paper symbols in teletyped characters are used to denote parameters of the planning method
+
+collision, conclude that the path is collision-free. Since eps is constant, the computation of the robot bodies grown by eps is done only once. In the following we will refer to this local planner as the general local planner.
+
+c) The node neighbors: Another important choice to be made is that of the set Ne, the candidate neighbors of e. The local planner will be called to connect c with nodes in Ne and the cumulative cost of these invocations dominates learning time.
+We avoid calls of the local planner that are likely to return failure by submitting only pairs of configurations whose relative distance (according to the distance function 0 ) is smaller than some constant threshold maxdist. Thus, we define:
+N, = { E E NID(c,2) 5 maxdist}.
+
+Additionally, according to the algorithm outline given above, we try to connect c to all nodes in N , in order of increasing distance from e; but we skip those nodes which are in the same connected component as c at the time the connection is to be tried. By considering elements of Ne in this order we expect to maximize the chances of quickly connecting c to other configurations and, consequently, reduce the number of calls to the local planner (since every successful connection results in merging two connected components into one).
+In our experiments we found it useful to bound the size of the set Ne by some constant maxneighbors (typically on the order of 30). This additional criterion guarantees that, in the worst case, the running time of each iteration of the main loop of the construction step algorithm is independent of the current size of the roadmap R. Thus, the number of calls to the local method is linear in the size of the graph it constructs.
+
+d} The distancefunction: The function D is used to both construct and sort the set N, of candidate neighbors of each new node e. It should be defined so that, for any pair ( c , n ) of configurations, D ( c , n ) reflects the chance that the local planner will fail to compute a feasible path between these configurations. One possibility is to define D ( c , n ) as a measure (aredvolume) of the workspace region swept by the robot when it moves along the path computed by the local planner between c and n in the absence of obstacles. Thus, each local planner would automatically induce its own
+specific distance function. Since exact computation of swept areadvolumes tends to be rather time-consuming, a rough but inexpensive measure of the swept-region gives better practical results. For example, when the general local planner described above is used to connect c and n,D ( c ,n) may be defined as follows:
+
+D ( c , n )= max IIz(n)- z(c)ll robot
+
+(1)
+
+where z denotes a point on the robot, .(e) is the position of x in the workspace when the robot is at configuration c, and IIz(n)-z(c)ll is the Euclidean distance between .(e) and
+4n).
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI efal.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+57 1
+
+2 ) The Expansion Step: If the number of nodes generated
+
+where n ( c )is total number of times the local planner tried
+
+during the construction step is large enough, the set N gives
+
+to connect c to another node and f ( c ) is the number of
+
+a fairly uniform covering of the free C-space. In easy scenes
+
+times it failed. (Note: Whenever the local planner fails to
+
+R is then well connected. But in more constrained ones where
+
+connect two nodes c and n, this failure is counted in both
+
+free C-space is actually connected, R often consists of a few
+
+the failure ratios of c and n. In this way, the configurations
+
+large components and several small ones. It therefore does not
+
+that are included in N at the very beginning of the
+
+effectively capture the connectivity of C,f.
+
+construction step get meaningful failure ratios.)
+
+The expansion step is intended to improve the connectivity
+
+At the beginning of the expansion step, for every node c
+
+of the graph R generated by the construction step. Typically, if
+
+in N , compute w ( c ) proportional to the failure ratio, but
+
+the graph is disconnected in a place where Cf is not, this place
+
+scaled appropriately so that all weights add up to one, i.e.:
+
+corresponds to some narrow, hence difficult region of the free
+
+C-space. The idea underlying the expansion step is to select a
+
+number of nodes from N which are likely to lie in such regions
+
+and to “expand” them. By expanding a configuration c, we mean selecting a new free configuration in the neighborhood of c, adding this configuration to N , and trying to connect it to other nodes of N in the same way as in the construction step. So, the expansion step increases the density of roadmap configurations in regions of Cf that are believed to be difficult. Since the “gaps” between components of the graph R are typically located in these regions, the connectivity of R is likely to increase.
+We propose the following probabilistic scheme for the expansion step. With each node c in N we associate a positive weight w ( c ) that is a heuristic measure of the “difficulty” of the region around e. Thus, w ( c ) is large whenever c is considered to be in a difficult region. We normalize w so that all weights together (for all nodes in N ) add up to one. Then, repeatedly, we select a node c from N with probability:
+
+To expand a node e, we compute a short random-bounce walk starting from c. For holonomic robots, a random-bounce walk consists of repeatedly picking at random a direction of motion in C-space and moving in this direction until an obstacle is hit. When a collision occurs, a new random direction is chosen. And so on. The final configuration n reached by the random-bounce walk and the edge ( c , n ) are inserted into R. Moreover, the path computed between c and n is explicitly stored, since it was generated by a nondeterministic technique. We also record the fact that n belongs to the same connected component as c. Then we try to connect n to the other connected components of the network in the same way as in the construction step. The expansion step thus never creates new components in R. At worst, it fails to reduce the number of components.
+The weights w ( c ) are computed only once at the beginning
+
+Pr(c is selected) = w ( c )
+
+of the expansion step and are not modified when new nodes
+
+are added to R. Once the expansion step is over, all remaining
+
+and we expand this node.
+
+small components of R, if any, are discarded. Here, a com-
+
+There are several ways to define the heuristic weight ~ ( c ) . ponent is considered small if its number of nodes is less than
+
+One possibility is to count the number of nodes of N lying some mincomponent percent (typically 0.01%) of the total
+
+within some predefined distance of e. If this number is number of nodes in N . The graph R after discarding the small
+
+low, the obstacle region probably occupies a large subset of components represents the roadmap that will be used during
+
+e’s neighborhood. This suggests that w ( c ) could be defined the query phase. It may contain one or several components.
+
+inversely proportional to the number of nodes within some Let TL be the time allocated to the learning phase. Clearly,
+
+distance of e. Another possibility is to look at the distance the range of adequate values for TL depends on the scene, and
+
+d, from c to the nearest connected component not containing these value should be determined experimentally for each new
+
+e. If this distance is small, then c lies in a region where two scene. If TC is the time spent on the construction step and TE is
+
+components failed to connect, which indicates that this region the time spent on the expansion step, we have found that a 2:1
+
+might be a difficult one (it may also be actually obstructed). ratio between these times, i.e, TC = 2 T ~ / 3and TE = TI,/&
+
+This idea leads to defining W ( C ) inversely proportional to d,. Alternatively, rather than using the structure of R to
+
+gives good results over a large range of problems.
+
+identify difficult regions, we could define ~ ( c a)ccording to the behavior of the local planner. For example, if the local B. The Query Phase
+
+planner often failed to connect c to other nodes, this is also During the query phase, paths are to be found between
+
+an indication that c lies in a difficult region. Which particular arbitrary input start and goal configurations, using the roadmap
+
+heuristic function should be used depends to some extent on constructed in the learning phase. Assume for the moment that
+
+the input scene. A more detailed discussion on expansion the free C-space is connected and that the roadmap consists of
+
+techniques can be found in [25].For the framework of this a single connected component R. Given a start configuration
+
+paper, the following function has produced good results:
+
+s and goal configuration g , we try to connect s and g to some
+
+At the end of the construction step, for each node e, two nodes of R, respectively SX and j , with feasible paths P,
+
+compute the failure ratio r f ( c ) defined by:
+
+and Pg. If this fails, the query fails. Otherwise, we compute
+
+a path P in R connecting SX to ij.A feasible path from s to 9
+
+is eventually constructed by concatenating P,,,the recomputed
+
+path corresponding to P , and Pgreversed. If one wishes, this
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+512
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+path may be improved by running a smoothing algorithm on it. Smoothing techniques that can be used here include the one in [35],which selects random segments of the global path and tries to shortcut them by using the local planner, and the method in [7], which iteratively performs local geometric operations (i.e., cutting off triangle corners).
+The main question is how to compute the paths P, and Pg. The queries should preferably terminate quasi-instantaneously, so no expensive algorithm is desired here. Our strategy for connecting s to R is to consider the nodes in R in order of increasing distance from s (according to D ) and try to connect s to each of them with the local planner, until one connection succeeds. We ignore nodes located further than maxdi st away from s, because the chance of success of the local planner is very low. If all connection attempts fail, we perform one or more random-bounce walks, as described in IIIA-2. But, instead of adding the node at the end of each such random-bounce walk to the roadmap, we now try to connect it to R with the local planner. As soon as s is successfully connected to R, we apply the same procedure to connect g to R.
+The reconstruction of a robot path from the sequence of nodes in P reduces to the concatenation of the paths that take the robot between adjacent nodes in P. Some of these paths have been produced by random-bounce walks during the learning phase and are stored in the relevant edges of R. Paths that correspond to connections that have been found during learning by the local planner are recomputed. The local planner is deterministic and it will produce the same path every time it is called with the same input configurations. Collisions need not be checked along the recomputed local paths if the local planner has the property that it aborts when a collision is detected: all intermediate configurations along the path have been checked for collision when the local path was first computed. An example of a planner having the above property is the straight-line planner of Section 111-A-1. If the local planner performs a certain (detenninistic) action when a collision is detected, then collisions need to be checked along the recomputed path so that the same action can be repeated just after a collision is detected.
+In general, however, the roadmap may consist of several
+connected components R,, i = 1 , 2 , . . . , p . This is usually the
+case when the free C-space is itself not connected. It may also happen when free C-space is connected, for instance if the roadmap is not dense enough. If the roadmap contains several components, we try to connect both s and g to two nodes in the same component, starting with the component closest to s and g. If the connection of s and g to some component R, succeeds, a path is constructed as in the single-component case. The method returns failure if it cannot connect both the start and goal configuration to the same roadmap component. Since in most examples the roadmap consists of rather few components, failure is rapidly detected.
+If path planning queries fail frequently, this is an indication that the roadmap may not adequately capture the connectivity of the free C-space. Hence, more time should be spent in the learning phase, i.e., TL should be increased. However, it is not necessary to construct a new roadmap from the beginning.
+
+J4
+JI
+Fig. 1. A planar articulated robot.
+Since the learning phase is incremental, we can simply extend the current roadmap by resuming the construction step algorithm and/or the expansion step algorithm, starting with the current roadmap graph, thus interweaving the learning and the query phases.
+I v . APPLICATIOTNO PLANAR ARTICULATERDOBOTS
+This section describes the application of our planning method to planar articulated robots with fixed or free bases. We present techniques specific to these robots that can be substituted for the more general techniques in the roadmap method in order to increase its efficiency. The purpose of this presentation is to illustrate the ease with which the general method for holonomic robots can be engineered to better suit the needs of a particular application. In Section V we will discuss experiments with an implementation of the method that embeds the specific techniques described below, while in Section VI we will present experimental results with a general implementation of the method to demonstrate that the method remains quite powerful, even without specific components. In the rest of the paper we will refer to these two implementations as the customized implementation and the general implementation, respectively.
+To make the following presentation shorter, we only consider the following type of planar articulated robots with an arbitrary number of revolute joints. Fig. 1 illustrates such a robot in which the links are line segments. The links, which may actually be any polygons, are denoted by L1 through L, (in the figure, q = 5). Points 51 through 5, designate revolute joints. Point J1 denotes the base of the robot; it may, or may not, be fixed relative to the workspace. The point Jq+l ( J Gin the figure) is called the endpoint of the robot. Each
+revolute joint J, (2 = 1,. . . ,q ) has defined certain internal joint limits, denoted by low, and up,,with low, < up,,
+which constrain the range of the possible orientations that L, can take relative to L,-1. If the robot’s base is free, the
+translation of J1 is bounded along the x and y axes of the
+Cartesian coordinate system embedded in the workspace by low, and up,, and low, and upv,respectively. We represent the C-space of such a q-link planar articulated robot by
+{ [lowl, up11 x . . . x [low,, up,]}, if its base is fixed, and by { [lowr,UPZI x [low,, upy] x IO, 27rI x [lowz,UP21 x . ’ . x
+[low,, up,],} if its base is free. A self-collision configuration is any configuration where two nonadjacent links of the robot intersect each other. We do not allow such configurations. Thus, the free C-space is constrained by the obstacles and by the set of self-collision configurations. We assume that the joint limits prevent self-collisions between any two adjacent links.
+We now discuss specific techniques for local path planning, distance computation, and collision checking that apply well to
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+~
+
+~
+
+KAVRAKI et ul.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+573
+
+the family of robots defined above. The same techniques can also be applied, possibly with minor adaptations, to other types of articulated robots, e.g., robots with prismatic joints andor with multiple kinematic chains [28] and articulated robots in 3-D workspace [29].
+1 ) Local Path Planning: Let a and b be any two given configurations that we wish to connect with the local planner. Our local planner constructs a path as follows. It translates at constant relative velocity all the joints with an odd index, i.e., all J2*z+l’s, along the straight lines in the workspace that connect their positions at configuration U to their positions at configuration b. During this motion the planner adjusts the position of every other joint J2*, using the straightforward inverse kinematic equations of this point relative to J2*,-1 and 52*%+1. Thus, the J ~ * %“’fsollow” the motion led by the J2*P+l’~I.f q is even, the position of Jq is not determined by the above rule; it is computed by rotating joint J4 at constant revolute velocity relative to the linear velocity of point Jq. Recall from Subsection 111-B-1 that a local path is discretized into a sequence of configurations for collision checking. When our specific technique is used, we must also verify that the coordinates of each such configuration are within joint limits. Thus, the motion is aborted if either a collision occurs, or a joint moves beyond one of its limits, or some Jz*, cannot follow the motion led by the J2*r+1’W~e. have observed that in cases when the above motion does not manage to connect configurations a and b, it nevertheless brings the robot to a configuration b’ very close to b. It then pays off to try to connect b‘ and b with a straight line in C-space and only after this fails to declare failure of the local planner to connect a and b. We will refer to the above planner as the specific local planner.
+The workspace region swept out by the robot along a local path computed by the specific local planner between two configurationsa and b is typically smaller than for the path joining a and b by a straight line segment in configuration space, which is computed by the general local planner described in Subsection 111-A-1. Hence, the local paths generated by the specific planner are more likely to be collision-free than those generated by the general planner. Also, collision checking is less expensive since, for a given eps,the discretization of the local path yields less configurations. On the other hand, the specific planner, though still very fast, is not as fast as the general planner. Indeed, it requires inverse kinematic computation to determine configuration coordinates along the path. Nevertheless, on examples involving many-dof planar articulated robots, better results are obtained when the specific local planner is used.
+
+& ( a ) and Ji(b). This function is a better approximation of the area swept by the robot along the local paths computed by the specific local planner than the general distance function defined by (1).
+3) Collision Checking: The 2-D workspace allows for a
+very fast collision checking technique. In this technique each link of the robot is regarded as a distinct robot with two dofs of translation and one dof of rotation. A bitmap representing the 3-D configuration space of this robot is precomputed, with the “0”’s describing the free subset of this space and the “1”’s describing the subset where the link collides with an obstacle. When a configuration is checked for collision, the 3-D configuration of each link is computed and tested against its C-space bitmap, which is a constant-time operation. Different 3-D bitmaps must be computed for links of different shape. However, if larger links can be modeled as two (or more) smaller links, then we need not create one bitmap for each link of the robot. For example, when all the links are line segments (as in Fig. l), a single bitmap can be computed, for the shortest link. Then collision checking for a long link requires multiple access to the bitmap of the short link. The computation of any 3-D bitmaps needed for collision checking is performed only once, prior to the learning phase.
+The 3-D bitmap for one link can be computed as a collection of 2-D bitmaps, each corresponding to a fixed orientation of the link. If the link and the obstacles are modeled as collections of possibly overlapping convex polygons, the construction of a 2-D bitmap can be done as follows [36]. First use the algorithm in [37] to produce the vertices of the obstacles in the link’s C-space. (This algorithm takes linear time in the number of vertices of the objects.) Then draw and fill the obstacles into the 2-D bitmap. (On many workstations, this second operation can be done very quickly using rasterscan hardware originally designed to efficiently display filled polygons on graphic terminals.) Each 2-D bitmap may also be computed using the FTT-based method described in [24], whose complexity depends only on the size of the bitmap. This FFT method is advantageous when the obstacles are originally input as bitmaps. In any case, experiments show that computing a 3-D bitmap with a size on the order of 128 x 128 x 128 takes a few seconds. Clearly, this technique is not yet practical for 3-D workspaces, since it requires the generation of 6-D bitmaps.
+There are many other ways of adjusting our general path planning method to a specific robot. However, too much specific tuning may not always be desirable: at some point the gain in efficiency becomes smaller than the burden of making the specific changes and keeping track of them.
+
+2 ) Distance computation: Let J i ( a ) ,i = 1,. . . q+1 denote
+
+the position of the point Ji in the workspace, when the robot
+
+- 1 is at configuration a. We define the distance function D by:
+
+(a,b)E c x c
+
+¶+I
+D ( a , b )= I I J i ( U ) - Ji(b)1I2
+
+i=l
+
+where II.Ji(x) - Ji(y)II is the Euclidean distance between
+
+V. RESULTSWITH CUSTOMIZED IMPLEMENTATION
+In this section we present the performance of our method when this is implemented with the local planner, the collision checker, and the distance function described in Section IV. To be precise, while collision checking with obstacles is done using the bitmap technique, self-collisions are detected analytically.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+574
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+Fig. 2. Scene 1, with 7-revolute-joint fixed-base robot.
+
+The planner is implemented in C and for the experiments the results do not reflect just a lucky run, or a bad one.
+
+reported here we used a DEC Alpha workstation. This machine We independently repeat the same experiment for different
+
+is rated at 126.0 SPECfp92 and 74.3 SPECint92. We have TC and TE.For the other parameters described above, we
+
+tested our planner on a number of 2-D scenes. Each scene choose fixed values throughout the experiments based on some
+
+contains polygonal obstacles and a planar articulated robot preliminary experimental results. Notice that it is important
+
+whose links are line segments (see Figs. 2 and 6). By no to choose the configurations in the test set manually. For
+
+means does this reflect a limitation of the method. The specific obvious reasons, a random generation similar to the one used
+
+local planner and collision checker of Section IV also apply to during the learning phase tends to produce configurations
+
+robots made of polygonal links (though several bitmaps may that are easily connected to the roadmap. Instead, proceeding
+
+then be required). The parameters of our planner are:
+
+manually allows us to select “interesting” configurations,
+
+Tc,the time to be spent in the construction step;
+
+for example configurations where the robot lies in narrow
+
+TE,the time to be spent in the expansion step;
+
+passages between workspace obstacles. It is unlikely that the
+
+maxdist, the maximal distance between nodes that the random generator of the learning phase produced many such
+
+local planner may try to connect;
+
+configurations.
+
+eps, the constant used to discretize local paths before We present results obtained with two representative scenes
+
+collision checking;
+
+shown in Figs. 2 (fixed-base robot) and 6 (free-base robot).
+
+maxneighbors,the maximum number of calls of the
+
+local planner per node;
+
+1 ) Fixed-Base Articulated Robot: Fig. 2 shows eight con-
+
+T R B - ~ th~e d~urat~ion~of~the, computation of a figurations forming the test set of an articulated robot in a
+
+random-bounce walk performed during the expansion step scene with several narrow gates. The robot has a fixed base,
+
+(learning phase);
+
+denoted by a square, and 7 revolute degrees of freedom.
+
+NRB-query,the maximum number of random-bounce The table in Fig. 3 reports the success rates of connecting
+
+walks allowed for connecting the start or goal configura- the configurations in the test set to roadmaps obtained with
+
+tion to the roadmap (query phase);
+
+different learning times. The learning time, TL,is shown in
+
+T R B - ~the~du~rati~on~of t,he computation of each of column 1.It is broken into TC and TE in columns 2 and 3 , with
+
+the raidom-bounce walks during the query phase.
+
+TE = T c / 2 . The values of the other parameters of the planner
+
+(Notice that the last two parameters determine an upper are: maxdist = 0.4, eps = 0.01(for the interpretation of
+
+bound on the time spent in answering a query.)
+
+these two values note that the workspace is described as a
+
+For each scene, we first input a set of configurations unit square), maxneighbors = 30, T R B - = ~0.01~ ~ ~ ~
+
+by hand, which we refer to as the test set. For a fixed Sec, TRB-query = 0.05 sec, NRB-query = 45.
+
+TC and TE, we then independently create many different For every row of the table in Fig. 3 we independently roadmaps starting with different values of the random value generated 30 roadmaps, each with the indicated learning time.
+
+generator. In the examples here we only keep the largest The roadmaps generated for different rows were also computed
+
+connected component of the roadmap; other components, if independently, that is, no roadmap in some row was reused to
+
+any, are simply discarded. We then try to connect the same construct a larger one in following row.
+
+configuration in the test set to each of these roadmaps and Column 4 in Fig. 3 gives the average number of collision
+
+we record the percentage of times our planner succeeds to checks performed for the roadmap construction for different
+
+make a connection in a prespecified amount of time (2.5 s). learning times. This number can be regarded as an estimate of
+
+The estimated success rates may be used to calculate the the computational complexity of the planner. In the context
+
+success rates of queries that involve any two configurations of the our approach, it must be interpreted with caution.
+
+in the test set. By performing a large number of experiments, Collision checks are done not only along robot paths, as in
+
+we believe that we present a realistic characterization of the most planners, but also when trying to guess random free
+
+performance of our planner. In particular, we ensure that configurations of the robot (see Subsection 111-B-1). Most
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI et al.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+515
+
+TL TC TE (sec) (sec) (sec) 20.1 13.1 7.0
+
+Coll. Avg. checks nodes 621943 1062
+
+C1 I C,
+100.0 I 36.7
+
+_c_3
+56.7 70.0 86.7 96.7 100.0 100.0 _ 100_.0
+
+100.0 96.7 100.0
+
+100.0 100.0 100.0
+
+*
+100.0 100.0 100.0 100.0 100.0 100.0 - 100.0
+
+Fig. 3.
+
+* Results with customized planner for scene of Fig. 2 (with expansion).
+
+Tc I TR I Coll.
+
+(sec) (sec) checks
+
+c2
+
+13.3
+
+50.0
+
+80.0
+
+50.2 50.2
+
+1291216 2877 100.0 90.0
+
+60.2 60.2
+
+1502089 3372 100.0 90.0
+
+3877 100.0 96.7
+
+4295 100.0 100.0
+
+c3
+36.7 46.7 80.0 96.7 100.0 100.0 100.0
+
+c4
+10.0 46.7 80.0 90.0 90.0 96.7 100.0
+
+c5
+40.0 46.7 80.0 96.7 100.0 100.0 100.0
+
+c6
+93.3 90.0 100.0 100.0 100.0 100.0 100.0
+
+Fig. 4. Results with customized planner for scene of Fig. 2 (no expansion).
+
+-
+
+TE
+
+Coll. Size of
+
+(sec) checks components
+
+Coll. checks for connection t o roadmap
+
+c1
+
+c3 c, c~ c6 c7 ca
+
+20.3 13.3 7.0 620238 878, 116, 62 62 F F F F F F F
+
+10.5 905312 1644, 165
+
+78 51 F 7584 F 40 59 F
+
+14.1 1178494 2411
+
+53 1148 22 3432 33 44 225 2270
+
+17.5 1421185 2881, 63, 10 13 20 20 3877 80 38 20 2328
+
+21.1 1661916 3302, 35, 33 57 45 16 22 14 160 51 46
+
+24.6 1917744 3869, 52, 10 94 30 19 4764 21 42 74 63
+
+28.1 2128273 4245, 49
+
+32 25 16 32 12 89 48 43
+
+Fig. 5. Connecting configurations to the roadmap.
+
+of these randomly guessed configurations are illegal because roadmaps in each row in Fig. 4. We show the average number
+
+of collisions with the obstacles or self-intersections. On the of collision checks required to create each roadmap (column
+
+average, this is quickly detected and the collision checker 4), the average number of nodes in the largest component of
+
+aborts almost instantaneously. Column 5 in Fig. 3 reports the these roadmaps (column 5 ) , and the success rate when trying
+average number of nodes, over the 30 runs, in the largest to connect C1 . . . ? C, to them. In general, the percentages of
+
+roadmap component at the end of the learning phase. The successful connections are lower in this table. The difference
+
+largest connected component of each roadmap is used for shows more clearly when the learning time is small. If we are
+
+query processing. Columns 6-13 are labeled with the eight interested in obtaining a solution to a path planning problem
+configurations C1, . . . Cg of Fig. 2. The columns report the as fast as possible, it is thus better to spend part of the
+
+success rate when trying to connect, in less that 2.5 s, time allocated to the learning phase on the expansion step
+
+the corresponding configuration to each of the 30 produced rather than spend it completely on the construction step. As
+
+roadmaps. One trial (as defined by the parameters maxdist, mentioned above, the ratio T ~ / T= ~2 gives good results
+
+maxneighbors,TRB-query,and NRB-query)was made over a wide range of problems.
+
+per roadmap.
+
+Let us finally note that connecting Cl,. . . ? CS to the
+
+The table in Fig. 3 shows that after a learning time of roadmaps is very fast, which in turn means that finding a
+
+60 s or more (rows 5, 6, and 7), all eight configurations of path between any two of the above configurations is also fast.
+
+Fig. 2 are successfully connected to the generated roadmaps In Fig. 5 we repeat the experiment of Fig. 3, but now we
+
+with very few exceptions. These are all located in row 6, create only one roadmap in each row of the table. We report
+
+where configurations C,, C, and C, were not connected to in columns 6 to 13 the actual number of collision checks
+the roadmaps, once out of the 30 trials of that row. Such needed to connect Cl, . . . ,(78 to the roadmaps produced after
+
+exceptions are to be expected with a randomized technique. learning times of 20, 30, 40, 50, 60, 70 and 80 s. Again,
+
+Fig. 4 shows the percentage of successful connections to we try to connect the configurations in the test set only
+
+roadmaps created without expansion. The corresponding rows to the largest component of these roadmaps, and we report
+
+of the tables in Figs. 3 and 4 report results obtained with failure (indicated by ‘F’) if we do not succeed to do so
+
+the same learning time. We again generated 30 independent within the allocated time (2.5 s). In most cases, relatively
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+516
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+Fig. 6. Scene 2, with 5-revolute-joint free-base robot (7-dof).
+
+Coll. I Avg.
+
+7i” 20.1 13.0 7.1
+
+checks nodes c1 96.7
+
+30.1 19.6 10.5 1037739 924 100.0
+
+40.1 26.0 14.1 1361134 1603 100.0
+
+50.2 32.6 17.6 1674144 2460 100.0
+
+60.3 39.2 21.1 1987967 2999 100.0
+
+70.1 45.6 24.5 2336917 3695 100.0
+
+80.4 52.3 28.1 2632712 4229 100.0
+
+Fig. 7. Results with customized planner for scene of Fig. 6 (with expansion).
+
+Success Rate (%)
+
+c4
+6.7 16.7 56.7 93.3 93.3 100.0 100.0
+
+56.7 93.3 93.3 100.0 100.0
+
+96.7 100.0 100.0 100.0 100.0
+
+c7 __ca_
+6.7 10.0
+16.7 16.7
+56.7 56.7
+96.7 93.3
+93.3 93.3 100.0 100.0 100.0 100.0
+~
+
+few collision checks are needed for successful connection to the roadmap: a few tens to a few hundreds. Infrequently, a couple of thousands of collision checks are performed. This happens when one or more random-bounce walks are executed before the configuration is connected to the roadmap with the local planner. In any case, for the machine used for our experiments, the above numbers translate to connection times of a fraction of second to a few seconds. In the tahle of Fig. 5 we report in column 4 the size of all roadmap components with more than 10 nodes. It is easy to see that after a learning time of 40 s, there is a clear difference in the size of the major component and the smaller ones. The latter contain only a small percentage of the total nodes and their presence does not affect path planning. That is why in our analysis we considered only the largest component of the roadmaps produced by learning.
+Path planning will succeed between any two configurations that can be connected to the roadmaps produced. A simple breadth-first search algorithm can produce a sequence of edges that connect two nodes of the roadmap in a very short time, typically a small fraction of second in the machine used. Reconstructing the path is equally fast if no collisions need to be performed along recomputed local paths (see Subsection 111-B). In our implementation where collision checks are performed when recovering a local path, we spend a few tens of thousands of collision checks for connecting between different nodes in the roadmap. It is interesting to contrast the number of collision checks needed for learning and for query processing: collision checks for learning are 2 to 3 orders of magnitude larger than collision checks needed for answering queries. This is also true for any configurations we tried in the scene of Fig. 2 and not only the eight configurations
+
+considered here. RPP, one of the few planners that can tackle the path planning problems arising from the configurations in Fig. 2, takes a few tens of minutes on the average to solve these queries. Thus, even if learning time is included in the duration of the path planning process, our roadmap technique is still faster than RPP for this example. However, the above scene is very difficult for potential field methods. In simpler cases (see Section VI) W P is equally fast, if not faster than our roadmap method.
+2 ) Free-Base Articulated Robot: We have performed the same experiments for a free-base articulated robot (see Fig. 6). The robot has a total of 7 dof: 2 for its free base and 5 for its revolute joints. The parameter values of our planner are the same as in the previous experiments.
+Figs. 7 and 8 show the results obtained with and without expansion, respectively. 30 roadmaps were created independently for each row in the above tables. Again, in almost all cases, the percentage of successful connections to the roadmaps is greater with expansion than without (for the same total learning time). After a learning phase of 70 seconds, all configurations can be connected to the roadmaps produced. The actual number
+of collision checks for connecting C1, . . . ,Ca of Fig. 6 to
+the roadmaps are again in the order of a few tens to a few thousands. This makes path planning between any two of the configurations shown in Fig. 6 very fast: usually a fraction of a second in the machine used.
+VI. RESULTS WITH GENERALIMPLEMENTATION
+The customized implementation used in the previous section solves efficiently path planning problems involving planar articulated robots. In this section we demonstrate that the
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI et ul.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+511
+
+TE (sec) 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+
+Coll. checks 686580 987852 1265245 1534808 1778678 2058469 2277226
+
+Avg. nodes
+527 1005 1437 2238 2709 3384 4002
+
+C1 96.7 100.0
+100.0 100.0 100.0 100.0 100.0
+
+C, 3.3 30.0 40.0 80.0 80.0 90.0 100.0
+
+Success Rate (%) C, C, C, C, 3.3 3.3 3.3 86.7
+30.0 26.7 30.0 96.7 40.0 40.0 43.3 100.0 80.0 76.7 76.7 100.0 80.0 80.0 80.0 100.0 90.0 90.0 90.0 100.0 100.0 100.0 100.0 100.0
+
+C, 3.3 30.0 43.3 76.7 83.3 90.0 100.0
+
+C, 3.3 30.0 40.0 76.7 80.0 90.0 100.0
+
+Fig. 8. Results with customized planner for scene of Fig. 6 (no expansion).
+
+Fig. 10. Scene 2, with 5-dof robot.
+
+Fig. 9. Scene 1, with 4-dof robot
+
+only two “difficult” configurations s and g. Then, for a fixed
+
+general implementation of the planner still gives very good results for a variety of examples.
+The planner considered here is essentially an implementation of the method described in Section 111. Unlike the customized implementation, this implementation does not use any specific techniques for local path planning, collision checking, or distance computation. Hence, as described in
+
+construction time TC and expansion time TE (hence, a fixed learning time TL),we independently create 30 roadmaps. For each of these roadmaps we only consider its main connected component and we test whether the query with configurations ( s , g ) succeeds within 2.5 s. In other words, we test whether both s and g can be quickly connected to the main connected component of the roadmap with the method described in Section 111-B. We repeat this experiment for a number of
+
+Section 111, the local path constructed between any two config- different construction times TC and expansion times TE, with urations is the straight line segment joining them in C-space; TE = Tc/2. For each such pair of times we report the success
+the distance function D is the one defined by Eqn. (1); and rate in answering the query (s, 9 ) .
+
+collision checking is done analytically, using routines from The other parameters have the following fixed val-
+
+the PLAGE0 library [191. The planner was implemented on a ues, which are almost the same as in the experimen-
+
+Silicon Graphics Indigo2 workstation rated at 96.5 SPECfp92 tation reported in the previous section: maxdist =
+
+and 90.4 SPECint92. This machine is comparable to the one 0.5, eps = 0.01, maxneighbors = 30, T R B - = ~ ~ ~ ~
+
+we used for the results in the previous section. We report here 0.01, T R B -= ~0.05~sec~, an~d NR~B-query = 45. Again,
+
+on experimentation conducted with articulated robots with 4 for the interpretation of the values for maxdist and eps,
+
+or 5 joints connected by polygonal links. This general planner note that we scaled the two scenes in a way that the workspace
+
+is directly applicable to robots with polyhedral links moving obstacles just fit into the unit square.
+
+in 3-D workspaces.
+
+In both Figs. 9 and 10 the start configuration s is shown in
+
+We present results obtained with two representative exam- dark grey, and the goal configuration g in white. In each figure, ples. In scene 1 in Fig. 9, we have a 4-dof robot with three several robot configurations along a path solving the query
+
+revolute joints and one prismatic joint (indicated by the double are displayed using various grey levels. The results of the
+
+arrow). Scene 2 in Fig. 10,is a slightly more difficult one, with experiments described above are given in Fig. 11. The average
+
+a 5-revolute-joint robot and narrow areas in the workspace. number of collision checks required to build the roadmaps is
+
+For most existing planners, motion planning problems in both given in column 4 for scene 1 and in column 6 for scene 2. The
+
+these scenes would be challenging ones. RPP is able to deal query in scene 1 is solved in all 30 cases after having learned
+
+with these examples efficiently. Still, the cases treated here for 7.5 s. Learning for 5 s though suffices to successfully
+
+are considerably easier than in the scenes of Section V, due to answer the query in more than 90% of the cases. In scene 2
+
+the relatively low number of dofs of the two robots, and the we observe a similar behavior, although the required learning
+
+presence of only few tight areas in the workspaces.
+
+times are slightly higher.
+
+The experiments conducted with these two test scenes are These results show that the general implementationis able to
+
+similar to those in Section V. For each scene, we consider efficiently solve rather complicated planning problems. How-
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+578
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+TL (sec) 2.5
+5 7.5 10
+
+TC (sec) 1.67 3.33
+5 6.67
+
+TE (sec) 0.83 1.67 2.5 3.33
+
+Coll. checks
+Learning: Scene 1
+10078 19756 29525 38607
+
+Success r a t e (%) Scene 1 53.3 93.3 100 100
+
+COL checks Learning: Scene 2
+9558 18746 27607 36392
+
+Success r a t e (%) Scene 2 50 87 97 1 nn
+
+Fig. 11. Results with general planner for scenes of Fig. 9 and 10
+
+Fig. 12. Results with general planner for scene of Fig. 2 (with expansion).
+ever, when applied to problems involving more dofs, like those in the previous section, the learning times required to build good roadmaps are much longer. For example, experiments indicated that about 25 minutes of learning are required in order to obtain roadmaps that capture well the free C-space connectivity of the scene shown in Fig. 2. Fig. 12 reports some experimental results obtained over many independently constructed roadmaps, for different learning times. As in Section V, we estimate the average number of collision checks needed during learning and the percentage of times that our planner succeeds in connecting some of the configurations of Fig. 2 to the roadmap, over many independently constructed roadmaps, for different learning times. In such difficult cases, clearly, customization is desirable, if not necessary.
+VII. CONCLUSION
+We have described a' two-phase method to solve robot motion planning problems in static workspaces. In the learning phase, the method constructs a probabilistic roadmap as a collection of configurations randomly selected across the free C-space. In the query phase, it uses this roadmap to quickly process path planning queries, each specified by a pair of configurations. The learning phase includes a heuristic evaluator to identify difficult regions in the free C-space and increase the density of the roadmap in those regions. This feature enables us to construct roadmaps that capture well the connectivity of the free C-space.
+The method is general and can be applied to virtually any type of holonomic robot. Furthermore, it can be easily customized to run more efficiently on some family of problems. Customization consists of replacing components of the general method, such as the local planner, by more specialized ones fitting better the characteristics of the considered scenes. In this paper, we have described techniques to customize the method to planar articulated robots, and presented experimental results with both a general and a customized implementation of the method. The customized implementation can solve very difficult path planning queries involving many-dof robots in a fraction of a second, after a learning time of a few dozen seconds. The general implementation solves the same
+
+problems in several minutes, but it is still very efficient in less difficult problems.
+In [25],[28],[29], and [43], prior versions of the method have been applied to a great variety of holonomic robots including planar and spatial articulated robots with revolute, prismatic, and/or spherical joints, fixed or free base, and single or multiple kinematic chains. In [47]-[49] a variation of the method (essentially one with a different general local planner) was also run successfully on examples involving nonholonomic car-like robots.
+Experimental results show that our method can efficiently solve certain kinds of problems which are beyond the capabilities of other existing methods. For example, for planar articulated robots with many dofs, the customized implementation of Section V is much more consistent than the Randomized Path Planner (RPP) of [6]. Indeed, the latter can be very fast on some difficult problems, but it may also take prohibitive time on some others. We have not observed such disparity with our roadmap method. Moreover, after sufficient learning (usually on the order of a few dozen seconds), the probabilistic roadmap method answers queries considerably faster than RF'P. However, when the learning time is included in the planning time, RPP is faster on many problems, since it does not perform any substantial precomputation.
+An important question is how our method scales up when we consider scenes with more complicated geometry, since the cost of collision checking is much higher. First, let us note that in 2-D workspaces the effect is likely to be limited if the bitmap collision-checking technique of Section IV is used. Indeed, once bitmaps have been precomputed, collision checking is a constant-time operation; and the cost of computing bitmaps using the FFT-based technique described in [24] only depends on the resolution (i.e., the size) of these bitmaps. However, more complicated geometry may require increasing the bitmap resolution in order to represent geometric details with desired accuracy. With 3-D workspaces the situation is completely different, since we can no longer use the bitmap technique. Our experiments in 3-D workspaces reported in [29] show that the higher cost of collision checking increases the duration of the learning phase. It affects less the query phase, since less collision checks are performed there. The results in [29] also show that the duration of the learning phase remains quite reasonable (on the order of minutes), but they were obtained with simple 3-D geometry (for example, the robot links were line segments). For more complicated geometries, the use of an iterative collision checker, like the one in [44], will be advantageous. The collision checker in [44] considers successive approximations of the objects and its running time, on the average, does not depend much on the
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+KAVRAKI et al.: PROBABILISTIC ROADMAPS FOR PATH PLANNING IN HIGH-DIMENSIONAL CONFIGURATION SPACES
+
+579
+
+geometric complexity of the scenes. RPP is another planner
+
+that heavily relies on collision checking. For long we ran
+
+RPP on geometrically simple problems; but, recently, we used
+
+it to automatically animate graphic 3-D scenes of complex
+
+geometry [32] using the above iterative collision checker. We
+
+observed no dramatic slowdown of the W P planner.
+
+A challenging goal would now be to extend the method to
+
+dynamic scenes. One first question is: how should a roadmap
+
+computed for a given workspace be updated if a few obstacles
+
+are removed or added? The work in 121, [lZ] discusses how
+
+to deal with changes in the environment in the context of
+
+the hybrid planner presented in [12]. We hope that similar
+
+techniques could apply to our planner. Being able to plan
+
+when obstacles move will be very useful because then we
+
+could apply our method to scenes subject to small incremental
+
+changes. Such changes occur in many manufacturing (e.g.,
+
+assembly) cells; while most of the geometry of such a cell
+
+is permanent and stationary, a few objects (e.g., fixtures)
+
+are added or removed between any two consecutive manu-
+
+facturing operations. Similar incremental changes also occur
+
+in automatic graphic animation. A second question is: how
+
+should the learning and query phase be modified if some
+
+obstacles are moving along known trajectories? An answer to
+
+this question might consist of applying our roadmap method in
+
+the configurationx time space of the robot [161. The roadmap
+
+then have to be
+
+as a directed graph, since local
+
+paths between any two nodes must monotonically progress
+
+along the time axis, with possibly additional constraints on
+
+their slope and curvature to reflect bounds on the robot’s
+
+velocity and acceleration.
+
+REFERENCES
+
+[I] J. M. Ahuactzin, E.-G. Talbi, P. Bessiere, and E. Mazer, “Using
+
+genetic algorithms for robot motion planning,’’ 10th Europ. Con$ ArtiJic.
+
+Intelligence, London, pp. 671-675, 1992.
+
+[2] M. Barbehenn, P.C. Chen, and S. Hutchinson, “An efficient hybrid
+
+planner in changing environments,” Proc. IEEE Int. Con$ Robotics and
+
+Automation, San Diego, CA, pp. 2755-2760, May 1994.
+
+131 J. Barraquand and P. Ferbach, “Path planning through variational
+
+dynamic programming,” Proc. IEEE Int. Con$ Robotics and Automation,
+
+San Diego, CA, pp. 1839-1846, May 1994.
+
+[4] B. Barraquand, L. E. Kavraki, J.-C. Latombe, T.-Y. Li, R. Motwani,
+
+and P. Raghavan, “A random sampling scheme for robot path planning,”
+
+Robotics Research, G. Giralt and G. Hirzinger, Eds. Amsterdam: North
+
+Holland, 1996, to appear.
+
+[5] J. Barraquand, B. Langlois, and J.-C. Latombe, “Numerical potential
+
+field techniques for robot path planning,” IEEE Trans. Syst., Man,
+
+Cybern., vol. 22, no. 2, pp. 224-241, 1992.
+
+[6] J. Barraquand and J.-C. Latombe, “Robot motion planning: a distributed
+
+representation approach,” Inc. J. Robot. Res., vol. 10, pp. 628-649, 1991.
+
+[7] S. Berchtold and B. Glavina, “A scalable optimizer for automatically
+
+generated manipulator motions,” Proc. IEEE/RSJ/GI Int. Conj Intelli-
+
+gent Robots and Systems, Miinchen, Germany, pp. 1796-1802, 1994.
+
+[8] J. F. Canny, The Complexity of Robot Motion Pluizning. Cambridge,
+
+MA: MIT Press, 1988.
+
+[9] J. F. Canny and M. C. Lin, “An opportunistic global path planner,”
+
+Proc. IEEE Int. Con$ Robotics and Automation, Cincinnati, OH, pp.
+
+1554-1559, 1990.
+
+[IO] D. Chalou and M. Gini, “Parallel robot motion planning,” Proc. IEEE
+
+Int. Con$ Robotics and Automation, Atlanta, GA, pp. 24-51, 1993.
+
+[ I l l H. Chang and T.-Y. Li, “Assembly maintainability study with motion
+
+planning,” Proc. IEEE Int. Con$ Robotics and Automation, Nayoga,
+
+Japan, 1995.
+
+[I21 P. C. Chen, “Improving path planning with learning,” Proc. Machine
+
+Learning Confi, pp. 55-61, 1992.
+
+[13] -,
+
+“Adaptive path planning in changing environments, ” Rep.
+
+SAND92-2744, Sandia National Laboratories, 1993.
+
+[I41 P. C. Chen and Y. K. Hwang, “SANDROS: A motion planner with
+
+performance proportional to task difficulty,” Proc. IEEE Int. Con$
+
+Robotics and Automation, Nice, France, pp. 2346-2353, 1992.
+
+[I51 H. Choset and J. Burdick, “Sensor based planning and nonsmooth
+
+analysis,” Proc. IEEE Int. Con$ Robotics and Automation, San Diego,
+
+CA, pp. 3034-3041, 1994.
+
+[I61 M. Erdmann and T. Lozano-PCrez, “On multiple moving objects,” Proc.
+
+IEEE lnt. Con$ Robotics and Automation, pp. 1152-1 159, 1986.
+
+[17] B. Faverjon and P. Tournassoud, “A local approach for path planning of
+
+manipulators with a high number of degrees of freedom,” Proc. IEEE
+
+Int. Con$ Robotics andAutomation, Raleigh, NC, pp. 1152-1 159, 1987.
+
+[I81 B. Faverjon and P. Tournassoud, “A practical approach to motion
+
+planning for manipulators with many degrees of freedom,” Robotics
+
+Research 5, H. Minra and S. Arimoto, Eds. Cambridge, MA: MIT
+
+Press, p. 65-73, 1990.
+
+[I91 G.-J. Giezeman,”PlaGeo-A library for planar geometry” Tech. Rep.,
+
+Dept. Computer Science, Utrecht Univ., Utrecht, The Netherlands, 1993.
+
+[20] L. Graux, P. Millies, P.L. Kociemba, and B. Langlois, “Integration
+
+of a path generation algorithm into off-line programming of airbus
+
+panels,” Aerospace Automated Fastening Con$ and Exp., SAE Tech.
+
+Paper 922404, Oct. 1992.
+
+[21] K. Gupta and Z. Gou, “Sequential search with backtracking,” Proc. IEEE
+
+h t . Con$ Robotics andAutomation, Nice, France, pp. 2328-2333, 1992.
+
+[22] K. Gupta and X. Zhu, “Practical motion planning for many degrees of
+
+freedom: A novel approach within sequential framework,” Proc. IEEE
+
+Int. Con$ Robotics and Automation, San Diego, CA, pp. 2038-2043,
+
+1994.
+
+[23] Th. Horsch, F. Schwarz, and H. Tolle, “Motion planning for many
+
+degrees of freedom - random reflections at C-space obstacles,” Proc.
+
+IEEE Int. Conf Robotics and Automation, pp. 3318-3323, San Diego,
+
+CA, 1994.
+
+[24] L. E. Kavraki, “Computation of configuration-space obstacles using the
+
+fast fourier transform,“ IEEE Trans. Robot. Automat., vol. 11, no. 3 , pp.
+
+408413, June 1995.
+
+[25] -, Random networks in conjigurution space for just path planning,
+
+Ph.D. Dissertation, Tech. Rep. STAN-CS-95.1535, Dept. Computer
+
+Science, Stanford Univ., Stanford, CA, Jan. 1995.
+
+[26] L. E. Kavraki, M. N. Kolountzakis, and J.-C. Latombe, “Analysis
+
+of probabilistic roadmaps for path planning,” Proc. IEEE Int. Con$
+
+Robotics and Automution, Minneapolis, MN, , pp. 3020-3025, 1996.
+
+[27] L. E. Kavraki and J.-C. Latombe, Randomized preprocessing of con-
+
+jiguration space f o r fast path planning, Tech. Rep. STAN-CS-93-1490,
+
+Dept. Computer Science, Stanford Univ., Stanford, CA, Sept. 1993.
+
+[28] __, “Randomized preprocessing of configuration space for fast path
+
+planning,” Proc. IEEE Int. Con$ Robotics and Automation, San Diego,
+
+CA, pp. 2138-2145, 1994.
+
+[29] -,
+
+“Randomized preprocessing of configuration space for path
+
+planning: Articulated robots,” Proc. IEEE/RSJ/GI Int. Con$ Intelligenl
+
+Robots and Systems, Germany, pp. 17641772, 1994.
+
+[30] L. E. Kavraki, J.-C. Latombe, R. Motwani, and P. Raghavan, “Random-
+
+ized query processing in robot path planning,” Proc. 27th Ann. ACM
+
+Symp. on Theovy of Computing (STOC), Las Vegas, NV, pp. 353-362,
+
+May 1995.
+
+[31] D. E. Koditschek, “Exact robot navigation by means of potential
+
+functions: some topological considerations,” Proc. IEEE Int. Con$
+
+Robot. Automat., Raleigh, NC, pp. 1-6, 1987.
+
+[32] Y. Koga, K. Kondo, J. Kuffner, and J.-C. Latombe, “Planning motions
+
+with intentions,” Proc. SIGGRAPH’94, pp. 395-408, 1994.
+
+[33] K. Kondo, “Motion planning with six degrees of freedom by multistrate-
+
+gic bidirectional heuristic free-space enumeration,” IEEE Trans. Robot.
+
+Automat., vol. 7, no. 3, pp. 267-277, 1991.
+
+[34] J.-C. Latombe, Robot Motion Planning. Boston: Kluwer, 1991.
+
+[35] J.-P. Laumond, M. Taix, and P. Jacobs, “A motion planner for car-like
+
+robots based on a globaVlocal approach,” Proc. IEEE Internat. Workshop
+
+Intell. Robot Syst., pp. 765-773. 1990.
+
+[36] J. Lengyel, M. Reichert, B. R. Donald, and P. Greenherg, “Real-time
+
+robot motion planning using rasterizing computer graphics hardware,”
+
+Proc. SIGGRAPH’90, Dallas, TX, pp. 327-335, 1990.
+
+[37] T. Lozano-Perez, “Spatial planning: a configuration space approach,”
+
+IEEE Trans. Computers, vol. 32, pp. 108-120, 1983.
+
+[38] T. Lozano-Perez and P. O’Donnel, “Parallel robot motion planning,”
+
+Proc. IEEE Int. Con$ Rob. and Automation, Sacramento, CA, pp.
+
+1000-1007, 1991. [39] T. Lozano-PCrez and M. A. Wesley, “An algorithm for planning
+
+collision-free paths among polyhedral obstacles,” Comm. ACM, vol.
+
+22, no. 10, pp. 560-570, 1979.
+
+[40] J. Mastwijk, Motion planning using potential .field methods, Master’s
+
+Thesis, Dept. Computer Science, Utrecht Univ., Utrecht, The Nether-
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+
+580
+
+IEEE TRANSACTIONS ON ROBOTICS AND AUTOMATION, VOL. 12, NO. 4, AUGUST 1996
+
+lands, Aug. 1992. 1411 C. O’Dunlaing and C.K. Yap, “A retraction method for planning the
+~~
+motion of a d&,” J. Algorithms, vol. 6, pp. 104111, 1982. 1421 M. Overmars, A random approach to motion planning, Tech. Rep.
+RUU-(2-92-32, Dept. Computer Science, Utrecht Univ., Utrecht, The
+Netherlands, Oct. 1992; [43] M. Overmars and P. Svestka, “A probabilistic learning approach to
+motion planning,” in Algorithmic Foundations of Robotics, K. Goldberg et al., Eds. Wellesley, MA: A. K. Peters, pp. 19-37, 1995. [44] S. Quinlan, “Efficient distance computation between nonconvex objects,” Proc. IEEE Int. Con$ Robotics und Automation, San Diego, CA. pp. 3324-3330, 1994. [45] E. Rimon and J. F. Canny, “Construction of C-space roadmaps from local sensory data, What should the sensors look for?’ Proc. IEEE Int. Con$ Robotics and Automation, San Diego, CA, pp. 117-123, 1994. [46] E. Rimon and D. E. Koditschek, “Exact robot navigation using artificial potential functions,” IEEE Trans. Robot. Automat., vol. 8, pp. 501-518,
+1992. [47] P. Svestka, A probabilistic approach to motion planning for car-like
+robois, Tech. Rep. RUU-CS-93-18, Dept. Computer Science, Utrecht
+Univ., Utrecht, The Netherlands, Apr. 1993. [48] P. Svestka and M. Overmars, Motion plunningfor car-like robots using
+U probabilistic learning approach, to appear in Int. J . Robot. Research.,
+1995. [49] ~, “Coordinated motion planning for multiple car-like robots using
+probabilistic roadmaps,” Proc. IEEE Int. Con$ Robotics and Automation. Nagoya, Japan, pp. 1631-1636, 1995. [SO] X. Zhu and K. Gupta, “On local minima and random search in robot motion planning,” Unpublished Tech. Report, Simon Fraser Univ., Burnaby, British Columbia, Canada, 1993.
+
+Petr Svestka was born in Prague, Czechoslov&a, on October 17, 1968 He received the degree in computer science from the University of Utrecht, Utrecht, The Netherlands, in 1993 He is currently working toward the Ph.D. degree, also at Utrecht University His research activities include probabilistic path planning for various types of robots, as well as multi-robot path planning.
+Jean-Claude Latombe received the B.S. and M.S degrees in electrical engineering, and the Ph D degree in computer science from the National Polytechnic Institute of Grenoble, Grenoble, France, in 1969, 1972, and 1977, respectively.
+He is currently a Professor of Computer Science, Stanford University, Stanford, CA, where he is also the director of the Computer Science Robotics Laboratory From 1980 to 1984, he was a faculty member at Ecole Nationale Superieure d’lnformatique et de Mathematiques Appliquees de Grenoble (ENSIMAG) From 1984 to 1987, he was the executive president of Industry and Technology for Machine Intelligence (ITMI), a company he cofounded in 1982 for commercializing robot systems and expert systems His current research interests lie mainly In geometric computing and motion planning, and in their applications to manufacturing, mobile robot navigation, concurrent design, graphic animation, rationale drug design, and computer-assisted surgery
+
+Lydia E. Kavraki received the B.S. degree in computer science from the University of Crete, Greece, in 1989, and the M.S. and Ph.D. degrees in computer science from Stanford University in 1992 and 1995, respectively.
+She is currently a Research Associate at the Robotics Laboratory, Stanford University. Her research interests include motion planning, assembly planning, and geometric computing, with applications in the area of molecular biology (phamaceutical drug design). Her work emphasizes the use of probabilistic techniques for solving complex geometric problems in high dimension.
+
+Mark H. Overmars received the Ph.D. degree in computer science in 1983 from Utrecht University, Utrecht, The Netherlands.
+He is currently a full professor in Computer Science at Utrecht University. His main research interests include Computational geometry and its application in areas like computer graphics and robotics. In robotics, his work concentrates on exact and heuristic methods for motion planning and on algorithmic issues in robotic manipulation.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 23,2022 at 15:13:36 UTC from IEEE Xplore. Restrictions apply.
+

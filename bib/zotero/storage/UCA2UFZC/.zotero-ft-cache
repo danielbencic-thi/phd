@@ -1,0 +1,770 @@
+Data-Driven Topological Motion Planning with Persistent Cohomology
+Florian T. Pokorny and Danica Kragic Centre for Autonomous Systems, KTH Royal Institute of Technology
+
+Abstract— In this work, we present an approach to topological motion planning which is fully data-driven in nature and which relies solely on the knowledge of samples in the free conﬁguration space. For this purpose, we discuss the use of persistent cohomology with coefﬁcients in a ﬁnite ﬁeld to compute a basis which allows us to efﬁciently solve the path planning problem. The proposed approach can be used both in the case where a part of a conﬁguration space is wellapproximated by samples and, more generally, with arbitrary ﬁltrations arising from real-world data sets. Furthermore, our approach can generate motions in a subset of the conﬁguration space speciﬁed by the sub- or superlevel set of a ﬁltration function such as a cost function or probability distribution. Our experiments show that our approach is highly scalable in low dimensions and we present results on simulated PR2 arm motions as well as GPS trace and motion capture data.
+I. INTRODUCTION AND RELATED WORK In recent years, the “data-driven approach” has provided a paradigm shift in robotics: instead of hand-coded mathematical models of an idealized version of the environment, a multitude of techniques which build probabilistic models from sampled data have been developed [1]. Within the motion planning community, this development has been mirrored in the development of sampling based motion planning techniques such as rapidly exploring random trees (RRTs) [2] and probabilistic roadmaps (PRMs) [3]. In this work we consider how to determine not just a single collision free trajectory between two points, but a collection of homotopy inequivalent trajectories given collision free samples, where trajectories are called homotopy inequivalent when they cannot be continuously deformed into one another without collisions. While motion planning approaches such as RRT and PRM-based methods [2], [3] aim to generate either just a collision-free path, or a path which is close to optimal with respect to some cost, the underlying graphs used in these approaches are only able to approximate the path-connectivity of the free conﬁguration space Cf and cannot capture higher order topological features such as the number of holes and voids. In particular, they do not capture information about the homology or homotopy groups of Cf besides path connectivity. On the other hand, while classical analytical methods to motion planning, such as the works of [4] and [5], [6] construct cell complexes which can be used to compute homology groups of Cf to extract this type of information, these methods have not focused on generating trajectories in distinct homotopy classes and assumed that a complete and noise-free description of Cf is speciﬁed, for example in terms of semi-algebraic functions.
+
+Input dense samples or sparse samples
+
+Filtration e.g. DC(X)
+
+ThCreoshhoomldoSloegleyc&tion persistent cohomology topological constraints
+
+PMlaontnioinng graph annotation lifted Dijkstra
+
+Fig. 1: Overview of our data-driven topological motion planning approach.
+A small number of recent works, including [7], [8], [9], [10], [11], have started to study motion planning algorithms for trajectories with homotopy class constraints. In the case of 2D conﬁguration spaces, the cited works rely on differential forms computing the winding angle around representative points inside the obstacles in the conﬁguration space C and this idea has been generalized to higher dimensions. However, all these works rely on a speciﬁc basis of the ﬁrst de Rham cohomology group in order to perform motion planning and they require an explicit geometric reduction of the obstacles in Cf to representative skeleta. Our approach, as outlined in Fig. 1, instead assumes only the availability of samples in Cf , obtained using random sampling, or from a database of successfully executed prior motions. From these samples, a simplicial complex ﬁltration is then extracted, taking into account a distance, probability density, or cost function. This part of our approach is closely related to [12] which introduced persistent homology as a tool for classifying pre-existing trajectories, but which did not consider the motion planning problem itself. We utilize persistent cohomology rather than homology to determine 1-cocycles representing large features in the ﬁltration and to ﬁnd a ﬁltration threshold for motion planning. The resulting 1-cocycles correspond to ‘fences’ in the conﬁguration space using which we are able to formulate the topological motion planning problem by means of a cohomologically annotated graph serving as input to an efﬁcient implicit graph representation and a lifted Dijkstra algorithm we introduce here.
+II. BACKGROUND AND NOTATION Algebraic Topology Preliminaries: In this work, we make use of cohomology with coefﬁcients in a ﬁeld F. While inﬁnite ﬁelds such as Q can be used for all persistent cohomology computations, the path planning algorithm we propose performs a search over a ﬁnite search space only in the case when F is also ﬁnite. Most typically, we shall consider the ﬁnite ﬁeld Zp with p elements, where p is a prime and Zp = {0, 1, . . . , p − 1}. The binary ﬁeld Z2 will
+
+Symbol C K
+Cp(K) ∂p
+Bp(K) Zp(K) Hp(K) Hpi,j (K)
+F π1(Y )
+X
+
+Explanation conﬁguration space simplicial complex p-chains of K pth boundary operator p-boundaries of K p-cycles of K pth homology group
+pth (i, j) persistent homology group a ﬁnite ﬁeld 1st fundamental group of Y set of samples in Rd
+
+Symbol Cf |K|
+C p (K) δp
+Bp(K) Z p (K) H p (K) Hip,j (K)
+Zp
+Xr
+
+Explanation collision free c-space support of K p-cochains of K pth coboundary operator p-coboundaries of K p-cocycles of K pth cohomology group
+pth (i, j) persistent cohomology group ﬁnite ﬁeld {0, . . . , p − 1} for some prime p union of r-balls around X
+
+TABLE I: Summary of our notation
+
+Fig. 2: A simplicial complex K in 2D, consisting of vertices, edges and
+triangles is displayed in both parts of the ﬁgure. On the left, we display a 1-cycle c in red, such that [c] ∈ H1(K) yields a basis for the 1-dimensional H1(K) with Z2 coefﬁcients. Marked edges correspond to 1-simplices with coefﬁcient 1 in c. In the right ﬁgure, a 1-cochain ϕ is displayed, where the marked red edges correspond to 1-simplices on which ϕ takes the value 1, while ϕ takes the value 0 on the remaining 1-simplices.
+
+be used in our experiments since it can be implemented very
+
+efﬁciently. The books [13], [14] provide a reference for the
+
+relevant concepts from algebraic topology, and a summary
+
+of our notation is provided in Table I.
+
+Simplicial Complexes: Recall that a geometric k-
+
+simplex σ = [v0, . . . , vk] in Rd is a convex hull of k + 1 ordered afﬁnely independent elements v0, . . . , vk ∈ Rd and a convex hull of an ordered subset of these elements is called
+
+a face τ of σ, indicated by τ σ. We call k the dimension
+
+of a k-simplex. In the special case of Z2 coefﬁcients as in [12], the ordering can in fact be ignored. A (ﬁnite) simplicial
+
+complex K is a non-empty set of simplices such that if σ ∈ K
+
+and τ σ, then τ ∈ K and if σ, σ ∈ K then σ ∩ σ is empty
+
+or an element of K. We write |K| for set of points in Rd contained in the union of all simplices in K. The set |K| is
+
+a topological space with the subspace topology from Rd.
+
+(Co-)Homology with Coefﬁcients in F: A p-chain c is
+
+a formal sum c =
+
+k i=1
+
+λiσi
+
+of
+
+p-simplices
+
+{σi}ki=1
+
+⊂
+
+K
+
+with λi ∈ F and Cp(K) denotes the F-vector space of
+
+all p-chains. In particular, for ﬁnite geometric complexes,
+
+1-chains are ﬁnite linear combinations of edges and 2-
+
+chains are linear combinations of triangles. We denote
+
+by Cp(K) = Hom(Cp(K), F) the vector space of linear maps from Cp(K) to F. Elements of Cp(K) are called pcochains. When no confusion arises, we write Cp, Cp for Cp(K), Cp(K) to simplify notation. For every geometric p-simplex σ = [v0, . . . , vp] let ∂σ be the p − 1-chain ∂σ = pi=0(−1)i[v0, . . . , vi−1, vi+1, . . . , vp]. For each p ∈ {0, . . . , d}, ∂ extends to a linear map ∂ : Cp → Cp−1, called the boundary operator. The coboundary operator δ :
+
+Cp−1 → Cp is deﬁned dually by δ(ω)(c) = ω(∂(c)), for ω ∈ Cp−1 and c ∈ Cp. A p-chain c such that c = ∂ω for some ω ∈ Cp+1 is called a p-boundary. And a p-chain c such that ∂c = 0 is called a p-cycle. Similarly, a p-cochain ϕ ∈ Cp such that ϕ = δη for some η ∈ Cp−1 is called a p-coboundary and a p-cochain ϕ such that δϕ = 0 is called a p-cocycle. The vector spaces of p-boundaries and p-cycles are denoted Bp and Zp respectively and the vector spaces of p-cochains and p-cocycles are denoted by Bp and Zp respectively. The p-th homology group of K is deﬁned by Hp(K) = Zp/Bp and the p-th cohomology group is deﬁned by Hp(K) = Zp/Bp. For a cycle c ∈ Zp (cocycle ϕ ∈ Zp), we denote by [c] ∈ Hp ([ϕ] ∈ Hp) the resulting element in homology (cohomology). In the special case of F = Z2, we can easily visualize 1-chains as a collection of edges in K which have non-zero coefﬁcients in the chain. Similarly, a 1-cochain corresponds to a function assigning 0 or 1 to each edge, and we can visualize the 1-cochain by displaying those 1-simplices on which it takes the value 1. See Fig. 2 for an example. Note that each p-cycle c yields an element in Hp, but this representative is only unique up to elements in Bp. Similarly, p-cocycles deﬁne elements of Hp only up to Bp.
+The importance of homology and cohomology in mathematics arises from the fact that they capture global topological properties about the topological space deﬁned by |K|. In particular both homology and cohomology are invariant under continuous deformations of the space |K| (homotopies of |K|). The universal coefﬁcient theorem [13] in fact asserts that Hp and Hp are dual as vector spaces for ﬁeld coefﬁcients. In particular, for ﬁnite simplicial complexes, bp = dim(Hp) = dim(Hp) is called the pth Betti number and counts the number of connected components (b0), tunnels (b1), and higher dimensional voids in K. The left part of Fig. 2 illustrates an example 1-cycle c lying in a simplicial complex K and forming a basis of H1(K) which is in this case 1-dimensional and where we pick F = Z2 coefﬁcients. |K| is in fact homotopy equivalent to a circle. We display a 1cocycle ϕ in the right part of that ﬁgure. Over Z2, 1-cocycles correspond to ‘picket fences’ [14]. Here, dim(H1(K)) = dim(H1(K)) = 1 and [c] ∈ H1(K) and [ϕ] ∈ H1(K) form a basis respectively.
+Filtrations: While homology and cohomology are classical concepts [13], we now review the more recent developments of persistent (co-)homology [15], [16], which have lead to very efﬁcient algorithms which can now also be used also for the computation of classical (co-)homology. Persistent (co-)homology is concerned with (co-)homology in a multiscale setting. One of the origins of persistence is the study of the topology of sublevel (or superlevel) sets of a function f : X → R deﬁned on a topological space X. Each sublevel set Xr = f −1((−∞, r]) yields a topological space Xr, where Xr ⊆ Xr whenever r r . As r increases, homological features can be ‘born’ and disappear or ‘die’ as the threshold r increases. Persistence provides a computational mechanism for understanding these changes. To make this precise, we work with a ﬁltration K of ﬁnite simplicial complexes in Rd, by which we mean a sequence
+
+K : K1 ⊂ K2 ⊂ . . . ⊂ Kn = K∞ of ﬁnite simplicial complexes. Typically, each ﬁltration index i is associated to
+
+a real valued ﬁltration value r so that Ki = f −1(−∞, r]. For example, we can assign an arbitrary real value to each
+
+vertex of Kn. Then the function f (σ) = maxi∈{0,...,k} f (vi) for an arbitrary k-simplex σ = [v0, . . . , vk] ∈ Kn gives rise to a ﬁltration of simplicial complexes when its sublevel sets
+
+are considered. When Ki = f −1((−∞, r]) we call r the ﬁltration value associated to the ﬁltration index i.
+
+Delaunay-Cˇ ech complexes: To model conﬁguration
+
+spaces from a ﬁnite sample of collision-free points X ⊂
+
+Cf , we shall consider the family of union of balls spaces
+
+Xr Xr
+
+= is
+
+x∈X {y ∈ Rd : x − y homotopy equivalent to
+
+r}, for r 0. For each r, the Delaunay-Cˇ ech complex
+
+DCr(X) [17], which is a simplicial complex deﬁned for any
+
+ﬁnite set X ⊂ Rd where each subset of d+1 point is afﬁnely
+
+independent. This assumption is generic in that a uniform
+
+random sample satisﬁes this condition with probability one
+
+and we can also enforce the condition by an arbitrarily
+
+small perturbation of X. Let D(X) denote the simplicial
+
+complex corresponding to the Delaunay triangulation of X
+
+with simplices deﬁned by D(X) = {[v0, . . . , vk] : vi ∈ X, ∩ki=0Vvi = ∅ for k ∈ {0, 1, . . . , d}}, where Vx denotes the Voronoi cell containing x. For each k-simplex σ =
+
+C∅[ˇv}e0,c,hw. .h.ce,orvmekpB] l∈re(xxD)D(=XC){r,(ydX∈e)ﬁ,Rnefdof:r(σrx)−=ym0ini{srr}t:h. eThkis=eu1bD-Becrloa(muvinp)aley=xof D(X) deﬁned by DCr(X) = f −1((−∞, r]). Since DCr(X) is homotopy equivalent to Xr, we can compute topological information about Xr from DCr(X) at all scales r 0. In particular, we are interested in persistent homology
+
+and cohomology.
+
+Persistent (Co-)Homology: Applying homology and
+
+cohomology to a ﬁltration of simplicial complexes, we
+
+obtain a sequence of induced linear maps on homology and
+
+cohomology respectively:
+
+Hp(K) : Hp(K1) → Hp(K2) → . . . → Hp(Kn) Hp(K) : Hp(K1) ← Hp(K2) ← . . . ← Hp(Kn)
+for each p ∈ {0, . . . , d} and where the maps on homology are induced by inclusion and we denote fpi,j : Hp(Ki) → Hp(Kj) for i j for the resulting compositions of maps. The maps on cohomology are induced by restriction of cochains and we denote the resulting linear maps by gip,j : Hp(Kj) → Hp(Ki), for i j. The p-th persistent homology group for i j is given by Hpi,j = imfpi,j, so that nontrivial elements in Hpi,j correspond to homology classes born at or before index i and which survive until at least index j. The difference j − i is called the index persistence of such a class. For us, Ki = f −1((−∞, ri]), and rj − ri is the persistence of the class. In fact, all the persistent homology groups can be computed by a decomposition of the persistence module into interval modules [19]. The p-th persistence diagram captures the information about the birth and death of p-th homology classes as the ﬁltration value increases. It consists of multisets of points in the extended
+
+0.4
+
+0.2
+
+0
+
+0
+
+0.2
+
+0.4
+
+Fig. 3: Top row: A point-cloud X ⊂ [0, 1]2 and the 1st persistence
+diagram of the Delaunay-Cˇ ech ﬁltration DC(X) with a single signiﬁcant point (0.031, 0.303) far above the diagonal and corresponding to the large hole in the middle of the point-cloud. Middle row: a 1-cycle c (over Z2) corresponding to the signiﬁcant point and the complex at the ﬁltration value 0.031 (left ﬁgure) when the cycle ﬁrst corresponds to a non-trivial element [c] in homology, at 0.150 (middle) and at the death ﬁltration value of 0.303 (right) when the class [c] becomes trivial in homology. Bottom row: a 1cocycle ϕ (over Z2) dual to the previous 1-cycle at the same ﬁltration intervals. Note how in the middle row, c is included into the subsequent complexes for higher ﬁltration values, while in the bottom row, the cocycle is a result of restricting the co-cycle to smaller and smaller complexes.
+
+upper left quadrant. Each point (ri, rj) in the diagram corresponds to a homology class born at index i and surviving
+
+until index j. Points that lie far above the diagonal have a
+
+large persistence and are hence considered important features
+
+distinct from smaller scale features due to noise. An example
+
+is presented in Fig. 3. Classes born at index i and which
+
+do not die at the ﬁnal ﬁltration index n are called essential
+
+and are associated to points of the form (ri, ∞) in the plane, extended formally to (R∪{∞})2. The persistent cohomology
+
+groups can be deﬁned analogously by Hip,j = im gip,j. In fact, persistent homology and cohomology are dual [19] with
+
+identical persistence diagrams. To compute a basis for the
+
+persistent (co-)homology groups, we ﬁrst assume without
+
+loss of generality that the ﬁltration K has been reﬁned to
+
+a simplex-wise ﬁltration, where Kj =
+
+j i=1
+
+σi,
+
+so
+
+that
+
+Kj+1 = Kj ∪ {σj+1} and we hence add a single simplex
+
+in each step of the ﬁltration. Given such a simplex-wise
+
+ﬁltration, several algorithms (see e.g. [20]) are available to
+
+compute a basis of the persistent (co-)homology groups. We
+
+shall use the standard left-to-right reduction algorithm [20]
+
+adapted for cohomology as described in [19] for this purpose.
+
+Fig. 3 illustrates an example of a ﬁltration and an associated
+
+(co-)homology basis.
+
+Fig. 4: Leftmost ﬁgure: A simple free conﬁguration space Cf in the shape of an annulus and two paths in blue and black between the marked points.
+Center-left: A covering space of Cf , where the z coordinate is given by the signed winding angle around the center of the annulus. The lifted black and blue paths now do not terminate in the same lifted coordinate and can hence be distinguished easily in the covering space. The covering space winds and extends inﬁnitely far in both positive and negative z direction allowing us to classify trajectories between the two points in Cf . Center-right: Z2 covering space of Cf . Here, the red horizontal line is ‘glued’ to the green line, so that a trajectory winding twice around the hole in the center in Cf returns to the same z-coordinate also in the covering space. A ﬁgure similar to the left three plots appears in [18], where a generalization of these covering spaces is used for motion planning. Right: Example of our Z2 covering space which is built from noisy samples. It consists of 2 sheets of the simplicial complex DCr(X) which are glued along the indicated cohomology generator ϕ: Whenever the red line or blue line is crossed, we jump to the other layer in the covering space. Making two full rotations around the hole hence results in returning to the same z-coordinate layer as in the smooth Z2-covering space to the left. Unlike the previous approaches, the underlying covering space is generated fully from sampled data and we do not require a potentially imprecise numerical ﬂoating point integration to determine the analogue of the winding angle along a trajectory. The one-skeleton of this covering space precisely consists of the graph G(DCr(X), Φ), Φ = (ϕ).
+
+III. METHODOLOGY
+Deﬁnition 3.1: Consider simplicial homology and cohomology over a ﬁnite ﬁeld F. We call a tuple (K, Φ), where K is a simplicial complex, Φ = (ϕ1, . . . , ϕk), and ϕi ∈ Z1(K) are such that [ϕ1], . . . , [ϕk] ∈ H1(K) are linearly independent, a cohomologically annotated simplicial complex. For a 1-chain γ, we call Φ(γ) = (ϕ1(γ), . . . , ϕk(γ)) ∈ Fk the signature of γ (a discrete analogue of the signature of [21]). The pairing induced by evaluation of 1-cochains on 1chains yields a duality between H1(K) and H1(K) over ﬁeld coefﬁcients. In particular, for c, c ∈ Z1(K), Φ(c) = Φ(c ) implies [c] = [c ] ∈ H1(K), and if Φ = (ϕ1, . . . , ϕk) yields a basis of H1(K), it is also true that, if Φ(c) = Φ(c ) then [c] = [c ] ∈ H1(K).
+Lemma 3.2: Let γ, γ be oriented paths of 1-simplices between 0-simplices, s, t ∈ K, so that ∂γ = t − s = ∂γ and let (K, Φ = (ϕ1, . . . , ϕk)) be a cohomologically annotated simplicial complex. If Φ(γ) = Φ(γ ) then γ, γ are not homotopy equivalent in |K|.
+Proof: Suppose Φ(γ) = Φ(γ ). Then there exists j ∈ 1, . . . , k such that ϕj(γ) − ϕj(γ ) = ϕj(γ − γ ) = 0, but then [γ − γ ] = 0 ∈ H1(K), since otherwise γ − γ = ∂c for some c ∈ C2(K), but then ϕj(∂c) = (δ(ϕj))(c) = 0, since ϕj ∈ Z1(K) which implies ϕj(γ) − ϕj(γ ) = 0. Since γ − γ is non-trivial in H1(K) it is non-trivial in π1(K) (via Hurewicz’ theorem [13]). Since γ−γ is non-trivial in π1(K), the paths γ and γ are not homotopy equivalent.
+Deﬁnition 3.3: Denote by K1 the 1-skeleton of a cohomologically annotated simplicial complex (K, Φ = (ϕ1, . . . , ϕk) with 0-simplex set V (vertices) and 1-simplex set E (edges). We deﬁne the covering graph corresponding to (K, Φ) to be the ﬁnite directed graph G = G(K, Φ) with vertex set W = {w = (v, λ) ∈ V × Fk : v ∈ V, λ ∈ Fk} and where an edge is inserted from (v, λ) to (v , λ ) precisely when there exists a 1-simplex e = [v, v ] ∈ E such that Φ(e) = λ − λ. For a vertex w = (v, λ) ∈ G, we denote by Gw the maximal connected component of G containing w.
+
+Note that, for each arc a = ((v, λ), (v , λ )) ∈ G, there exists a corresponding edge π(a) = (v, v ) in K1, and we have the following result:
+Corollary 3.4: Suppose there exist two sequences of directed arcs in G(K, Φ) from (v, 0) to (v , λ1) and to (v , λ2) respectively such that λ1 = λ2. Then the corresponding trajectories t1, t2 formed by sequences of edges of K1 under the projection π : G → K1 are homotopy inequivalent.
+Proof: We have Φ(t1) = λ1 = λ2 = Φ(t2) and the result follows from the previous lemma. The search for homotopy inequivalent trajectories (up to homology) can hence be reformulated as a graph search for trajectories in G(K, Φ). Note that, for F = Zp, we are able to synthesize trajectories winding up to p − 1 times around any particular tunnel/void speciﬁed by each cohomology generator. In the case of Z2, which can be very efﬁciently implemented, we can in particular detect whether we pass a corresponding set of obstacles ‘to the left or to the right’ in 2D as well as its more complex generalization to higher dimensions.
+Efﬁcient Implicit Graph Representation and Search: Suppose that we are computing cohomology over the ﬁeld F = Zp with p elements, where p is a prime. The covering graph G(K, Φ), for Φ = (ϕ1, . . . , ϕk) and K with |V | vertices and |E| edges then has |V |pk vertices and signiﬁcantly more edges than K1. These graphs quickly grow too large to ﬁt into memory as k and p is increased. Our approach will hence be to run a graph search using an efﬁcient implicit encoding of the graph. For this, we create an augmented graph H = H(K, Φ) as follows: H has a node for each vertex in K1 and a directed edge (v, v ) and (v , v) for each edge (v, v ) in K1. All arcs are stored in an array H.arcs and vertices in an array H.vertices. Each arc a = (v, v ) stores the index of its target vertex v in a.target. We store the distance a.dist = v − v and the index of the next arc with the same source vertex a.next out which is set to −1 if there are no further arcs. For each vertex v, we
+
+Algorithm 1 Lifted Dijkstra
+
+1: procedure LIFTEDDIJKSTRA(H(K, Φ = (ϕ1, . . . , ϕk)), source id)
+
+2: N ← number of vertices(H)pk
+
+3: d ← (∞, ..., ∞) ∈ (R ∪ {∞})N
+
+4: 5: 6:
+
+f s
+
+← ←
+
+(f alse, ..., f alse) (f alse, ..., f alse)
+
+∈ ZN2 ∈ ZN2
+
+// //
+
+Q.insert(0, lif t(source id, 0))
+
+frontier vertices solved vertices // priority queue
+
+7: f [lif t(source id, 0)] ← true
+
+8: d[lif t(source id, 0)] ← 0
+
+9: while Q is not empty do
+
+10:
+
+u id ← Q.extract min()
+
+11:
+
+s[u id] ← true
+
+12:
+
+f [u id] ← f alse
+
+13:
+
+arc id ← H.vertices[π1(u id)].f irst out
+
+14:
+
+while arc id = −1 do
+
+15:
+
+a ← H.arcs[arc id]
+
+16:
+
+w id ← lif t(a.target, π2(u id) + a.mask)
+
+17:
+
+if s[w id] = f alse then
+
+18:
+
+dist ← d[u id] + a.dist
+
+19:
+
+if dist < d[w id] then
+
+20:
+
+d[w id] ← dist
+
+21:
+
+if !f [w id] then
+
+22:
+
+Q.insert(dist, w id)
+
+23:
+
+f [w id] ← true
+
+24:
+
+return
+
+arc d
+
+id
+
+←
+
+a.next
+
+out
+
+store the index of the ﬁrst outgoing arc as v.f irst out. We
+
+furthermore store the value of the augmentation Φ(a) ∈ Zkp for a directed arc a = (v, v ) in the edge data structure by
+
+encoding Φ(a) = (m1, . . . , mk) ∈ Zkp as a single unsigned
+
+integer a.mask using code(m1, . . . , mk) =
+
+k i=1
+
+mipi−1
+
+∈
+
+{0, . . . , pk − 1}. In our implementation, p = 2 and we use
+
+a 16 bit integer for a.mask, allowing for 0 k 16.
+
+Note that H efﬁciently encodes all required information
+
+to explore a connected component of the covering graph
+
+G = G(K, Φ): If K1 has |V | vertices then H has the same
+
+number of vertices while G has |V |pk vertices. Let us denote
+
+the vertices of H by v0, . . . , v|V |−1 and the vertices of G by w0, . . . , w|V |pk−1, where we identify the vertex (vi, λ) in G with wlift(i,λ), where lif t(i, λ) = i + |V |code(λ). For j ∈ {0, . . . , |V |pk − 1}, we deﬁne π1(j) = j mod |V | ∈ {0, . . . , |V |−1} and π2(j) = code−1( j/|V | )) ∈ Zkp. Then, if wj = (vi, λ), we have π1(j) = i and π2(j) = λ. Using this encoding, the outgoing edges from (vi, λ) ∈ G are precisely of the form (vj, λ + a.mask), where a = (vi, vj) is an edge in H and we hence only need to store H in
+
+memory. Alg. 1 summarizes how this data structure can be
+
+used to perform Dijkstra’s algorithm on G using H. We
+
+found that it was most efﬁcient to use two boolean vectors
+
+f, s ∈ Zn2 to keep track of the frontier and ﬁnalized vertex set in Dijkstra’s algorithm. We also only ﬁll the priority
+
+queue Q (implemented using the sequence heap of [22]),
+
+containing vertices ordered by distance to the source vertex
+
+vsource id, during the execution of the algorithm instead of ﬁlling the queue at the initialization step. We observe
+
+that d, f, s still require O(|V |pk) memory, as does Q in
+
+the worst case. However, the constants are small and our
+
+representation of G by means of H signiﬁcantly reduces the
+
+memory overhead of storing the underlying graph G. When
+
+the algorithm terminates, each vertex wj ∈ G reachable
+
+from wlift(source id,0) ∈ G satisﬁes d[j] = ∞ and d[j] then denotes the distance of the shortest path between these vertices. We can then recover the shortest path in the usual manner recursively from the vector of distances d. Note that a similar approach is clearly also applicable to algorithms such as A* which we shall investigate in future work.
+Summary of our approach: As outlined in Fig. 1, our motion planning approach consists of several steps: Given a point-cloud dataset X ⊂ Cf , we construct a ﬁltration K representing our data at all scales. In our experiments, this is done by considering ﬁltrations such as DCr(X), and ﬁltrations arising from sub- and superlevel sets of a function on X. We compute the persistent cohomology cocycle generators for the ﬁltration and determine a ﬁxed ﬁltration paramter r resulting in a complex Kr in K. The choice of r can be constrained by prior information about X, e.g. by imposing constraints on the Betti numbers, such as requiring that Kr contains a single connected component, or by picking r, e.g. to fall in the mid-point of the lifetime of the most persistent 1-cohomology generator (see also [23]). While persistent cohomology and homology are abstractly isomorphic, we require cohomology here since we utilize a basis of 1-cocycles, which intuitively form fences in the conﬁguration space, enabling us to distinguish how tunnels in Cf are traversed by ‘counting fence intersections’ via the signature Φ which is constructed by selecting a subset of these 1-cocyles to apply our cohomological graph annotation and motion planning. The choice of subset determines which tunnels in Cf should be considered for topological motion planning and a choice of the k most persistent 1-cocycles alive at a ﬁltration value allows us to consider only the k most important obstacles/voids at a given scale.
+Technical differences and relationship with previous works: The graph G(K, Φ) proposed in our work forms a discrete analogue of the covering space considered for topological motion planning in [8], [9], [10]. These covering spaces arose by annotating a trajectory’s coordinates with a Rk valued integral of a collection of differential 1-forms. In 2D, this corresponded to annotating these trajectories by winding angles with respect to a collection of speciﬁed points interior to obstacles. Fig. 4 illustrates this idea. A similar illustration can also be found in the recent work [18], which used these winding coordinates modulo a prime p, corresponding to quotienting the spiral in Fig. 4 after p full rotations and gluing the ends together. Our approach is related to this idea since our ﬁnite ﬁeld graph annotation approach also corresponds to a similar quotienting (Fig. 4), but is discrete (F) and data-driven in nature. The right part of Fig. 4 contrasts our approach to [18] in the case of Z2 coefﬁcients. A key difference to these previous works is that our approach does not require a numerical integration but utilizes a F-valued signature instead which leads to an increased efﬁciency. Furthermore, our approach does not require a procedure to skeletonize obstacles, resulting in novel application domains such as a ﬁrst example of topological motion planning for a multijoint robot. Our implicit graph representation in Alg. 1 constitutes a further difference and,
+
+unlike in previous work, we can apply our approach both in the case where Cf is densely sampled and in a scenario where we are only given a sparse sample, e.g. from a collection of collision free trajectories. Unlike the works [8], [9], [10], [18], we introduce a persistent cohomology-based approach with several types of ﬁltrations.
+
+IV. EXPERIMENTAL EVALUATION
+
+Delaunay-Cˇ ech Filtrations in 2D: In our ﬁrst ex-
+
+periment, we consider sufﬁciently dense sets of uniformly
+
+sampled collision free points X ⊂ Cf ⊂ R2, so that Cf Xr for some r > 0. Here, Cf is constructed by selecting random subsets of K of the obstacles displayed
+
+in the top left of Fig. 5. If we know a priori what some
+
+of the Betti numbers of Cf are (e.g. number of connected components and number of obstacles), we can compute the
+
+persistence diagram and choose r to lie e.g. in the middle
+
+of the largest ﬁltration interval satisfying these constraints
+
+[23]. If no prior information is available, one can choose r
+
+to lie in a large interval in which the Betti numbers remain
+
+constant. Real world information about sensor range can also
+
+be taken into account to further constrain the choice of r.
+
+To evaluate the performance of the proposed algorithm, we
+
+sample between N = 10000 and one million collision free
+
+points lying at least at distance 0.01 from any of the obstacles
+
+in the environment. This guarantees that for ﬁltration values
+
+of r < 0.01 all edges in the skeleton of DCr(X) are themselves collision free. The top left of Fig. 5 illustrates
+
+a case where r = 0.03 > 0.01. In our experiments, we pick
+
+a
+
+ﬁltration
+
+of
+
+r
+
+=
+
+3N
+
+−
+
+1 2
+
+which
+
+empirically
+
+ensured
+
+that
+
+the resulting complex DCr(X) was connected and had the correct number of ‘holes’ corresponding to each obstacle.
+
+Furthermore, we then have r < 0.01 for N 90000,
+
+guaranteeing global collision free solution trajectories in our
+
+experiments for sufﬁciently large sample sizes. The bottom
+
+part of the ﬁgure displays 64 overlaid solution trajectories
+
+and the ﬁrst persistence diagram for a world with 6 obstacles.
+
+In Fig.6, we break down the computation times for N
+
+between 10000 and 100000. We observe that, as the graph
+
+size grows quickly with the number of obstacles, the graph
+
+search begins to dominate the total computation time for
+
+a large number of obstacles. Table II summarizes the total
+
+computation times as the number of samples and the number
+
+of obstacles varies. For each sample size less than 500000,
+
+we repeat the experiment 10 times (with random subsets of k
+
+obstacles) and report mean computation times and standard
+
+deviations. The table shows that our approach is very fast
+
+for small numbers of obstacles. Note also that Dijkstra’s
+
+algorithm computes the full distance vector using which any
+
+trajectory from the source vertex to any other target vertex
+
+and topological class can then be obtained (in less than 0.5s
+
+for any query destination and sample size). Furthermore, for
+
+each ﬁxed source and target vertex, we ﬁnd 2k topologically
+
+distinct solution trajectories when our world has k obstacles
+
+and for 1 million samples and 10 obstacles and a given
+
+source vertex, Dijksta’s algorithm returns information about
+
+1.024 billion solution trajectories as stored in the returned
+
+1
+
+1
+
+0.8
+
+0.8
+
+0.6
+
+0.6
+
+0.4
+
+0.4
+
+0.2
+
+0.2
+
+0 0 0.2 0.4 0.6 0.8 1
+1
+
+0 0 0.2 0.4 0.6 0.8 1
+0.1
+
+0.8
+
+0.6
+
+0.4
+
+0.2
+
+0
+
+0
+
+0 0.2 0.4 0.6 0.8 1
+
+0
+
+0.1
+
+Fig. 5: Random subsets of the obstacles displayed in the top left (in black)
+are used in our experiments and we generate uniform random samples in the domain [0, 1]2 ⊂ R2 which are at least of distance 0.01 from each obstacle (outside the gray region). Initial and terminal positions are indicated as green and red points respectively. In the top right, we illustrate an example set of two solution paths in the case of a single obstacle, with 10000 samples (in green) and with a ﬁltration value of 0.03. Note that, since 0.03 > 0.01, DC0.03(X) can have edges that connect two collision free samples, but which are not themselves entirely collision free as illustrated in the top right part of this subﬁgure. For smaller ﬁltration values, as in the bottom left, where we used 100000 samples and r = 0.0095, all edges are guaranteed to be collision free. 64 = 26 homotopy inequivalent trajectories are shown overlayed onto each other. The bottom right diagram illustrates the associated ﬁrst persistence diagram. The six points in the dashed region correspond to the obstacles and the dashed lines intersect at (r, r).
+
+Fig. 6: Computation times (in s, vertical axis) for 2D experiments
+are broken into components: black: Delaunay triangulation computation in CGAL [24] and computation of the Delaunay-Cˇ ech ﬁltration, blue: Computation of the persistent cohomology H1 generators, green: graph construction and Dijkstra’s algorithm. Each group of bars illustrates the time required (in seconds) for 0, 3, and 6 obstacles (left to right). The numbers of samples in thousands are shown along the horizontal axis.
+distance vector in less than 12 minutes, and with 210 = 1024 homotopy inequivalent trajectories per source/target vertex pair. This in particular differs from the work in [11], where a smaller set of homotopy inequivalent trajectories (up to 10) was discovered incrementally in an unbounded search space.
+PR2 Arm Motions: In this experiment, we simulate a PR2 robot using OpenRave [25]. The robot is placed next to a vertical bar obstacle as shown in red in Fig. 7 and we keep all but the 4 major arm joints of the left arm ﬁxed. Our task is to determine trajectories of the left arm between the indicated initial and ﬁnal conﬁgurations. For this purpose, we uniformly sampled 200000 collision free joint-conﬁgurations of the PR2’s left arm. This results in a
+
+Samples
+10000 20000 30000 40000 50000 60000 70000 80000 90000 100000
+500000 1000000
+
+Filtration
+0.0300 0.0212 0.0173 0.0150 0.0134 0.0122 0.0113 0.0106 0.0100 0.0095 0.0042 0.0030
+
+DC∞(X )
+
+Edges
+
+Triangles
+
+29971.98 ± 3.49 19972.98 ± 3.49
+
+59970.50 ± 3.38 39971.50 ± 3.38
+
+89969.42 ± 3.63 59970.42 ± 3.63
+
+119968.88 ± 3.53 79969.88 ± 3.53
+
+149968.55 ± 3.64 99969.55 ± 3.64
+
+179967.89 ± 3.57 119968.89 ± 3.57
+
+209967.09 ± 3.60 139968.09 ± 3.60
+
+239966.45 ± 3.60 159967.45 ± 3.60
+
+269966.75 ± 3.79 179967.75 ± 3.79
+
+299966.78 ± 3.46 199967.78 ± 3.46
+
+1499960.55 ± 4.85 999961.55 ± 4.85
+
+2999963.00 ± 4.26 1999964.00 ± 4.26
+
+0
+0.1297 ± 0.0018 0.2769 ± 0.0148 0.4286 ± 0.0298 0.5545 ± 0.0098 0.7559 ± 0.0082 0.9425 ± 0.0091 1.1292 ± 0.0204 1.3227 ± 0.0187 1.5387 ± 0.0514 1.7163 ± 0.0190
+11.2779 25.1642
+
+1
+0.1311 ± 0.0014 0.2857 ± 0.0059 0.4530 ± 0.0032 0.5581 ± 0.0049 0.7676 ± 0.0116 0.9490 ± 0.0133 1.1448 ± 0.0136 1.3321 ± 0.0243 1.5475 ± 0.0344 1.7443 ± 0.0333
+11.5662 25.4774
+
+2
+0.1352 ± 0.0020 0.2956 ± 0.0048 0.4673 ± 0.0074 0.5747 ± 0.0054 0.7827 ± 0.0113 0.9805 ± 0.0125 1.1756 ± 0.0176 1.3800 ± 0.0159 1.5833 ± 0.0197 1.7917 ± 0.0232
+12.1993 26.4277
+
+3
+0.1427 ± 0.0014 0.3133 ± 0.0064 0.4954 ± 0.0072 0.6111 ± 0.0081 0.8315 ± 0.0125 1.0299 ± 0.0205 1.2429 ± 0.0272 1.4470 ± 0.0235 1.6919 ± 0.0165 1.9048 ± 0.0350
+13.0111 28.7711
+
+Number of obstacles
+
+4
+
+5
+
+6
+
+0.1603 ± 0.0020 0.1978 ± 0.0022 0.2786 ± 0.0028
+
+0.3539 ± 0.0062 0.4351 ± 0.0065 0.5647 ± 0.0356
+
+0.5518 ± 0.0227 0.6034 ± 0.0060 0.8364 ± 0.0057
+
+0.6833 ± 0.0070 0.8380 ± 0.0098 1.1396 ± 0.0161
+
+0.9315 ± 0.0119 1.1254 ± 0.0094 1.5342 ± 0.0098
+
+1.1488 ± 0.0113 1.3957 ± 0.0229 1.8948 ± 0.0145
+
+1.3777 ± 0.0187 1.6838 ± 0.0227 2.2823 ± 0.0172
+
+1.6081 ± 0.0156 1.9603 ± 0.0153 2.6818 ± 0.0278
+
+1.8799 ± 0.0164 2.2838 ± 0.0156 3.1904 ± 0.0317
+
+2.1205 ± 0.0113 2.5949 ± 0.0148 3.6863 ± 0.0306
+
+14.4668 32.3689
+
+18.2660 40.2058
+
+26.4173 58.0553
+
+7
+0.4395 ± 0.0026 0.8391 ± 0.0070 1.3104 ± 0.0170 1.7841 ± 0.0207 2.3750 ± 0.0192 2.9609 ± 0.0153 3.6670 ± 0.0324 4.3383 ± 0.0385 5.2207 ± 0.0629 6.0790 ± 0.0795
+44.8978 98.7767
+
+8
+0.6848 ± 0.0250 1.4587 ± 0.0108 2.2778 ± 0.0169 3.1182 ± 0.0564 4.2110 ± 0.0396 5.3004 ± 0.0548 6.6847 ± 0.1007 8.0440 ± 0.1235 9.7655 ± 0.1574 11.3504 ± 0.1101
+85.7563 181.7561
+
+9
+1.2819 ± 0.0036 2.7556 ± 0.0198 4.3247 ± 0.0383 6.0961 ± 0.1002 8.3736 ± 0.1390 10.6218 ± 0.1129 13.3552 ± 0.0845 16.1658 ± 0.1101 19.5922 ± 0.1564 22.8980 ± 0.2842
+160.3689 361.8256
+
+10
+2.5497 ± 0.0129 5.5616 ± 0.0425 8.8125 ± 0.0802 12.5567 ± 0.1999 17.2210 ± 0.1442 22.3609 ± 0.2281 28.2221 ± 0.2014 33.6077 ± 0.3051 40.1525 ± 0.2844 46.5861 ± 0.3633
+329.8708 696.8684
+
+TABLE II: Summary of 2-dimensional topological motion planning experiments. We report the total time (in seconds) required to compute all data
+structures, persistent homology and to execute the lifted Dijkstra algorithm for a ﬁxed source vertex. For up to 100000 samples, each experimental setting is repeated 10 times with a random subset of k obstacles. For larger sample sizes, we report timing results of a single trial. Edge and triangle numbers are averaged over all trials and number of obstacle settings. We also report standard deviations where applicable.
+
+simplicial 2-skeleton (we do not require higher dimensional simplices to compute H1) ﬁltration with 3675821 edges and 12703304 triangles in 4 dimensions which models the space Xr of unions of balls of radius r around the samples at all scales r 0. Note that the resulting data structure yields a highly detailed model of the 4 dimensional free conﬁguration space. The computation of the Delaunay triangulation took 37.6s, the 2-skeleton extraction 32.2s and the DelaunayCˇ ech ﬁltration computation took 8.38s. The resulting ﬁrst persistence diagram is displayed in the top left part of Fig.7 and was computed in 159.8s. We can clearly see the red point indicating a particularly large persistence interval. At ﬁltration r = 0.11, the simplicial complex is path-connected and H1(DCr(X)) has dimension 4716 (equal to the number of points in the top right area bordered by the dashed lines intersecting at (r, r)). We chose the cohomology generator corresponding to the red most persistent interval among these as our cohomological annotation and computed shortest trajectories between the indicated initial and terminal arm conﬁguration. The graph construction and search took 2.1s. We ﬁnd two topologically inequivalent shortest paths illustrated in the second and third row of the ﬁgure respectively. The difference between these trajectories can be observed by considering the second picture in each column. The PR2’s left upper arm is lowered in the ﬁrst trajectory to pass the obstacle while the upper arm is extended upwards in the second solution trajectory. These two trajectories are clearly not homotopy equivalent – continuously deforming one into the other would require a horizontal posture of the upper arm resulting in a collision with the red obstacle. The selected large persistence interval corresponds to a cohomology class which is generated by a thick tunnel/void in the 4D conﬁguration space corresponding to collisions of the PR2’s left elbow with the obstacle. The chosen 1cocycle yields a ‘fence’ which is pierced by the ﬁrst solution trajectory but not by the second. While this example may be considered simple, no previously known method is – to
+the best of our knowledge – currently able to synthesize
+such types of homotopy-inequivalent solution trajectories in an automated sampling-driven manner. Our method hence makes available a new wealth of trajectory classes. In case one of the trajectories becomes obstructed due to changing environment conditions, the robot could for example fall back to the previously computed second trajectory solution.
+
+0.5
+
+0
+
+0
+
+0.5
+
+Fig. 7: Top-left: ﬁrst persistence diagram for Delaunay-Cˇ ech ﬁltration of
+200000 uniform collision free joint-conﬁguration samples X of the left arm in R4. At selected ﬁltration value of r = 0.11, DCr(X) has one connected component and dim(H1(DCr(X))) = 4716 (number of points in the upper left dashed region), with a persistence interval with particularly large persistence marked in red.
+Note also that any continuous optimization of a trajectory in each homotopy class will have to remain within its initial homotopy class. Our trajectory solutions can hence be used to provide initializations to optimizers such as CHOMP [26].
+Trajectory datasets: Here, we study applications of our approach in the case where we are given point-clouds consisting of real-world trajectories. Unlike before, such a point-cloud X does not necessarily represent a dense sample of Cf . Instead, the intrinsic shape of Xr gives rise to holes which might be due to obstacles or parts of space not covered by X.
+Racecar dataset: The ﬁrst trajectory dataset consists of 3324 GPS data points X ⊂ R2 of a racecar driving around a racetrack [27] and is displayed in the top left of Fig. 8, with its ﬁrst persistence diagram displayed to
+
+150 40 0.4
+100
+
+20
+
+50
+
+0.2
+
+0
+
+0
+
+0
+
+50
+
+100
+
+150
+
+0
+
+150
+
+150
+
+20
+
+40
+
+0
+
+0
+
+0.2
+
+0.4
+
+100
+
+100
+
+50
+
+50
+
+0
+
+0
+
+50
+
+100
+
+150
+
+0
+
+0
+
+50
+
+100
+
+150
+
+Fig. 8: Top: Racecar GPS point-cloud and ﬁrst persistence diagram with
+r = 3.276 marked by dashed lines. Bottom left: DCr(R) and overlaid found shortest paths at r = 3.276. Bottom right: a solution trajectory for r = 4.0.
+the right. By investigating the 0th persistence diagram, we ﬁnd that Xr DCr(X) is connected for r 2.26. For r = 3.276, dim(H1(Xr)) = 1 and we obtain the gray simplicial complex in the bottom left. We ﬁnd two solution trajectories (in red and black) between the indicated points which generalize the recorded trajectories (all computed in less than 0.5s). When we increase the ﬁltration value to r = 4, dim(H1(Xr)) = 2 and we obtain 4 solution trajectories. An example such trajectory is displayed in the bottom right of the ﬁgure. Note how this trajectory represents a reasonable solution generalizing the recorded trajectory behavior if we allow ourselves to trust that samples of distance less than or equal to 4 will be path-connected in Cf .
+Motion capture dataset: We recorded the set of 3D trajectories displayed in Fig. 9 using a Nest of Birds motion capture rig. The trajectory set consists of two motion primitives displayed in blue and red respectively and contains 8998 data-points X ⊂ R3. In this experiment, we illustrate how our topological motion planning approach enables us to synthesize new motions which combine the behavior of these two classes. The two voids in this data-set are clearly visible as two points with large persistence in the ﬁrst persistence diagram in the top right of Fig. 9. The dashed lines intersect at (0.085, 0.085). We computed the corresponding 4 homotopy inequivalent solution trajectories displayed in the bottom left of the ﬁgure (total computation time: less than 6s). Note that the yellow and blue trajectories correspond to an optimized shortest path in the red and blue motion primitive respectively. Additionally, we are able to recover novel motion behavior mixing the two primitives as indicated by the red and black trajectory which traverse both voids either to the left or to the right. We believe that an investigation of our approach together with large motion capture/gesture databases might be of interest, especially since DCr(X) and persistent cohomology generators can in that case be computed ofﬂine, reducing the online computation
+
+Fig. 9: Top left: 3D motion capture data of two motion primitives. Top
+right: associated ﬁrst persistence diagram with marked ﬁltration value r = 0.085. Bottom left: Four shortest homotopy inequivalent solution trajectories at this ﬁltration value are displayed on top of the gray data points. Bottom right: A cost function deﬁned by the distance to the blue threat/obstacle yields a sub-ﬁltration with only two solution trajectories at r = 0.78.
+cost of synthesizing new trajectories to just graph-search. The bottom right part of Fig. 9 illustrates how a cost
+function can be combined with our approach (see also [12]). Observing that, for r = 0.085, DCr(X) provides a good model for our point-cloud, consider now the emergence of an agent indicated by the blue dot in the ﬁgure. To adapt our trajectory planning approach, we can deﬁne a cost function c : R3 → R, e.g. by c(x) = exp(−d(a, x)2) and a new ﬁltration Fr of the complex DCr(X) where a ksimplex [v0, . . . , vk] has ﬁltration value maxi∈0,...,k c(vi). For r = 0.78, Fr does not contain any simplex involving any of the black vertices, allowing for only the two indicated solution trajectories, while for large ﬁltrations, we recover all the solutions shown in the bottom left. We believe that the investigation of such data-driven sub-ﬁltrations expressing multiscale constraints arising from cost, likelihood and navigability functions provides an interesting direction for future work.
+V. CONCLUSION In this work, we have introduced the use of persistent cohomology with ﬁnite ﬁeld coefﬁcients as a tool for datadriven homotopy-aware motion planning. Our experiments show that our technique can be used with large sample sizes in low dimensions and we have demonstrated that we can plan topologically distinct trajectories in application domains in which topological motion planning techniques were previously not applicable. In future work, we intend to investigate the combination of our methods with probabilistic and cost based ﬁltrations as well as the use of alternatives to the underlying Delaunay-Cˇ ech complexes.
+
+REFERENCES
+[1] S. Thrun, W. Burgard, and D. Fox, “Probabilistic robotics,” 2005. [2] S. M. LaValle and J. J. Kuffner, “Rapidly-Exploring Random Trees:
+Progress and Prospects,” in Algorithmic and Computational Robotics: New Directions, B. R. Donald, K. M. Lynch, and D. Rus, Eds. Wellesley, MA: A K Peters, 2001, pp. 293–308. [3] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces,” IEEE Trans. on Robotics and Automation, vol. 12, no. 4, pp. 566–580, 1996. [4] J. T. Schwartz and M. Sharir, “On the piano movers problem. II. General techniques for computing topological properties of real algebraic manifolds,” Advances in Applied Mathematics, vol. 4, no. 3, pp. 298– 351, 1983. [5] J. Canny, The complexity of robot motion planning. MIT press, 1988. [6] J.-C. Latombe, Robot Motion Planning. Springer, 1991. [7] S. Bhattacharya, V. Kumar, and M. Likhachev, “Search-based path planning with homotopy class constraints,” in Proc. of The TwentyFourth AAAI Conf. on Artiﬁcial Intelligence, 11-15 July 2010. [8] S. Kim, K. Sreenath, S. Bhattacharya, and V. Kumar, “Optimal trajectory generation under homology class constraints,” in 51st IEEE Conf. on Decision and Control, 10-13 Dec 2012. [9] S. Bhattacharya, M. Likhachev, and V. Kumar, “Identiﬁcation and representation of homotopy classes of trajectories for search-based path planning in 3D,” in Proc. of Robotics: Science and Systems, 2730 June 2011. [10] S. Bhattacharya, D. Lipsky, R. Ghrist, and V. Kumar, “Invariants for homology classes with application to optimal search and planning problem in robotics,” Annals of Mathematics and Artiﬁcial Intelligence (AMAI), April 2013. [11] S. Bhattacharya, M. Likhachev, and V. Kumar, “Topological constraints in search-based robot path planning,” Autonomous Robots, vol. 33, no. 3, pp. 273–290, October 2012. [12] F. T. Pokorny, M. Hawasly, and S. Ramamoorthy, “Multiscale topological trajectory classiﬁcation with persistent homology,” in Proceedings of Robotics: Science and Systems, July 2014. [13] A. Hatcher, Algebraic topology. Cambridge University Press, 2002.
+
+[14] H. Edelsbrunner and J. L. Harer, Computational topology: an introduction. AMS Bookstore, 2010.
+[15] H. Edelsbrunner and J. Harer, “Persistent homology-a survey,” Contemporary mathematics, vol. 453, pp. 257–282, 2008.
+[16] G. Carlsson, “Topology and data,” Bull. Amer. Math. Soc. (N.S.), vol. 46, no. 2, pp. 255–308, 2009.
+[17] U. Bauer and H. Edelsbrunner, “The Morse theory of Cˇ ech and Delaunay ﬁltrations,” in Proc. of the Thirtieth Annual Symp. on Comp. Geometry, ser. SOCG’14. New York, NY, USA: ACM, 2014, pp. 484:484–484:490.
+[18] S. Bhattacharya, R. Ghrist, and V. Kumar, “Persistent homology for path planning in uncertain environments,” Preprint, June 2014.
+[19] V. De Silva, D. Morozov, and M. Vejdemo-Johansson, “Dualities in persistent (co) homology,” Inverse Problems, vol. 27, no. 12, p. 124003, 2011.
+[20] U. Bauer, M. Kerber, and J. Reininghaus, “PHAT (Persistent Homology Algorithm Toolbox),” http://code.google.com/p/phat/.
+[21] S. Bhattacharya, M. Likhachev, and V. Kumar, “Topological constraints in search-based robot path planning,” Autonomous Robots, vol. 33, no. 3, pp. 273–290, October 2012, dOI: 10.1007/s10514-0129304-1.
+[22] P. Sanders, “Fast priority queues for cached memory,” ACM Journal of Experimental Algorithmics, vol. 5, pp. 312–327, 1999.
+[23] F. T. Pokorny, C. H. Ek, H. Kjellstro¨m, and D. Kragic, “Persistent homology for learning densities with bounded support,” in Advances in Neural Information Processing Systems 25, P. Bartlett, F. Pereira, C. Burges, L. Bottou, and K. Weinberger, Eds., 2012, pp. 1826–1834.
+[24] “CGAL, Computational Geometry Algorithms Library,” http://www.cgal.org.
+[25] R. Diankov and J. Kuffner, “OpenRAVE: A Planning Architecture for Autonomous Robotics,” Robotics Institute, Pittsburgh, PA, Tech. Rep. CMU-RI-TR-08-34, Jul. 2008.
+[26] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “Chomp: Gradient optimization techniques for efﬁcient motion planning,” in Robotics and Automation, 2009. ICRA’09. IEEE International Conference on. IEEE, 2009, pp. 489–494.
+[27] KTH Racing, Formula Student Team, KTH Royal Institute of Technology, Stockholm, Sweden, 2012.
+

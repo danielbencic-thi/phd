@@ -1,0 +1,828 @@
+2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) Congress Center Hamburg Sept 28 - Oct 2, 2015. Hamburg, Germany
+Machine Learning Guided Exploration for Sampling-based Motion Planning Algorithms
+
+Oktay Arslan
+
+Panagiotis Tsiotras
+
+Abstract— We propose a machine learning (ML)-inspired approach to estimate the relevant region of a motion planning problem during the exploration phase of sampling-based pathplanners. The algorithm guides the exploration so that it draws more samples from the relevant region as the number of iterations increases. The approach works in two steps: ﬁrst, it predicts if a given sample is collision-free (classiﬁcation phase) without calling the collision-checker, and it then estimates if it is a promising sample, i.e., if it has the potential to improve the current best solution (regression phase), without solving the local steering problem. The proposed exploration strategy is integrated to the RRT# algorithm. Numerical simulations demonstrate the efﬁciency of the proposed approach.
+I. INTRODUCTION
+Sampling-based motion planning algorithms need to incorporate efﬁcient exploration strategies in order to gather information about the possibly high-dimensional search space. Most exploration strategies implement a form of rejection sampling in order to collect a large number of collisionfree conﬁgurations. Rejection sampling is used mainly owing to its implementation simplicity. However, this approach is redundant since not all collision-free conﬁgurations have the potential to be part of the optimal solution at a given query. In this paper, we propose to use machine learning ideas in order to estimate the relevant region of the search space, that is, the region where the optimal path is more likely to be found. The result is that future samples are drawn from the relevant region with increased probability, as the number of iterations increases.
+The idea of using machine learning ﬁts naturally within the framework of sampling-based algorithms since an incremental dataset describing the topology of the conﬁguration space is readily available from previous samples. Robotic motion planning can be interpreted as a form of learning problem, since the high-dimensional conﬁguration search space is not known explicitly a priori. Therefore, its solution inherently poses a fundamental problem, which is known as the exploration versus exploitation dilemma. Speciﬁcally, as the motion planner starts gathering more information about the search space, it may favor exploitation of the current knowledge in order to improve the best solution which has been computed so far. This is mainly due to the fact that the space requirements of an exact representation of the
+Oktay Arslan is a PhD candidate with the Institute for Robotics and Intelligent Machines at the Georgia Institute of Technology, Atlanta, GA 30332-0150, USA, Email: oktay@gatech.edu
+Panagiotis Tsiotras is with the faculty of D. Guggenheim School of Aerospace Engineering and the Institute for Robotics and Intelligent Machines at the Georgia Institute of Technology, Atlanta, GA 30332-0150, USA, Email: tsiotras@gatech.edu
+
+conﬁguration space grows very quickly with the problem dimensionality and the number of obstacles, and hence exhaustive search is impractical (for example, it has been proven in [20] that the general motion planning problem is PSPACE-complete). Therefore, a motion planner needs to devote some time for exploitation, i.e., to produce a “good enough” solution based on the available information, as exploration progresses. However, concentrating only on improving the current best solution may cause the planner to get stuck in a local minimum since potentially better solutions may have not been explored yet. Therefore, a motion planner should perform the exploration and exploitation tasks in harmony, striking a balance between the two.
+Despite the recent advances in the development of motion planners for high-dimensional spaces using sampling-based methods [15], [16], [14], [1], [18], [13], efﬁcient exploration still remains a challenging issue for sampling-based planners [17]. However, for many problems an admissible heuristic and an approximation of the optimal cost-to-come (or cost-to-go) function is available during the search. In such cases, one can characterize the relevant region of the given task, i.e., the subset of the search space which contains the optimal solution. In this context, exploration can be viewed as a problem of learning the relevant region associated with the given task. Interestingly, the authors of this paper have shown that this region can be approximated incrementally as a by-product of the RRT# algorithm [1].
+In this work, we follow up on this insight and use machine learning ideas in order to achieve better exploration of the search space. This is based on the simple fact that since incremental sampling-based algorithms collect a lot of data about the planning problem as iterations progress, one can utilize this information to provide informative labels of the collected samples (obstacle or free) and to associate approximate cost (utility) values with each sample. These labels, collectively, can be used to guide the selection of future samples. By employing active learning and by inferencing based on the collected data, one can guide future samples toward the favorable region of the search space without invoking the computationally expensive collision checking and local steering procedures [9], thus speeding up the algorithm.
+The proposed adaptive sampling strategy is integrated in the RRT# algorithm to guide the future exploration of the search space. We give a detailed explanation of the proposed adaptive sampling strategy in the subsequent sections. Our numerical simulations demonstrate that the proposed adaptive sampling strategy can reduce the number of vertices
+
+978-1-4799-9994-1/15/$31.00 ©2015 IEEE
+
+2646
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+in the underlying search graph signiﬁcantly, yet the pathplanner is able to produce high quality paths.
+II. RELATED WORK
+A plethora of approaches have been developed in order to guide the sampling strategy toward a speciﬁc part of the conﬁguration space. A comparative study of these approaches can be found in [10]. The majority of these methods try to address the so-called “narrow passage problem,” which deals with drawing more samples from difﬁcult and complex parts of the conﬁguration space [12], [11]. More recently, Bialkowski has proposed an approach which guides samples towards the free space [4]. In [6], the authors have proposed an entropy-guided exploration strategy to guide sampling toward the regions that would yield maximal expected information gain. The approach is elegant but owing to the computations involved it appears to be more appropriate for an off-line construction of the graph, which is the case for multi-query algorithms, such as PRM. In [8] the authors keep a history of extension attempts for each state and the results (success or fail), which are used to compute the utility of each state in an information-theoretic sense. This algorithm guides exploration in a way so as to increase the overall utility.
+Most closely related to our work is the work in [7] and [19]. In [7] the authors propose an approximate approach based on machine learning ideas for multi-query algorithms that attempts to reduce collision-checking time. However, the current work differs from this approach in several ways. First, the authors of [7] only focus on adapting the sampling strategy to collect more collision-free samples, not for learning the relevant region. Their exploration strategy is tailored to reduce the variance of an approximated model of the conﬁguration space. Although active sampling generates useful samples which yield an accurate model, these conﬁgurations are not necessarily related to the solution of the task of interest. This is mainly due to the fact that the approach in [7], similarly to [6], is designed for multi-query algorithms, i.e., the task is not known a priori. Second, our approach is built on fundamentally different assumptions even when only the “learning the conﬁguration space problem” (classiﬁcation) is considered. In [7] it is assumed that the feature vector and its label (x, y) are jointly Gaussian, and the prediction algorithm is developed by utilizing the nice properties of Gaussian distributions (i.e., conditional distribution of multivariate Gaussian distribution is also a Gaussian). This assumption seems to be reasonable for typical classiﬁcation problems when there is no information about the underlying structure. However, in the context of sampling-based motion planning, one has some extra information. For example, when rejection sampling is used, we know that the underlying class conditional distribution is a uniform pdf which is deﬁned over a bounded domain and has support which is unknown but can be explored. The use of Gaussian distributions, which do not have compact support, conﬂicts with the underlying structure of the problem. In our approach, we leverage this key observation and estimate the class conditional distributions directly by estimators on
+
+a bounded domain, without resorting to the relaxation of y being continuous.
+Finally, in [19], the authors proposed an approach which uses instance-based learning techniques. Their approach stores previous local planning queries and their outcomes (incollision or collision-free) in a table. Then, a k-NN density estimator computes the probability of a given query point to be in-collision without calling the actual collision checker. The exact collision checking processes is postponed, and is performed only for those points that have a small probability of being in-collision. This idea is also used in our work and can be considered as an alternative way of estimating the posterior distribution. However, it is known that k-NN density estimators have several drawbacks, e.g., they are prone to local noise, yield an estimate distribution with heavy tails, etc; also, the resulting density estimate is not a true pdf since its integral over the whole conﬁguration space diverges [5]. Our approach, on the other hand, does not have any such problems thanks to the nice properties of kernel density estimators.
+III. MACHINE LEARNING GUIDED EXPLORATION
+A. Problem Formulation
+Let X denote the conﬁguration space, which is assumed to be an open subset of Rd, where d ∈ N with d ≥ 2. Let the obstacle region and the goal region be denoted by Xobs and Xgoal, respectively. The obstacle-free space is deﬁned by Xfree = X \ Xobs. Let the initial conﬁguration be denoted by xinit ∈ Xfree. Let G = (V, E) denote a graph, where V and E ⊆ V ×V are ﬁnite sets of vertices and edges, respectively. We will use graphs to represent the connections between a (ﬁnite) set of conﬁguration points selected randomly from Xfree. Given a vertex v ∈ V , the function g : v → c returns a non-negative real number c, which is the cost of the path to v from a given initial state xinit ∈ Xfree. We will use g∗(v) to denote the optimal cost-to-come value of the vertex v which can be achieved in Xfree. Given a vertex v ∈ V , and a goal region Xgoal, the heuristic function h : (v, Xgoal) → c returns an estimate c of the optimal cost from v to Xgoal; we set h(v) = 0 if v ∈ Xgoal. The function h is an admissible heuristic if it never overestimates the actual cost of reaching Xgoal. In this paper, we always assume that h is an admissible heuristic. We wish to solve the following problem:
+Optimal motion planning problem: Given a bounded and connected open set X ⊂ Rd, the sets Xfree and Xobs = X \Xfree, an initial point xinit ∈ Xfree and a goal region Xgoal ⊂ Xfree, ﬁnd the minimum-cost path connecting xinit to Xgoal.
+In sampling-based algorithms, the planning algorithm avoids exhaustive discretization of the search space by randomly drawing conﬁgurations which are incorporated into a tree or a graph. The method of random generation of these conﬁgurations is called a sampling strategy. A good sampling strategy should adapt to the topology of the search space and provide information that can improve the computed solution.
+Learning problem: Let x∗goal ∈ Xgoal be the point in the goal region that has the lowest optimal cost-to-come value
+
+2647
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+in Xgoal, i.e., let x∗goal = argminx∈Xgoal g∗(x). The relevant region of Xfree is the set of points x for which the optimal cost-to-come value of x, plus the estimate of the optimal cost moving from x to Xgoal is less than the optimal cost-to-come value of x∗goal, that is,
+Xrel = {x ∈ Xfree : g∗(x) + h(x) < g∗(x∗goal)}. (1)
+Points that lie in Xrel have the potential to be part of the optimal path starting at xinit and terminating in Xgoal. Our goal is to learn Xrel and develop a sampling strategy that draws samples only from Xrel. This problem can be formulated as a combination of a classiﬁcation and a regression problem. First, we need to predict the label of a given arbitrary point x ∈ X , and then its cost-to-come value needs to be computed approximately, using some regression technique to check if inequality (1) is satisﬁed.
+B. Approach
+Before explaining our approach, some terminology needs to be introduced. Let X and Y denote the space of input and output values, respectively. Let x(i) ∈ X be the feature vector of the ith example, also called “input” variables, and let y(i) ∈ Y be its label, also called the “output” or target variable. A pair x(i), y(i) is called a training example. The training set is a list of m training examples of the form D = (x(1), y(1)), . . . , (x(m), y(m)) . In a supervised learning framework, given the training set D, a learning algorithm seeks a function yˆ : X → Y so that yˆ (x) is a “good” predictor for the corresponding value of y. The function yˆ is called a hypothesis, for historical reasons. The target variable that needs to be predicted can be continuous or it may take a ﬁnite number of discrete values. The learning problem is a regression problem when Y is continuous, and is a classiﬁcation problem if Y is a discrete set.
+Two problems arise in the context of sampling-based algorithms: a classiﬁcation problem, i.e., the prediction of the label of an unobserved sample x, and a regression problem, i.e., the prediction of the optimal cost-to-come value of the sample x.
+C. Learning the Conﬁguration Space
+Given the training set D = (x(i), y(i)) : i = 1, . . . , m where the pair x(i), y(i) denotes a randomly drawn point and its label computed by the collision-checker at the ith iteration, we wish to ﬁnd a function yˆcs : X → {−1, 1} that gives a good prediction for determining if a given point x is in the obstacle space or the free space.
+This problem can be solved efﬁciently via a Bayesian classiﬁer, which makes decisions based on class conditional distributions and priors [5]. The approach computes two approximate probability density functions (pdf) in order to determine where the obstacle-free and obstacle spaces lie in the search space, based on the available data at any given iteration. Then, the classiﬁer uses the Bayesian rule to predict if a given point x is in Xfree or Xobs. A real collision checking is performed only for points which are classiﬁed as collision-free. All of the samples, regardless if they are in collision or not, are stored in a list which
+
+forms the training set D. A kernel density estimator is used
+to learn the associated class conditional distributions. The kernel density estimator fˆX (x) for the estimation of the density value fX (x) at point x is deﬁned as
+
+fˆX (x)
+
+=
+
+1 m
+
+m
+KH
+
+x − x(i)
+
+,
+
+(2)
+
+i=1
+
+where H is the bandwidth matrix (nonsingular) and KH : Rd → R denotes the multivariate kernel function which is
+deﬁned as follows:
+
+KH(x)
+
+=
+
+1 K(H−1x). det(H)
+
+(3)
+
+We use a diagonal bandwidth matrix for the sake of simplicity, i.e., H = diag(h, . . . , h) where the kernel function K satisﬁes the following properties:
+i) K is a density function, that is, Rd K(x) dx = 1 and K(x) ≥ 0.
+ii) K is symmetric, that is, Rd xK(x) dx = 0. Typical kernels involve the Uniform, Gaussian and Epanechnikov kernel functions [22]. In this work, we use the Epanechnikov kernel function
+
+d+2
+
+K(x) =
+
+(1 − x x)I(x x ≤ 1),
+
+(4)
+
+2ζd
+
+where I(·) is the indicator function and ζd is the measure (volume) of the unit sphere in Rd.
+
+D. Proposed Adaptive Sampling Strategy
+
+The proposed adaptive sampling strategy is given in Algorithm 1. First, the algorithm initializes the lists used to store the collected samples with the empty set and initializes the sampling pdf fˆX with a pdf which is uniform over X . Then, the algorithm incrementally samples from fˆX in Line 5. In the subsequent step, a collision-checking operation is performed for the randomly generated sample xrand. The sample xrand is stored in either Xfree or Xobs based on the result of the collision-checking.
+In Lines 8 and 11, the DensityEstimator procedure implements a nonparametric density estimation method. In this work, we have implemented a kernel density estimator that uses the multivariate Epanechnikov kernel with variable, but uniform in all dimensions, bandwidth. In our implementation, the bandwidth h is updated as a function of the size of the training set D as follows
+
+h ∝ (log(|D|)/|D|)1/d.
+
+(5)
+
+The Epanechnikov kernel in (4) has been used instead of, say, a Gaussian kernel because of its ﬁnite support. This property makes querying the density value of a given point tractable. For any kernel of ﬁnite support, the summation in equation (2) needs to be performed for only the local neighbors of the query point. This neighbor set can be computed efﬁciently using speciﬁc spatial data structures, such as, kd-trees [21]. Simply, the density value of point x is computed using equation (2) and it predicts how likely is for the point x to be in the obstacle-free or obstacle spaces. In
+
+2648
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+Algorithm 1: Adaptive Sampling Algorithm#
+
+1 AdaptiveSampling(X )
+
+2
+
+Xobs ← ∅; Xfree ← ∅;
+
+3
+
+fˆX (·) ← puniform(·|X );
+
+4 for i = 1 to N do
+
+5
+
+xrand ← SampleDensity(fˆX );
+
+6
+
+if OnObstacle(xrand) then
+
+7
+
+Xobs ← Xobs ∪ {xrand};
+
+8
+
+bobs ← DensityEstimator(Xobs);
+
+9
+
+else
+
+10
+
+Xfree ← Xfree ∪ {xrand};
+
+11
+
+bfree ← DensityEstimator(Xfree);
+
+12
+
+fˆX ← Classifier(X, bobs, bfree);
+
+13
+
+X ← (Xobs, Xfree);
+
+14 return X;
+
+Line 12, the Classifier procedure implements a Bayesian classiﬁer and the label of a given point x is determined by the following Bayesian decision rule:
+
+yˆcs(x) =
+
+1 −1
+
+if qfree(x) ≥ qobs(x), otherwise,
+
+(6)
+
+where qobs(x) := ηP (x|y = −1)P (y = −1) and qfree(x) := ηP (x|y = 1)P (y = 1), where η = 1/P (x) is a normalizing coefﬁcient. This classiﬁer separates the conﬁguration space X into two approximate sets of obstacle Xobs and obstaclefree Xfree regions, i.e., Xobs = {x ∈ X : yˆcs(x) = −1} and Xfree = {x ∈ X : yˆcs(x) = 1}. At each iteration, the class density functions are approximated by the kernel density estimator based on the available data, as follows
+
+1
+
+bobs
+
+=
+
+P (x|y
+
+=
+
+−1)
+
+=
+
+|Xobs|
+
+x
+
+KHo
+∈Xobs
+
+(x − x
+
+)
+
+1 bfree = P (x|y = 1) = |Xfree| x ∈Xfree KHf (x − x )
+
+where Ho = diag(ho, . . . , ho) and Hf = diag(hf , . . . , hf ) are computed according to equation (5) using the sizes of Xobs and Xfree, respectively.
+The class priors are computed as the ratio of the samples in each class according to the expression P (y = −1) = |Xobs|/|X| and P (y = 1) = |Xfree|/|X|. Finally, having the Xobs and Xfree sets, the Classifier procedure returns the following pdf which is uniform over Xfree:
+
+fˆX (x) =
+
+1/µ(Xfree) 0
+
+if x ∈ Xfree, if x ∈ Xobs.
+
+(7)
+
+E. Learning the Cost-to-come (or cost-to-go) Value
+Given the set of training data D = (x(i), y(i)) : i = 1, . . . , m where the pair x(i), y(i) denotes a randomly drawn point along with its lmc-value (see Ref. [1]) computed by the replanning procedure at the ith iteration, we wish to ﬁnd a function yˆcv : X → R that gives a good estimate of the cost-to-come value of a given point x.
+
+Due to the incremental setting of the sampling-based
+
+algorithms, we consider locally weighted learning based
+
+methods [3], which are a form of lazy learning, to solve
+
+the aforementioned regression problem owing to their easy
+
+training. In this method, the training data is stored in memory
+
+and only a small subset is retrieved to answer a speciﬁc
+
+query. Relevance of the data is measured by using a distance
+
+function (e.g., nearby points look alike or have similar
+
+features). For regression problems, the method ﬁts a surface
+
+to nearby points using a distance weighted regression as
+
+follows:
+
+yˆcv(x) =
+
+i y(i)w(x, x(i)) . i w(x, x(i))
+
+(8)
+
+The weighting function w(x, x ) measures the relevance of two points and can be deﬁned by using a kernel function, for example, w(x, x ) = KHv (x − x ) where Hv = diag(hv, . . . , hv) is computed from equation (5) according to size of vertex set V . In the proposed approach, whenever a new sample is examined for inclusion in the graph, ﬁrst its cost-to-come value is estimated using the lmc-values of the neighbor vertices according to equation (8). Then, the new sample is included in the graph if its approximate costto-come value satisﬁes the following inequality, which is a relaxed version of (1)
+
+Xrel = {x ∈ Xfree : gˆ(x) + h(x) < lmc(x∗goal)}. (9)
+
+F. Integration to the RRT# Algorithm
+The proposed approach can be seamlessly integrated to the RRT# algorithm [1]. In fact, the proposed approach can be used with any single-query sampling-based motion planning algorithm, as long as it provides information of the cost-tocome (or cost-to-go) values for all the vertices. However, it is essential for the planning algorithm to provide accurate estimates of these cost values to achieve a good performance. In this paper we have chosen the RRT# algorithm to leverage its fast convergence properties, which is the result of using a relaxation step for the local rewiring of the graph. Details of the RRT# algorithm and its variants can be found in [1] and [2]. Instead of implementing a uniform sampling strategy, the Sample procedure of the RRT# algorithm is replaced with the proposed adaptive sampling strategy. The details of the Sample procedure is given in Algorithm 2.
+The Extend procedure of the RRT# algorithm is also modiﬁed, and relevancy of a new sample is checked by the proposed approach in Algorithm 3 before invoking any collision checker or solving the local steering problem. If the new sample is predicted to be part of the relevant region, then the typical operations of the RRT# algorithm are performed for the inclusion of the new sample in the current graph. Lines 2-11 implement the Bayesian classiﬁer and compute the posterior distribution of the new sample. If the new sample is predicted to be in the obstacle-free space, then the locally weighted regression is applied in Lines 13-20 to determine if the new information has the potential to improve the current best solution.
+
+2649
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+Algorithm 2: Sample Procedure #
+
+1 Sample(fˆX )
+
+2
+
+(X, bobs, bfree) ← fˆX ; (Xobs, Xfree) ← X;
+
+3 x ← SampleDensity(fˆX );
+
+4 while OnObstacle(x) do
+
+5
+
+Xobs ← Xobs ∪ {x}; X ← (Xobs, Xfree);
+
+6
+
+bobs ← DensityEstimator(Xobs);
+
+7
+
+fˆX ← Classifier(X, bobs, bfree);
+
+8
+
+x ← SampleDensity(fˆX );
+
+9
+
+Xfree ← Xfree ∪ {x}; X ← (Xobs, Xfree);
+
+10
+
+bfree ← DensityEstimator(Xfree);
+
+11
+
+fˆX ← Classifier(X, bobs, bfree);
+
+12
+
+return (fˆX , x);
+
+13 SampleDensity(fˆX )
+
+14
+
+(X, bobs, bfree) ← fˆX ; (Xobs, Xfree) ← X;
+
+15
+
+Pp,obs = |Xobs|/|X|; Pp,free = |Xfree|/|X|;
+
+16
+
+do
+
+17
+
+x ← Sample(X );
+
+18
+
+Pc,obs = bobs(x); Pc,free = bfree(x);
+
+19
+
+qobs(x) = Pc,obs · Pp,obs;
+
+qfree(x) = Pc,free · Pp,free;
+
+20
+
+while qfree(x) < qobs(x)
+
+21 return x;
+
+Algorithm 3: Relevancy Check Procedure#
+
+1 IsRelevant(G, X, x)
+
+2
+
+(V , E) ← G; (Xobs, Xfree) ← X;
+
+3
+
+Pp,obs = |Xobs|/|X|; Pp,free = |Xfree|/|X|;
+
+4
+
+Sobs ← Near(Xobs, x, |Xobs|); Pc,obs = 0;
+
+5 foreach x ∈ Sobs do
+
+6
+
+Pc,obs = Pc,obs + KHo (x − x );
+
+7
+
+Sfree ← Near(Xfree, x, |Xfree|); Pc,free = 0;
+
+8 foreach x ∈ Sfree do
+
+9
+
+Pc,free = Pc,free + KHf (x − x );
+
+10
+
+Pc,obs = Pc,obs/|Sobs|; Pc,free = Pc,free/|Sfree|;
+
+11
+
+qobs(x) = Pc,obs · Pp,obs; qfree(x) = Pc,free · Pp,free;
+
+12
+
+if qfree(x) ≥ qobs(x) then
+
+13
+
+gˆ(x) = 0; wtotal = 0;
+
+14
+
+Xnear ← Near(G, x, |V |);
+
+15
+
+foreach x ∈ Xnear do
+
+16
+
+w(x, x ) = KHv (x − x );
+
+17
+
+gˆ(x) = gˆ(x) + lmc(x )w(x, x );
+
+18
+
+wtotal = wtotal + w(x, x );
+
+19
+
+gˆ(x) = gˆ(x)/wtotal;
+
+20
+
+Key(x) = (gˆ(x) + h(x), gˆ(x));
+
+21
+
+return Key(x) ≺ Key(vg∗oal);
+
+22 return False;
+
+IV. SIMULATION RESULTS
+We have performed several simulations in order to conﬁrm the efﬁciency of the proposed approach. Here we present the results for a two-link robot moving in the plane to demonstrate that the proposed adaptive sampling strategy is capable of generating a high-number of collision-free samples. The workspace and conﬁguration space of the twolink robot are shown in Figure 1. Objects are intentionally placed in the workspace to form narrow passages in the conﬁguration space. The sampling strategy has also been
+
+y
+
+integrated to the RRT# algorithm to solve a path planning problem in 2D environment in order to visualize the growth of the search tree.
+A. 2D-link Robot
+We ﬁrst tested if the proposed adaptive sampling strategy generates a large number of collision-free conﬁgurations. Both uniform and adaptive sampling strategies were used to generate 100,000 samples. In order to demonstrate that the proposed approach eventually draws samples from difﬁcult parts of the conﬁguration space, e.g., narrow passages, all points on the boundary of obstacles were sampled ofﬂine and used to initialize the obstacle list Xobs of the classiﬁer. By doing so, all narrow passages are blocked at the start of the algorithm.
+
+10
+
+8
+
+6
+
+4
+
+2
+
+0
+
+−2
+
+−4
+
+−6
+
+−8
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+x
+
+Fig. 1: Workspace and conﬁguration space of a 2-link robot.
+
+Figure 2 compares the ratio of the collision-free samples over the total number of samples (r = |Xfree|/|X|) in a trial for uniform and adaptive sampling strategies, respectively. The ratio plots for adaptive and uniform sampling strategies are shown in green and blue colors, respectively. It is seen that this ratio converges to one for the proposed approach, whereas it lingers around r = µ(Xfree)/µ(X) for a uniform sampling strategy, shown in red color.
+
+1
+
+1
+
+0.9
+
+0.9
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+
+0.6
+
+0.6
+
+0.5
+
+0.5
+
+0.4
+
+0.4
+
+0.3
+
+0.3
+
+0.2
+
+0.2
+
+0.1
+
+0.1
+
+0
+
+0
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10 5
+
+5.5
+
+6
+
+6.5
+
+7
+
+7.5
+
+8
+
+8.5
+
+9
+
+9.5
+
+10
+
+x 104
+
+x 104
+
+Fig. 2: Ratio of the number of collision-free samples over the
+
+total number of samples starting from intermediate iterations:
+
+left is with i = 1, and right is with i = 50, 001.
+
+The distribution of samples drawn by the uniform and
+
+sampling strategies is shown Figure 3. The free space and
+
+conﬁguration space obstacles are shown in white and red,
+
+respectively. The samples that are free of and on collisions
+
+are shown in green and black, respectively. The proposed
+
+adaptive sampling strategy signiﬁcantly reduces the number
+
+of points drawn from the obstacle space and generates
+
+samples inside the narrow passages shown, whereas the
+
+uniform sampling strategy results in a large number of points
+
+on the obstacle space, depending the measure of µ(Xobs).
+
+2650
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+(a) 2,500 samples
+
+(b) 100,000 samples
+
+(c) 2,500 samples
+
+(d) 100,000 samples
+
+Fig. 3: The distribution of samples randomly drawn by
+
+uniform and adaptive sampling strategies is shown in (a)(b) and (c)-(d), respectively.
+
+10
+
+10
+
+8
+
+8
+
+6
+
+6
+
+4
+
+4
+
+2
+
+2
+
+0
+
+0
+
+−2
+
+−2
+
+−4
+
+−4
+
+−6
+
+−6
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(a) 100 iterations
+10
+
+(b) 2,500 iterations
+10
+
+8
+
+8
+
+6
+
+6
+
+4
+
+4
+
+2
+
+2
+
+0
+
+0
+
+−2
+
+−2
+
+−4
+
+−4
+
+−6
+
+−6
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(c) 5,000 iterations
+
+(d) 20,000 iterations
+
+Fig. 4: Evolution of the tree shown.
+
+B. Path Planning in 2D Environment
+In this problem, our aim is to ﬁnd an optimal path that connects a given initial point to the goal region, while minimizing the Euclidean path length in a square environment. The Euclidean distance from a given state to the goal set was used as an admissible heuristic for that state. The growth of the tree at different stages is shown in Figure 4. The initial state is plotted as a yellow square,the goal region is shown in dark blue with (upper middle), and the obstacles are shown in dark red. The minimal-length path is shown in yellow. As shown in Figure 4, the lowest-cost path computed by the algorithm converges to the optimal solution. Note that in these simulations we have used a slightly different implementation of the algorithms, namely, the tree is rooted to the goal set instead of the initial state and the growth of the tree is reversed.
+It is seen that once an initial solution is computed, exploration is prevented from going toward the unfavorable regions of the conﬁguration space. This helps to greatly reduce the number of vertices kept in the graph, yet it computes high quality solutions.
+The learned conﬁguration space at different stages of the process are shown in Figure 5. The correctly predicted free space is shown in white color, the correctly predicted obstacle space is shown in dark red, the incorrectly predicted obstacle and free spaces are shown in black color, and the unexplored regions (no prediction is available) are shown in gray color. These plots show how the conﬁguration space looks like from the classiﬁer’s perspective. The conﬁguration space is densely gridded and all points are queried to the
+
+(a) 100 iterations
+
+(b) 20,000 iterations
+
+Fig. 5: Learned conﬁguration space.
+
+Bayesian classiﬁer. The results are plotted based on the predicted labels. As seen in Figure 5-(b), the classiﬁer builds an almost exact model of the conﬁguration space, at least in the neighborhood of the relevant region.
+
+(a) 100 iterations
+
+(b) 20,000 iterations
+
+Fig. 6: Approximate f-value function (cost-to-go plus heuris-
+
+tic value).
+
+The approximate f-value function (heuristic value plus cost-to-go) at different stages is shown in Figure 6. Low and
+
+2651
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+
+high values of the f-value function are shown in blue and red colors, respectively, and the intermediate values are shown using gradient colors. This function is used to determine if a candidate sample is promising or not.
+The approximate relevant region at different stages is shown in Figure 7. The true relevant and approximate regions are shown in blue and purple colors, respectively, and their intersection is shown in green color. In Figure 7-(a), the exact relevant region is plotted based on the true cost-to-go values, which are computed off-line. Since a solution has not been found yet, the algorithm considers initially the whole conﬁguration space as the relevant region. As seen in the next ﬁgures, however, the algorithm progressively computes an approximation of the actual relevant region. In these plots the purple and green regions denote the incorrect and correct predictions, respectively.
+
+(a) 100 iterations
+
+(b) 2,500 iterations
+
+(c) 5,000 iterations
+
+(d) 20,000 iterations
+
+Fig. 7: Approximate relevant region.
+
+V. CONCLUSION
+We have proposed a novel adaptive sampling strategy and have integrated it to the RRT# algorithm, an asymptotically optimal sampling-based path-planning algorithm. The proposed adaptive sampling strategy utilizes the history of computed information, speciﬁcally, the label of the samples and their cost-to-come (or cost-to-go) values, to guide the exploration towards the region of the search space where samples having a great potential to improve the existing solution are more likely to be found. The approach utilizes ideas from machine learning to make predictions about how likely is for a new sample to be part of the free space and improve the current solution, without calling the computationally expensive collision checking and local steering procedures. Simulations demonstrate the effectiveness of the proposed approach, both in terms of reducing the number
+
+of samples lying in the obstacle space, and exploring the
+relevant region efﬁciently.
+REFERENCES
+[1] O. Arslan and P. Tsiotras. Use of relaxation methods in samplingbased algorithms for optimal motion planning. In IEEE International Conference on Robotics and Automation, pages 2413–2420, Karlsru¨he, Germany, May 6–10 2013.
+[2] O. Arslan and P. Tsiotras. Dynamic programming guided exploration for sampling-based motion planning algorithms. In IEEE International Conference on Robotics and Automation, pages 4819–4826, Seattle, WA, May 26–30 2015.
+[3] C. G. Atkeson, A. W. Moore, and S. A. Schaal. Locally weighted learning. Artiﬁcial Intelligence Review, 11(1-5):11–73, 1997.
+[4] J. Bialkowski, S. Karaman, M. Otte, and E. Frazzoli. Efﬁcient collision checking in sampling-based motion planning. In Algorithmic Foundations of Robotics X, pages 365–380. Springer, 2013.
+[5] C. Bishop. Pattern Recognition and Machine Learning. Springer, New York, 2006.
+[6] B. Burns and O. Brock. Information theoretic construction of probabilistic roadmaps. In IEEE/RSJ International Conference on Intelligent Robots and Systems, pages 650–655, Las Vegas, Nevada, USA, October 27-31 2003.
+[7] B. Burns and O. Brock. Sampling-based motion planning using predictive models. In IEEE International Conference on Robotics and Automation, pages 3120–3125, Barcelona, Spain, April 18–22 2005.
+[8] Brendan Burns and Oliver Brock. Single-query motion planning with utility-guided random trees. In IEEE International Conference on Robotics and Automation, pages 3307–3312, Rome, Italy, April 10-14 2007.
+[9] D. A. Cohn, Z. Ghahramani, and M. I. Jordan. Active learning with statistical models. Journal of Artiﬁcial Intelligence Research, 4:129– 145, 1996.
+[10] R. Geraerts and M. H. Overmars. A comparative study of probabilistic roadmap planners. In Algorithmic Foundations of Robotics V, pages 43–57. Springer, 2004.
+[11] D. Hsu, T. Jiang, J. Reif, and Z. Sun. The bridge test for sampling narrow passages with probabilistic roadmap planners. In IEEE International Conference on Robotics and Automation, pages 4420– 4426, Taipei, Taiwan, September 14–19 2003.
+[12] D. Hsu, L. E. Kavraki, J.-C. Latombe, R. Motwani, and S. Sorkin. On ﬁnding narrow passages with probabilistic roadmap planners. In The International Workshop on Algorithmic Foundations of Robotics, pages 141–154, 1998.
+[13] L. Janson, E. Schmerling, A. Clark, and M. Pavone. Fast marching trees: a fast marching sampling-based method for optimal motion planning in many dimensions. The International Journal of Robotics Research, 4:883–921, 2015.
+[14] S. Karaman and E. Frazzoli. Sampling-based algorithms for optimal motion planning. The International Journal of Robotics Research, 30(7):846–894, 2011.
+[15] L. E. Kavraki, P. Sˇ vestka, J.-C. Latombe, and M. H. Overmars. Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces. IEEE Transactions on Robotics and Automation, 12(4):566– 580, 1996.
+[16] S. M. LaValle. Rapidly-exploring random trees: A new tool for path planning. Technical Report TR 98-11, Computer Science Dept., Iowa State University, October 1998.
+[17] S. M. Lavalle and J. J. Kuffner Jr. Rapidly-exploring random trees: Progress and prospects. In Algorithmic and Computational Robotics: New Directions, pages 293–308, 2001.
+[18] M. Otte and E. Frazzoli. RRT-X: Real-time motion planning/replanning for environments with unpredictable obstacles. In The International Workshop on Algorithmic Foundations of Robotics, Istanbul, Turkey, August 3–5 2014.
+[19] J. Pan, S. Chitta, and D. Manocha. Faster sample-based motion planning using instance-based learning. In Algorithmic Foundations of Robotics X, pages 381–396. Springer, 2013.
+[20] J. H. Reif. Complexity of the mover’s problem and generalizations extended abstract. In IEEE Symposium on Foundations of Computer Science, pages 421–427, 1979.
+[21] H. Samet. Foundations of Multidimensional and Metric Data Structures. Morgan Kaufmann, Amsterdam Boston, 2006.
+[22] B. W. Silverman. Density Estimation for Statistics and Data Analysis. Chapman and Hall, London New York, 1986.
+
+2652
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 29,2022 at 10:12:59 UTC from IEEE Xplore. Restrictions apply.
+

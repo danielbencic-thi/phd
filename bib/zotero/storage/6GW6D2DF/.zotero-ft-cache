@@ -1,0 +1,436 @@
+2021 IEEE International Conference on Robotics and Automation (ICRA 2021) May 31 - June 4, 2021, Xi'an, China
+
+2021 IEEE International Conference on Robotics and Automation (ICRA) | 978-1-7281-9077-8/21/$31.00 ©2021 IEEE | DOI: 10.1109/ICRA48506.2021.9560787
+
+Vision-Based Mobile Robotics Obstacle Avoidance With Deep Reinforcement Learning
+Patrick Wenzel1 Torsten Scho¨n2 Laura Leal-Taixe´1 Daniel Cremers1
+
+Abstract— Obstacle avoidance is a fundamental and challenging problem for autonomous navigation of mobile robots. In this paper, we consider the problem of obstacle avoidance in simple 3D environments where the robot has to solely rely on a single monocular camera. In particular, we are interested in solving this problem without relying on localization, mapping, or planning techniques. Most of the existing work consider obstacle avoidance as two separate problems, namely obstacle detection, and control. Inspired by the recent advantages of deep reinforcement learning in Atari games and understanding highly complex situations in Go, we tackle the obstacle avoidance problem as a data-driven end-to-end deep learning approach. Our approach takes raw images as input and generates control commands as output. We show that discrete action spaces are outperforming continuous control commands in terms of expected average reward in maze-like environments. Furthermore, we show how to accelerate the learning and increase the robustness of the policy by incorporating predicted depth maps by a generative adversarial network.
+I. INTRODUCTION
+Safe and effective exploration in an unknown environment is a fundamental and challenging problem for mobile robots. To develop an approach for addressing these challenges a robotic system is faced with enormous challenges in perception, control, and localization. Obstacle avoidance is indeed an important and crucial part of being able to successfully navigate. Typically, in robotic navigation problems, simultaneous localization and mapping (SLAM) [1], [2], [3] algorithms are a fundamental part of such a system. These algorithms tackle this problem by constantly updating a map of the environment while simultaneously keeping track of the robot’s location. However, this is a challenging problem because it is hard to design features or mapping techniques that work under a wide variety of environments the robot may encounter. Therefore, we are interested in utilizing learning techniques for mapping sensor inputs to control commands. In particular, we are interested in solving this issue endto-end in a data-driven way without relying on an obstacle map. However, despite all that outstanding success in a lot of computer vision problems, many recent deep learning approaches still have evident drawbacks for robotics [4].
+In the last few years, deep reinforcement learning (DRL) has shown great potential to solve difﬁcult problems that previously seemed beyond our grasp. While the improvement
+1 P. Wenzel, L. Leal-Taixe´, and D. Cremers are with the Technical University of Munich, Germany. {patrick.wenzel, leal.taixe, cremers}@tum.de
+2 T. Scho¨n is with the Technische Hochschule Ingolstadt, Ingolstadt, Germany. torsten.schoen@thi.de
+This work was supported by the Munich Center for Machine Learning.
+
+Fig. 1: A simulated mobile robot in a virtual environment learning how to navigate autonomously without crashing. The robot was trained based on grayscale images (example shown in the upper right part of the ﬁgure) captured by a monocular camera. The range ﬁnder readings are shown as blue lines emerging from the center of the agent.
+on tasks like Atari games [5] and the game of Go [6] have been dramatic, the progress has been primarily in 2D environments. Therefore, in this paper, we are interested in the problem of obstacle avoidance in simple 3D environments for mobile robots without any hand-crafted features or prior knowledge of the environment (see Figure 1). We use DRL to learn visual control strategies that allow robots to explore an unknown environment by using raw sensor data only. Furthermore, we are particularly interested in the comparison between discrete and continuous action spaces for learning control strategies.
+Deep learning approaches have shown huge success in image-based pattern recognition problems due to their ability to learn complex and hierarchically abstract feature representations. In this paper, we train visualmotor policies that perform both perception and control together for robotic navigation tasks. The policies are represented by deep convolutional neural networks (CNNs) which are being learned from raw visual input data, captured by a single monocular camera mounted on a mobile robot platform. For a more comprehensive overview of deep learning approaches in mobile robotics, we refer the reader to the survey by Tai and Liu [7].
+Since transferring knowledge learned in simulation to realworld settings is an important step in developing a complete robotics system, we are also interested in bridging the gap
+
+978-1-7281-9077-8/21/$31.00 ©2021 IEEE
+
+14360
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+between those two. This is a rather challenging problem for perception-based approaches since the visual ﬁdelity of images generated in simulation environments is inferior compared to images from the real world. This motivates us to tackle the problem by using depth images instead of images from a monocular camera. However, in practical scenarios perception is often limited to monocular vision systems without any access to depth images. Hence, we propose to use conditional generative adversarial networks (GANs) [8] to overcome this issue by predicting depth images from monocular images.
+Particularly, this paper presents the following contributions:
+• We show that discrete action spaces outperform continuous action spaces on the task of vision-based robot navigation in maze-like environments.
+• We investigate the inﬂuence of on-policy and off-policy DRL algorithms as well as the impact of different sensor modalities for visual navigation tasks in synthetic environments. The experimental ﬁndings can be used as a guideline for similar tasks.
+• We show that the robustness of the policy and the learning performance can be increased by additionally fusing predicted depth images generated by a generative model.
+The remainder of this paper is organized as follows. In Section II, the necessary background on DRL for robot navigation is reviewed. Section III describes the problem statement and the approach. Training and evaluation details are presented in Section IV. Finally, Section V concludes the paper.
+
+II. BACKGROUND
+
+In this work, we consider a Markov decision process
+
+(MDP), where an agent interacts with the environment
+
+through a sequence of observations, actions, and reward
+
+signals. At each time step t, the agent executes an action
+
+at ∈ A from its current state st ∈ S, according to its policy π : S → A. The received reward at time t which is
+
+obtained after interaction with the environment is denoted
+
+by rt : S × A → R and transits to the next state st+1 according to the transition probabilities of the environment.
+
+The aim of the agent is to ﬁnd a policy π(a|s; θ) (where
+
+θ are the parameters of the policy) that maximizes the sum
+
+of discounted rewards, Rt =
+
+T τ =0
+
+γτ rt+τ ,
+
+in
+
+expectation,
+
+i.e., E[Rt], where γ is the discount factor and T is the
+
+time horizon. The discount factor trades off the balance
+
+between the immediate and the future reward. Since the
+
+transition probabilities are unknown, reinforcement learning
+
+(RL) techniques can be used to learn a policy for navigating
+
+a mobile robot in an unknown environment without crashing.
+
+A. Deep Reinforcement Learning
+In a model-free RL setting, the agent is trained without access to the underlying model of the environment. However, DRL methods exploit the idea of using deep neural networks (DNNs) to approximate the value function, the policy, or
+
+even the model. In general, today’s leading DRL algorithms can be divided into two main classes: off-policy methods and on-policy methods. In the ﬁrst method, the policy used for the control, called the behavior policy, may have no correlation to the policy that is being updated, called the estimation policy. In the second method, the policy used for the control of the MDP is the same which is being updated. In the following, we brieﬂy introduce two recent model-free RL methods.
+1) Deep Q-Network: Deep Q-Network (DQN) proposed by Mnih et al. [5] is an off-policy method and the actionvalue function Q(s, a; θ) is learned by minimizing the temporal difference error instead of directly parameterizing a policy. The Q-value estimator is optimized by repeated gradient descent steps on the objective: E (yi − Q(si, ai; θ))2 , where yi is the estimated Q-value given by yi = ri + γ maxa Q(si+1, a; θ). The policy selects the action maximizing value: a∗ = argmaxa Q(s, a; θ). We make use of several enhancements to DQN as suggested by [9], like dueling networks [10], double Q-learning [11] and prioritized experience replay [12] to improve performance. We use the proposed hyperparameters by OpenAI baselines [13] except a reduced experience replay capacity of 2.5 × 105 samples.
+2) Proximal Policy Optimization: Proximal Policy Optimization (PPO) [14] is a recently released on-policy method that improves sample complexity compared to standard policy gradient methods. In policy gradient methods, the policy is directly parameterized in the form π(a|s; θ), where π is a probability distribution over actions a when observing state s, as parameterized by θ, a deep neural network. The objective to optimize is the following:
+Eˆt min(rt(θ)Aˆt, clip(rt(θ), 1 − , 1 + )Aˆt) ,
+where Aˆt is the estimated advantage, Eˆt is the empirical expectation over timesteps, and a hyperparameter.
+B. DRL for Navigation
+Perception and control for robotics with DRL have been studied recently in the context of obstacle avoidance and planning for mobile robots. A mapless motion planner, using laser range ﬁndings, previous velocities and relative target positions as sensory input trained with Asynchronous Deep Deterministic Policy Gradient (ADDPG) was successfully developed by [15]. The experiments show that the proposed method can navigate the mobile robot in virtual and real environments to the desired targets without colliding with any obstacles. Mirowski et al. [16] proposed to jointly learn the goal-driven reinforcement learning problem with auxiliary depth prediction and loop closure classiﬁcation tasks. The results show that the combination with supervised auxiliary tasks signiﬁcantly enhances the overall learning performance. Also, [17] demonstrated the ability to build a cognitive exploration strategy using an RGB-D sensor and DQN. Furthermore, [17] proved the ability to transfer the models trained solely in virtual environments to the real world. The navigation policies generalized well to the
+
+14361
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+previously unseen real environments with dynamic obstacles. Compared to previous work, we show how to accelerate the learning and how to increase the robustness of the policy by means of fusing information from two different sensor modalities. Moreover, in this work we suggest guidelines on which algorithms and sensor modalities are adequate for visual navigation tasks and how discrete or continuous action spaces inﬂuence the performance.
+Another line of research is to use evolutionary methods for visual reinforcement learning tasks. In one example, Koutn´ık et al. [18] proposed the idea of using evolutionary computation to train vision-based control policies for the TORCS driving game.
+III. DEEP REINFORCEMENT LEARNING FOR CONTROL
+In this paper, we focus on incorporating predicted depth information into off-policy and on-policy methods for visual control of a mobile robot based on raw sensory data. Our vision-based control problem can be considered as a decision-making task, where the agent is interacting in an unknown environment with its sensors.
+A. Reward Function
+Reward shaping is arguably one of the biggest challenges for every RL algorithm. One big drawback of RL is the fact that reward functions are mostly hand-engineered and domain-speciﬁc. There is quite some work on imitation learning (IL) [19], which tries to directly recover the expert policy and inverse reinforcement learning (IRL) [20], which provides a way to automatically acquire a cost function from expert demonstrations. However, most of these methods suffer from heavy computation costs and the optimization of ﬁnding a reward function that best represents the expert trajectory is essentially ill-posed [21].
+There are two approaches on how to design a reward function. Dense reward functions, giving reward in all states during exploration and in contrast, sparse rewards, which only provide a reward at the terminal state, and no reward anywhere else. For the obstacle avoidance problem, a dense reward is much easier to learn, since the reward function will provide feedback about every step even when the policy hasn’t ﬁgured out a full solution to the problem yet. Whereas a sparse reward function won’t allow for safe navigation of the environment and also crashes will be more likely, e.g., since we don’t punish the robot for navigating close to the walls. We deﬁne the dense reward at timestep t as follows:
+
+
+
+rcollision,
+
+rt = 
+
+1 cd +1
+
+2
+
++
+
+1 2
+
+v
+
+cos(ω),
+
+if collides, otherwise,
+
+where v and ω are local linear and angular velocity published to the mobile robot, respectively. The reward function is composed of two parts: the ﬁrst part enforces the robot to keep as far as possible away from the obstacles. The second part encourages the robot to move as fast as possible whilst avoiding rotation. The center deviation deﬁnes the
+
+Action outputs
+
+Input
+
+64
+
+64
+
+32
+
+512
+
+Conv + ReLU
+
+Fully connected + ReLU
+
+Fully connected
+
+Fig. 2: Raw sensor information is fed as an input to the network and the output activation is directly used to send control commands to the robot.
+
+closeness of the robot to the obstacles and is close to zero if the robot is equally far away from the walls and is increased as soon as the robot moves towards an object. The center deviation is determined by evaluating the range ﬁnder readings. The range ﬁnder is a sensor with 100 line segments covering a 270° ﬁeld of view (FOV) surrounding the agent; its response is the distance to an object intersecting with the ray. The center deviation cd is calculated as the absolute difference between the sum of right-view and leftview distance measurements of the robot.
+If the robot crashes against the wall, the episode ends immediately with a reward of rcollision = −1. An episode is considered as solved if the mobile robot navigates without crashing for a total of T = 2000 timesteps. The total reward is the sum of the rewards of all steps within an episode. The reward is directly used by the algorithm without clipping or normalization.
+
+B. Policy Learning
+For the policy learning, we use the well-known network architecture proposed by Mnih et al. [5]. The architecture is depicted in Figure 2. The network is composed of three convolutional layers having 32, 64, and 64 output channels, respectively with ﬁlters of sizes 8 × 8, 4 × 4, and 3 × 3, and strides of 4, 2, and 1. The fully-connected layer has 512 neurons and is followed by an output layer which differs between the discrete and continuous action space. All hidden layers are followed by rectiﬁed linear units (ReLU) as activation functions.
+
+C. Action and Observation Space
+
+The action space deﬁnition varies between the discrete and
+
+continuous setting. Each action at corresponds to a moving
+
+command which is then executed by the mobile robot.
+
+Discrete space. The space is deﬁned as ﬁve predeﬁned
+
+actions corresponding to the following commands: move
+
+forward, move hard right, move soft right, move soft left,
+
+and move hard left. The linear velocity for the forward
+
+direction is set to be 0.3 m s−1, while the angular velocity is
+
+0 rad s−1. The linear velocity for the turning actions is set to
+
+be
+
+0.05 m s−1,
+
+while
+
+the
+
+angular
+
+velocity
+
+is
+
+−
+
+π 6
+
+,
+
+−
+
+π 12
+
+,
+
+π 12
+
+,
+
+or
+
+π 6
+
+rad s−1
+
+for
+
+right
+
+and
+
+left
+
+turns,
+
+respectively.
+
+Continuous space. The actions will be sampled initially
+
+from a Gaussian distribution with mean µ = 0 and standard
+
+14362
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 3: A sample image pair used for training the conditional GAN.
+
+deviation of σ = 1. For the mapping, the distribution is
+
+clipped at [µ−3σ, µ+3σ], since 99.7 % of the data lie within
+
+that band. The linear velocity can take values between the
+
+interval [0.05, 0.3] and the angular velocity can take values
+
+between
+
+[−
+
+π 6
+
+,
+
+π 6
+
+].
+
+The
+
+policy
+
+values
+
+from
+
+the
+
+Gaussian
+
+distribution will be linearly mapped to the corresponding
+
+action domains.
+
+Observation space. The observation ot ∈ RW ×H×C
+
+(where W , H, and C are the width, height, and channels of
+
+the image) is is an image representation of the scene obtained
+
+from an RGB camera mounted on the robot platform. The
+
+dimension of the grayscale observation is W = 84, H = 84,
+
+and C = 1. The state st is composed of four consecutive
+
+observations to model temporal dependencies. We assume
+
+that the agent interacts with the simulation environment over
+
+discrete time steps. At each time step t, the agent receives
+
+an observation ot and a scalar reward denoted by rt from
+
+the environment and then transits to the next state st+1.
+
+D. Training the GAN Architecture
+For the training of the paired image-to-image translation, we used the GAN architecture proposed by Isola et. al [8]. The training was done on 1313 pairs of pixel-wise corresponding RGB-depth images. An example pair is shown in Figure 3. The image resolution of the images from each domain is resized to 84 × 84. The model is trained for a total of 200 epochs and the latest model is used for inference during training the DRL policies. This approach is useful for domain adaptation, where we condition on an input image (RGB image) and generate a corresponding output image (depth image). An advantage of using a GAN over a simple CNN is the fact that this is a generative model and hence not limited to the available training data and can generalize across environments which we validate in our experiments. For more details on the loss and training objective, please see [8].
+
+IV. EXPERIMENTAL RESULTS
+A. Environment Setup
+We used the gym-gazebo toolkit [22] to evaluate recent DRL algorithms in different simulation environments. This toolkit is an extension of OpenAI gym [23] for robotics using the Robot Operating System (ROS) [24] and Gazebo [25] that allows for an easy benchmark of different algorithms with the same virtual conditions. For the conducted experiments in this work, two different modiﬁed simulation
+
+Fig. 4: The virtual training environments were simulated by Gazebo. We used two different indoor environments with walls around them. The environments are named Circuit2-v0, and Maze-v0, respectively. A TurtleBot2 was used as the robotics platform.
+environments from the original project are used; namely Circuit2-v0 and Maze-v0 (Figure 4). As a simulated robotics platform, a TurtleBot2 with a Kobuki base is used. This model comes with a simulated camera with 80° FOV, 480 × 480 resolution, and clipping at 0.05 and 8.0 distances. The laser range sensor information is provided by a simple sensor model, which is mounted on top of the robot base. The sensor has a 270° FOV and outputs sparse range readings (100 points). In all our simulation results, each plot shows a 95 % conﬁdence interval of the mean across 3 seeds.
+B. Training
+For training the models, we use an Adam [26] optimizer and train for a total of 2 million frames for each environment on an NVIDIA GeForce GTX 1080 GPU. All models are trained with TensorFlow. It is important to know that the laser range ﬁnder is only used during training time for determining the rewards and is not required for inference.
+In each episode, the mobile robot is randomly spawned in the environment with a random orientation. The angle of the orientation is randomly sampled from an uniform distribution φ ∼ U(0, 2π). To ensure a fair comparison at test time, the agent is spawned at the same location with the same orientation and the reward is averaged over 12 test episodes in each environment. The average episodic reward is considered as the performance measure of the trained networks. In the following, we present the experimental results.
+C. Comparison Between Discrete and Continuous Action Spaces
+In this experiment, we are particularly interested in ﬁnding out the differences of discrete actions compared to continuous actions for visual navigation. Ideally, we want to deal with continuous action spaces for robotic control, since deﬁning discrete action spaces is a cumbersome process and the actions may be limited when performing tricky maneuvers. In Figure 5, the learning curves of DQN (discrete), PPO (discrete), and PPO (continuous) for the Circuit2-v0 and Maze-v0 environment are shown. The experiments show that PPO discrete is able to outperform both PPO continuous and DQN with discrete action spaces by a wide margin. A
+
+14363
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+TABLE I: Inference results for the evaluated DRL methods for grayscale inputs. We evaluated the performance for 12 test rollouts, reporting mean and standard deviation.
+
+Method
+DQN PPO discrete PPO continuous
+
+Average reward Circuit2-v0 Maze-v0
+
+1327 ± 15 1712 ± 4 1455 ± 65
+
+1016 ± 80 1612 ± 36 1054 ± 62
+
+TABLE II: Angular velocities for different action spaces. Velocities sorted from rightmost to leftmost angular direction.
+
+Number of actions Angular velocity (in rad s−1)
+
+3
+
+−0.3, 0, 0.3
+
+5
+
+−
+
+π 6
+
+,
+
+−
+
+π 12
+
+,
+
+0,
+
+π 12
+
+,
+
+π 6
+
+21
+
+−
+
+π 6
+
++
+
+πn 60
+
+for n = 0, . . . , 20
+
+Fig. 5: The learning curves of DQN (red), PPO discrete (green), and PPO continuous (blue) on the TurtleBot2 robot when trained end-to-end to navigate in an unknown environment. The results depict that all algorithms perform well in the environment and learn a good policy, however, PPO discrete is able to outperform the other methods by a signiﬁcant margin.
+viable explanation for the performance differences between PPO discrete and PPO continuous comes from the fact that a relationship between the linear and angular velocity for the continuous domain needs to be learned, whereas prior knowledge about this relation is already available in the discrete domain. Furthermore, in general, the linear and angular velocities are inversely proportional to each other. For example, during turns, the angular velocity is generally high and the linear velocity is low. It is notable to mention that the continuous variant of PPO is able to outperform the discrete DQN method, despite dealing with a much more complicated action space and no prior knowledge about the relationship between linear and angular velocity. Table I shows the inference results for the different evaluated methods. We see that among the tested methods, PPO with discrete actions is able to achieve the highest scores.
+D. Comparison Between Varying Discrete Action Spaces
+In this experiment, the impact of the number of actions on the learning performance is analyzed. The linear and the angular velocity for the move forward action is the same as before and only the angular velocities of the turning
+
+actions are varied. Table II shows the corresponding angular velocities for the different action spaces. We are comparing 3 different numbers of actions. In Figure 6, the learning curves of the different variants of DQN are shown. The experiments show that a larger number of actions results in a higher average reward in both evaluated environments. Moreover, the experiments show that more ﬁne-grained action spaces are particularly helpful in environment Maze-v0, where the agent has to perform more complicated maneuvers as compared to the ones in environment Circuit2-v0.
+E. Comparison Between Sensor Modalities
+In the previous section, all methods were trained on a single visual input modality. In this experiment, we compare agents equipped with different sensor modalities to investigate the impact of fused sensory inputs. The different sensor modalities are depicted in Figure 7.
+We propose to fuse multiple sources to obtain improved learning performance. The idea is to combine the grayscale images with depth images which are predicted by a conditional GAN. This is done by concatenating a grayscale image with the predicted depth image and using it as an observation. This sensor combination is denoted as Fused. In Figure 8, the learning curves with Grayscale, Depth, Depth prediction, and Fused sensor inputs for the Circuit2-v0 and Maze-v0 environment are shown. All sensor conﬁgurations are trained with the PPO continuous method. From the red learning curve, we can see that the advantage of using the Fused approach increases the average reward compared to using the grayscale input only. From the ﬁgure, it can be seen that the depth image is also advantageous in terms of learning performance compared to the raw grayscale input. This result is consistent with earlier research results of Peasley [27] which shows that depth information is vital for tasks like exploration and obstacle avoidance.
+Table III shows the inference results for the different evaluated sensor setups. We see that among the tested sensor modalities, the depth image achieves the highest average reward. The difference in the average reward between using
+
+14364
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 6: The learning curves of DQN (3 actions), DQN (5 actions), and DQN (21 actions).
+
+(a) Grayscale
+
+(b) Depth
+
+(c) Predicted depth
+
+Fig. 7: Examples of the different input modalities. From left to right: monocular grayscale image, ground-truth depth image, and predicted depth image by the conditional GAN approach.
+
+Fig. 8: The learning curves of Fused (red), Grayscale (green), Depth (blue), and Depth prediction (yellow) on the TurtleBot2 robot when trained end-to-end to navigate in an unknown environment. The results depict that all sensor modalities perform well in the environment and learn a good policy, however, the depth sensor is able to outperform the monocular camera by a signiﬁcant margin. By fusing predicted depth images with grayscale images, we can increase the learning performance.
+TABLE III: Inference results for the evaluated DRL methods for different sensor modalities. We evaluated the performance for 12 test rollouts, reporting mean and standard deviation.
+
+depth images or grayscale images as input is signiﬁcant. However, using our proposed Fused sensor setup, we can achieve almost similar results as with using ground truth depth images.
+
+Sensor modality
+Fused Grayscale Depth Depth prediction
+
+Average reward Circuit2-v0 Maze-v0
+
+1619 ± 5 1455 ± 65 1627 ± 9 1544 ± 43
+
+1411 ± 83 1054 ± 62 1474 ± 61 896 ± 22
+
+V. CONCLUSION
+In this paper, we have presented a DRL approach for vision-based obstacle avoidance with a mobile robot from raw sensory data. Our method solely relies on a monocular camera for perception, which enables low-cost, lightweight, and low-power-consuming hardware solutions. We validated our approach on several simulated experiments, moreover, we analyzed the applicability of two different kinds of algorithms, namely PPO and DQN. We showed that control policies for discrete and continuous action spaces can be learned in an end-to-end manner. Our experiments show that these algorithms can learn to navigate in simple maze-like environments without prior knowledge of the environment.
+
+Furthermore, we showed how the average reward can be increased by additionally fusing predicted depth images by means of a GAN. Moreover, the impact of the number of actions on the learning behavior is analyzed. This result indicates a promising direction to continue research on DRL for mapless navigation. In future work, we intend to work on transferring the policies trained in simulation to realistic environments. Furthermore, another interesting direction would be to use imitation learning techniques to solve the sample-inefﬁciency problem and potentially make the training process faster and safer.
+
+14365
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] J. Engel, T. Scho¨ps, and D. Cremers, “LSD-SLAM: Large-scale direct monocular SLAM,” in Proceedings of the European Conference on Computer Vision (ECCV), 2014.
+[2] J. Engel, V. Koltun, and D. Cremers, “Direct sparse odometry,” IEEE Transactions on Pattern Analysis and Machine Intelligence (PAMI), vol. 40, no. 3, pp. 611–625, 2017.
+[3] R. Mur-Artal, J. M. M. Montiel, and J. D. Tardos, “ORB-SLAM: a versatile and accurate monocular SLAM system,” IEEE Transactions on Robotics (T-RO), vol. 31, no. 5, pp. 1147–1163, 2015.
+[4] J. M. Wong, “Towards lifelong self-supervision: A deep learning direction for robotics,” in arXiv preprint arXiv:1611.00201, 2016.
+[5] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, S. Petersen, C. Beattie, A. Sadik, I. Antonoglou, H. King, D. Kumaran, D. Wierstra, S. Legg, and D. Hassabis, “Human-level control through deep reinforcement learning,” Nature, vol. 518, no. 7540, pp. 529–533, 2015.
+[6] D. Silver, A. Huang, C. J. Maddison, A. Guez, L. Sifre, G. Van Den Driessche, J. Schrittwieser, I. Antonoglou, V. Panneershelvam, M. Lanctot, S. Dieleman, D. Grewe, J. Nham, N. Kalchbrenner, I. Sutskever, T. Lillicrap, M. Leach, K. Kavukcuoglu, T. Graepel, and D. Hassabis, “Mastering the game of Go with deep neural networks and tree search,” Nature, vol. 529, no. 7587, pp. 484–489, 2016.
+[7] L. Tai and M. Liu, “Deep-learning in mobile robotics - from perception to control systems: A survey on why and why not,” in arXiv preprint arXiv:1612.07139, 2017.
+[8] P. Isola, J.-Y. Zhu, T. Zhou, and A. A. Efros, “Image-to-image translation with conditional adversarial networks,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017.
+[9] M. Hessel, J. Modayil, H. van Hasselt, T. Schaul, G. Ostrovski, W. Dabney, D. Horgan, B. Piot, M. Azar, and D. Silver, “Rainbow: Combining improvements in deep reinforcement learning,” in Proceedings of the National Conference on Artiﬁcial Intelligence (AAAI), 2018.
+[10] Z. Wang, T. Schaul, M. Hessel, H. van Hasselt, M. Lanctot, and N. de Freitas, “Dueling network architectures for deep reinforcement learning,” in Proceedings of the International Conference on Machine Learning (ICML), 2016.
+[11] H. van Hasselt, A. Guez, and D. Silver, “Deep reinforcement learning with double Q-learning,” in Proceedings of the National Conference on Artiﬁcial Intelligence (AAAI), 2016.
+[12] T. Schaul, J. Quan, I. Antonoglou, and D. Silver, “Prioritized experience replay,” in arXiv preprint arXiv:1511.05952, 2015.
+[13] P. Dhariwal, C. Hesse, O. Klimov, A. Nichol, M. Plappert, A. Radford, J. Schulman, S. Sidor, Y. Wu, and P. Zhokhov, “OpenAI baselines,” https://github.com/openai/baselines, 2017.
+[14] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” in arXiv preprint arXiv:1707.06347, 2017.
+[15] L. Tai, G. Paolo, and M. Liu, “Virtual-to-real deep reinforcement learning: Continuous control of mobile robots for mapless navigation,” in Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2017.
+[16] P. Mirowski, R. Pascanu, F. Viola, H. Soyer, A. J. Ballard, A. Banino, M. Denil, R. Goroshin, L. Sifre, K. Kavukcuoglu, D. Kumaran, and R. Hadsell, “Learning to navigate in complex environments,” in Proceedings of the International Conference on Learning Representations (ICLR), 2017.
+[17] L. Tai and M. Liu, “Towards cognitive exploration through deep reinforcement learning for mobile robots,” in arXiv preprint arXiv:1610.01733, 2016.
+[18] J. Koutn´ık, G. Cuccu, J. Schmidhuber, and F. Gomez, “Evolving largescale neural networks for vision-based reinforcement learning,” in Genetic and Evolutionary Computation Conference (GECCO), 2013.
+[19] J. Ho and S. Ermon, “Generative adversarial imitation learning,” in arXiv preprint arXiv:1606.03476, 2016.
+[20] J. Fu, K. Luo, and S. Levine, “Learning robust rewards with adversarial inverse reinforcement learning,” in arXiv preprint arXiv:1710.11248, 2017.
+[21] S. Arora and P. Doshi, “A survey of inverse reinforcement learning: Challenges, methods and progress,” in arXiv preprint arXiv:1806.06877, 2018.
+
+[22] I. Zamora, N. G. Lopez, V. M. Vilches, and A. H. Cordero, “Extending the OpenAI gym for robotics: a toolkit for reinforcement learning using ROS and gazebo,” in arXiv preprint arXiv:1608.05742, 2016.
+[23] G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba, “OpenAI gym,” in arXiv preprint arXiv:1606.01540, 2016.
+[24] M. Quigley, K. Conley, B. Gerkey, J. Faust, T. Foote, J. Leibs, E. Berger, R. Wheeler, and A. Mg, “ROS: an open-source robot operating system,” in ICRA workshop on open source software, 2009.
+[25] N. Koenig and A. Howard, “Design and use paradigms for gazebo, an open-source multi-robot simulator,” in Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2004.
+[26] D. P. Kingma and J. L. Ba, “Adam: A method for stochastic optimization,” in Proceedings of the International Conference on Learning Representations (ICLR), 2015.
+[27] B. Peasley and S. Birchﬁeld, “Real-time obstacle detection and avoidance in the presence of specular surfaces using an active 3d sensor,” in 2013 IEEE Workshop on Robot Vision (WORV), 2013.
+
+14366
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:50:32 UTC from IEEE Xplore. Restrictions apply.
+

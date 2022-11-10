@@ -1,0 +1,475 @@
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) September 27 - October 1, 2021. Prague, Czech Republic
+
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-1714-3/21/$31.00 ©2021 IEEE | DOI: 10.1109/IROS51168.2021.9636609
+
+Deadlock Prediction and Recovery for Distributed Collision Avoidance with Buffered Voronoi Cells
+Mohammed Abdullhak1 and Andrew Vardy2
+
+Abstract— This paper introduces a distributed multi-robot collision avoidance algorithm based on the concept of Buffered Voronoi Cells (BVC). We propose a novel algorithm for avoiding deadlocks consisting of three stages: deadlock prediction, deadlock recovery, and deadlock recovery success prediction. Simple heuristics (such as the right-hand rule) are often used to avoid deadlocks. Such heuristics might reduce deadlock in simple conﬁgurations and sparsely populated environments, but they begin to fail in complex conﬁgurations and more densely populated environments. We evaluate the performance of our algorithm using an open-source web-based multi-robot simulation. The results show that while the proposed algorithm does not eliminate the occurrence of deadlocks, it drastically reduces their occurrence, and leads to a considerable improvement in performance, especially in high-density environments. We also validate the real-world performance of the proposed algorithm in live experiments.
+I. INTRODUCTION
+Multi-robot collision avoidance is a fundamental problem in autonomous robotics. Distributed collision avoidance is particularly important for multi-robot system applications where centralized control is not wanted or not possible, such as environment mapping, natural resource mining, industrial fault diagnosis and repair, and factory ﬂoor applications such as cleaning, sorting, and packaging. Many existing algorithms that solve the collision avoidance problem require centralized processing [1], or extensive information such as the position, velocity, and trajectory details of other robots [2, 3, 4, 5]. This information can either be communicated between the robots or sensed and estimated locally, both of which can lead to delays, and introduce errors.
+This paper proposes a distributed collision avoidance algorithm integrating a novel deadlock avoidance algorithm into a base collision avoidance algorithm based on buffered Voronoi cells (BVC), similar to the one proposed by Zhou et al. [6]. We do not introduce any additional centralization nor cooperation requirements. The proposed algorithm is fully distributed and the execution of the algorithm on each robot relies only on the relative positions of neighboring robots. The proposed deadlock avoidance algorithm consists of three stages: deadlock prediction, deadlock recovery, and deadlock recovery success prediction. Early deadlock prediction and
+We acknowledge support from the National Science and Engineering Research Council (NSERC) Discovery Grants program.
+1Mohammed Abdullhak is with the Department of Computer Science, Memorial University of Newfoundland, St. John’s, Canada mabdullhak@mun.ca
+2Andrew Vardy is with the Department of Computer Science and the Department of Electrical and Computer Engineering, Memorial University of Newfoundland, St. John’s, Canada av@mun.ca https://orcid. org/0000-0001-7278-5378
+
+recovery has many beneﬁts over sensing and reacting to deadlocks; it helps steer the robots clear of each others and increase the safety distances between them since sensing a deadlock often means the robots are already at the minimum distance possible without causing a collision. The lack of deadlock prediction can also lead to extreme congestion where many robots get too close to each others leaving the robots in the center stuck while waiting for outside robots to detect and recover from their deadlock conﬁgurations. Deadlock prediction can reduce this risk by predicting possible deadlocks caused by congestion and maneuvering towards clearer paths. Deadlock recovery success prediction ends deadlock recovery maneuvers as soon as it predicts that the deadlock has been successfully avoided, which helps decrease the distance and time to reach the goal by reducing the overshoot during these maneuvers.
+Deadlocks happen when multiple robots block each others’ paths in a way that at least one robot is unable to advance along its planned trajectory to reach its goal. Another phenomenon that often arises in distributed collision avoidance algorithms is livelock, where a robot keeps alternating between a deadlock state and performing a deadlock recovery action to recover from that state.
+Multi-robot collision avoidance has been extensively studied and many approaches have been developed. Velocitybased methods, which were proposed in [2], have seen wide success and adoption. Reciprocal collision avoidance (RVO) [3] extends this approach by assuming that both agents will work to avoid the collision. The acceleration-velocity obstacle (AVO) model enforces acceleration constraints [7]. The Hybrid Reciprocal Velocity Obstacles (HRVO) approach eliminates oscillations by explicitly considering that other robots sense their surroundings and change their trajectories accordingly [8]. The Optimal Reciprocal Collision Avoidance (ORCA) algorithm increases efﬁciency by reducing the problem to a low-dimensional linear program [4]. Many other variations exist in this class [9, 10, 11, 12] but they all require knowledge of the neighboring agents’ velocities in addition to their positions; while the method proposed here requires knowledge of the neighbors’ positions only.
+Model predictive control (MPC) approaches have also been successfully used for collision avoidance. Shim et al. present a nonlinear model predictive control (NMPC) for multiple autonomous agents by combining stabilization of vehicle dynamics and decentralized trajectory generation [13]. Morgan et al. propose a model predictive control approach for real-time implementation of the sequential convex programming algorithm, resulting in decentralized computa-
+
+978-1-6654-1714-3/21/$31.00 ©2021 IEEE
+
+429
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+tions and communication between neighboring agents only [14]. While Zhu and Alonso-Mora present a probabilistic collision avoidance by formulating a chance constrained nonlinear model predictive control problem (CCNMPC) [15].
+Many other approaches have also been proposed such as deep reinforcement learning [16] which ofﬂoads online computations to an ofﬂine learning procedure, gyroscopic forces and scalar potentials ﬁelds [17], and control barrier functions (CBF) [18] among others.
+Our approach is based on dividing the environment into non-overlapping regions where agents can locally plan their trajectories to avoid collisions with other robots. Zhou et al. [6] use the Voronoi diagram for partitioning and introduce the buffered Voronoi cell (BVC) which takes the robot shape into account to guarantee collision avoidance. This concept is extended by other papers to take uncertainty into account [19], [20]. Weighted buffered Voronoi cells were also introduced to explore selﬁsh or prioritized behavior among agents [21]. These approaches either do not specify any deadlock avoidance behavior or use simple heuristics such as the right-hand rule, which do not always perform well and tend to fail in densely populated environments. We extend these methods by proposing a deadlock avoidance algorithm with three stages for early deadlock prediction, deadlock recovery, and deadlock recovery success prediction and integrating it into a collision avoidance algorithm based on buffered Voronoi cells.
+II. PRELIMINARIES
+A. Voronoi Diagram
+The Voronoi diagram is deﬁned by a set of ‘sites’ which partition the environment into a set of non-overlapping regions, one for each site. The region for a site s consists of all points closer to s than to any other site [22]. Each region is called a Voronoi cell [23]. For a ﬁnite number of sites s1, . . . , sn : n > 2 in the Euclidean plane, the Voronoi cell of si is:
+V (si) = {x | x − xi ≤ x − xj for j = i , j ≤ n}
+where xi is the location vector of si. In the context of collision avoidance, a Voronoi diagram
+for the whole environment is generated with the robots’ positions as the sites. This divides the environment into nonoverlapping regions around each robot. If each robot stays completely within its own cell, collisions can be avoided. To guarantee this condition, the Buffered Voronoi Cell (BVC) is introduced.
+B. Buffered Voronoi Cell
+Assume we have a set of N disk-shaped robots as in ﬁgure 1, with radius rs, and center points p1, . . . , pn, in a collisionfree conﬁguration (the distance between any two robots is larger than 2rs). The buffered Voronoi cell of robot i is its Voronoi cell retracted by its radius rs, so that if the center of the robot is within its buffered Voronoi cell, the entirety of its body is guaranteed to be within its Voronoi cell [6].
+
+Fig. 1: Voronoi diagram and buffered Voronoi Cells for 10 robots.
+C. Collision Avoidance with Buffered Voronoi Cells
+For a set of disk-shaped robots in a collision-free conﬁguration, the deﬁnition of the buffered Voronoi cell guarantees that the BVC of each robot is non-empty and contains its center. If each robot’s incremental movements are restricted to lie within their own BVC, then their new positions are guaranteed to be collision-free for all future time-steps [6].
+Thus, distributed collision avoidance between this group of robots can be achieved by each robot executing the following steps at each time step until they reach their own goals: 1) Calculate the Voronoi diagram and the buffered Voronoi cell based on the positions of the robot and its sensed neighbors. 2) Calculate a local waypoint within the buffered Voronoi cell. 3) Move towards this local waypoint.
+Similar to other distributed collision avoidance algorithms, the lack of coordination between robots can lead to deadlocks, where robots block each other in a way that prevents at least one of them from reaching its ﬁnal goal. Some algorithms use simple heuristics to solve these deadlocks such as the right-hand rule, where each robot moves to its right when facing another robot [6, 21]. In another technique the robot chooses one of the nearby edges of its current buffered Voronoi cell to detour along when in a deadlock conﬁguration [20, 6].
+These heuristics perform well in sparsely populated environments but fail to reliably prevent deadlocks as the population size increases. Figure 2 shows comparison between the collision avoidance algorithm introduced in [6] with right-hand heuristics (in blue) and the proposed collision avoidance algorithm (in orange). Each algorithm is used to drive the robots from random starting positions towards random goals within the simulation environment described in Section IV-A. The number of robots in the environment was increased from 10 to 100 by a step of 10 robots and for each conﬁguration, 100 simulations were performed for both algorithms, each lasting 2000 time steps. The long run time is used to ensure that the robots that did not reach their goals were trapped in deadlocks, since even for the highest number of robots used, most robots reach their ﬁnal state by time step 600 (this can be clearly seen in ﬁgure 5 - case 4, which uses the same number of robots and random conﬁguration as these experiments). Figure 2 shows the average total distance between the robots and their respective goals after 2,000 time
+
+430
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+Distance (cm)
+
+Total Distance To Goals After 2,000 Timestep
+120
+100
+80
+60
+40
+20
+0 0 10 20 30 40 50 60 70 80 90 100
+Number Of Robots
+Fig. 2: Mean and standard deviation of remaining total distance to goals after 2,000 time steps for 100 simulations for the right-hand heuristics (blue) and the proposed algorithm (orange).
+steps for both algorithms. We can see how using the righthand heuristics (in blue) all robots can reach their goals in small population sizes, but as the number of robots increases from 10 (environment occupancy rate of 1.3%) to 100 (13%) the total distance increases drastically as a result of more and more robots getting stuck in deadlocks. While for the proposed algorithm (in orange), the total distance barely increases as more robots are added to the environment and at 100 robots only reaches a tenth its corresponding value when using the right-hand heuristics.
+III. DEADLOCK PREDICTION AND RECOVERY ALGORITHM
+In this section, we will ﬁrst outline the proposed collision avoidance algorithm, then describe each of its stages.
+A. Collision Avoidance Algorithm Overview
+We add to the assumptions given in Section II-B in that the set of n disk-shaped robots starts in a collision-free conﬁguration and each robot is assigned a goal g, with the goals also in a collision-free conﬁguration. We propose the following distributed collision avoidance algorithm.
+At time t, each robot senses its own position pt, and positions of neighboring robots, forming the set Nt, where Nt is the set of sensed neighbors’ positions at time t. Then it calculates its current buffered Voronoi cell (BVC) Bt based on these measurements. A local waypoint gt within the current BVC is then selected. Once gt is found, the control input ut is calculated to drive the robot towards it for that time step. This process is repeated until the robot reaches it’s goal within an acceptable distance such that
+g − pt < .
+By default, the waypoint at time t, gt, is the point within the BVC that is closest to the goal, we will call this special point gt∗. However, if a deadlock is detected or if this waypoint is predicted to lead to a deadlock conﬁguration according to the proposed deadlock prediction step, or if the
+
+robot is still recovering from previous deadlock, a different waypoint is selected in the deadlock recovery step. An overview is given in Algorithm 1.
+
+Algorithm 1. Collision Avoidance Algorithm
+
+while g − pt > 0 do
+
+Update pt (current position)
+
+Update Nt (current neighbors’ positions)
+
+Calculate Bt (current buffered voronoi cell)
+
+Calculate gt∗ (closest point in Bt to goal)
+
+if g ∈ Bt then
+
+# Goal is Within BVC
+
+Set gt = g
+
+else if Recoveringf romDeadlock = T rue then
+
+Perform Deadlock Recovery Step
+
+else if DeadlockDetectedorP redicted then
+
+Initiate Deadlock Recovery
+
+else Set gt = gt∗
+end if
+
+Calculate ut to drive robot directly towards gt end while
+
+B. Deadlock Prediction
+
+We propose a deadlock prediction algorithm based on the
+
+position of the waypoint gt at each time step with respect to the positions of neighboring robots and the goal g.
+
+We know that a deadlock can only occur when the robot is located at gt∗, the closest point to the goal within its buffered Voronoi cell, otherwise, there would be a closer point and
+
+according to Algorithm 1, the robot would move towards
+
+that point for at least one time step. Furthermore, Zhou et
+
+al. [6] prove that this point can only be a) A vertex of the
+
+BVC or b) On an edge of the BVC such that a line from pt to gt∗ is perpendicular to this edge, and the neighboring robot who shares the Voronoi edge must also be located on
+
+the same line segment. Case b is trivial due to the collinear
+
+requirement which can be broken with any deviation to either
+
+side by either robot to break the Collinear conﬁguration, thus we are only interested in predicting the case a where gt∗ is a vertex of the BVC.
+
+Since this deadlock conﬁguration only occurs when the robot is located at gt∗, and gt∗ is a vertex of the BVC, then by deﬁnition of the BVC, the distance between the robot and
+
+the neighboring robots ni, nj positioned at pit and pjt who share the Voronoi edges incident to gt∗ must be 2rs:
+
+gt∗ − pit = gt∗ − pj t = 2rs
+
+(1)
+
+Proposition 1: For condition (1) to be satisﬁed, the distance between ni and nj, must be equal to or less than 4rs:
+
+pit − pj t ≤ 4rs
+
+(2)
+
+Proof : Let us assume that pit − pjt > 4rs, then for any point x ∈ R2 not on the line segment between pit and pjt:
+
+x − pit + x − pj t > pit − pj t ∀ x ∈ R2
+
+then,
+
+x − pit + x − pjt > 4rs ∀ x ∈ R2
+
+431
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+If we choose x as a point where,
+
+x − pj t = 2rs then it must be that,
+
+x − pit > 2rs
+
+which contradicts condition (1).
+
+When condition (1) is satisﬁed, we are only interested in
+
+predicting deadlock conﬁgurations where the current waypoint gt∗ and the goal g are on different sides of the line between the neighbors ni and nj. Otherwise the deadlock
+would be a result of one of the neighboring robots being
+
+positioned too close to the goal, preventing the robot from
+
+reaching it. Performing a deadlock recovery maneuver in this
+
+case would drive the robot further away from the goal.
+
+For which
+
+two side
+
+roofbolitnsen−ni−(ix,−n→i,jyia)
+
+and nj(xj, yj), we can given point g(xg, yg) is
+
+ﬁnd on located
+
+by calculating the following term:
+
+(a)
+
+(b)
+
+Fig. 3: Examples of deadlock conﬁgurations where condition (3) is satisﬁed (a) and where it is not satisﬁed (b), while condition (1) is satisﬁed in both cases. It is clear that a detour around one of the neighboring robots in the ﬁrst case would be helpful, but not in the second case. The red sector corresponds to the points where a goal would lead to a deadlock according to condition (1).
+
+d = (xg − xi)(yj − yi) − (yg − yi)(xj − xi)
+
+The sign of d indicates on which side of the line the point
+
+lies and d = 0 means that it lies exactly on the line.
+
+Then we can formulate the previous condition, for the local
+
+waypoint at time t, gt∗(xgt∗ , be on different sides of the
+
+ygt∗ ) line
+
+−na−ni,−dn→jthecognonaelctgin(gxgt,hyeg
+
+) to two
+
+neighbors nit(xit, yit) and njt(xjt, yjt) as:
+
+sign((xgt∗ − xit)(yj t − yit) − (ygt∗ − yit)(xj t − xit)) = (3) sign((xgt − xit)(yj t − yit) − (ygt − yit)(xj t − xit))
+
+Figure 3 shows two examples where condition (1) is satisﬁed in both, while condition (3) is only satisﬁed in example (b). The red sector corresponds to the points where a goal would lead to a deadlock according to condition (1), since the closest point to it within the BVC would be the vertex. Otherwise, the closest point to the goal would be other than the vertex and the robot can move towards it according to Algorithm 1 without causing a deadlock.
+Using conditions (1), (2), and (3) we propose our deadlock prediction algorithm to be performed for gt∗ at each time step as: Find N , the set of neighbors within krs distance to gt∗, this is similar to condition (1), after replacing 2 with constant k ≥ 2 (we used k = 3) to achieve earlier prediction of deadlock:
+
+N = {ni ∈ Nt | g∗t − pni < krs}
+
+We then calculate the number of neighbors satisfying this
+
+condition as |N |, the cardinality of set N . If |N | < 2, we
+
+predict no deadlock will occur, otherwise we check for the
+
+next condition.
+
+We look for neighbor pairs ni, nj in N , within 4rs of each
+
+other and for each pair, we check opposite sides of the line −n−in→j. If
+
+whether gt and gt∗ are on this condition is satisﬁed
+
+for any pair, then a deadlock is predicted.
+
+C. Deadlock Recovery
+We propose a multi-step deadlock recovery algorithm; when a deadlock is predicted or detected, the robot goes into deadlock recovery state, during which multiple maneuvers are performed until deadlock recovery success is predicted or the maximum number of maneuvers M is reached.
+During each maneuver, simple heuristics are used to select a detour waypoint within the current buffered Voronoi cell, gt ∈ Bt (selection process is detailed below). The robot then moves towards this waypoint at each time step t until one of following condition occurs: a) The deadlock recovery success prediction algorithm predicts that deadlock recovery has succeeded, in which case the deadlock recovery process is terminated, and the robot goes back to normal operation state. b) The waypoint gt is reached or it goes outside of the new buffered Voronoi cell -as a result of the robot moving and its buffered voronoi cell changing according to its new position and the new positions of its neighboring robots-, then a new maneuver is re-initiated, and a new detour waypoint gt is calculated if the maximum number of maneuvers M has not been reached, otherwise, the deadlock recovery process is terminated, and the robot goes back to normal operation state.
+There are alternate approaches which select the detour waypoint as a point on one of the adjacent edges to the vertex where deadlock was detected [6, 21]. While this works well in some cases, it leads to poor performance in many others. For example, when the adjacent edges, and consequently, the distance between the deadlock position and the detour waypoint are very short, the robot fails to recover from the deadlock and instead goes into a livelock state where it keeps alternating between these two points.
+To increase the likelihood of successful deadlock recovery, we propose a detour point that takes into account the shape of the BVC and the positions of the neighboring robots with respect to the goal. We call this the outermost point ot and deﬁne it as the point within the BVC that is furthest from
+
+432
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+the line between the position of the robot and the goal, −p→tg as shown in Figure 4. We formulate ot as:
+
+ot = vi ∈ VBV C | vi − vi ≥ vj − vj ∀ vj ∈ VBV C , vi = vj
+
+where VBV C is the set of all vertices of the BVC for the
+
+ﬁrst maneuver when deadlock recovery was initiated, and
+
+only the vertices of the BVC that are on the same side of −p→tg as the initial ot was (to keep the robot heading in one
+
+direction for the of VBV C , and vi
+
+whole is the
+
+recovery), vi is projection of vi
+
+one of on −p→tg.
+
+the
+
+vertices
+
+To decrease overshooting, we can use a point between the
+
+robot’s current position and ot as the detour point gt:
+
+gt = (1 − c)pt + c ot
+
+where c is the proportion of the distance for which the robot moves towards the outermost point, ot.
+
+D. Deadlock Recovery Success Prediction
+
+Deadlock recovery success prediction works by using
+
+heuristics based on the conditions that predicted the deadlock
+
+and the locations of the robot and neighboring robots; the
+
+robot tracks the position of neighbors near the location of
+
+the last deadlock and detects whether the robot’s maneuver
+
+has caused a deadlock condition to be broken.
+
+From deadlock conditions (1) and (3) we can deduce that
+
+in a deadlock conﬁguration where the robot is located at gt∗,
+
+and gt∗ is a vertex of the BVC; the neighboring robots n1
+
+and n2 who share the be on different sides
+
+Voronoi edges of the line −p→tg
+
+connected to gt∗ connecting the
+
+must robot
+
+position and its goal. We use the failure of this condition as
+
+prediction of success of this deadlock maneuver.
+
+We propose a condition requiring all robots within distance
+
+krs : k ≥ 2 (where k is the same constant used in the
+
+deadlock prediction algorithm) to be on the same side of
+
+trhoebolitns ean−p→dt gt.hFeulritnheer−pm→t gorme,utshtebdeislatargnecre
+
+between than the
+
+any of these radius of the
+
+robot.
+
+For a robot at position pt, moving towards goal g, and
+
+currently recovering from a deadlock that occurred at posi-
+
+tion pd, we deﬁne N as the subset of all neighbors at time t, Nt, that are located within krs of pd:
+
+(a) Step 1
+
+N = { ni ∈ Nt : pd − pni < krs} We deﬁne si as the side of line −p→tg on which neighbor ni is located,
+si = (xni − xpt)(yg − ypt) − (yni − ypt)(xg − xpt), and the distance between neighbor ni and line −p→tg as,
+mi = pni − pni , where pni is the projection of pni on the line −p→tg.
+We can then formulate the proposed conditions for deadlock recovery success:
+
+(b) Steps 2-5
+Fig. 4: Example of a deadlock prediction and recovery: Step 1 shows how the outermost point ot and the detour point gt were selected after a deadlock conﬁguration was predicted at gt∗. Steps 2-4 show the following maneuvers until normal operation is resumed on step 5 (gt = gt∗).
+
+si = sj ∀ i, j | ni, nj ∈ N and mi > rs ∀i | ni ∈ N
+
+433
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+the total distance between the robots and their goals and
+
+the minimum distance between the robots at each time
+
+step. We compare the performance of 2 algorithms, our
+
+collision avoidance algorithm integrating the proposed dead-
+
+lock avoidance algorithm and a buffered Voronoi cell based
+
+collision avoidance algorithm with the right-hand deadlock
+
+(a) Case 1
+
+recovery heuristics. Performance is compared across 4 different cases, all performed in a 800 ∗ 500 cm environment,
+
+with 100 robots and 100 simulations per algorithm.
+
+First, 100 robots with 3 cm radius are placed around a cir-
+
+cle, with their respective goals assigned to the point directly
+
+across them on the same circle, with a small displacement
+
+to break the symmetry. Next, 100 robots (5 cm radius) are
+
+placed on a square, and the goals are set as their positions
+
+(b) Case 2
+
+reﬂected across the y-axis. Then, the same conﬁguration is used but the goals are reﬂected across the origin of the
+
+environment as shown in Figure 5. For the ﬁnal case, a set
+
+of 100 robots (5 cm radius) are assigned random starting
+
+positions and goals. Figure 5 shows these 4 conﬁgurations.
+
+Figure 5 shows the performance metrics across the run
+
+time of these cases, the total distance to goal is shown for
+
+each simulation individually. The algorithm with the right-
+
+(c) Case 3
+
+hand heuristics is shown in light blue and our algorithm with
+
+the proposed deadlock avoidance algorithm is shown in light
+
+green, the means of these simulations are also highlighted in
+
+blue and green respectively. The safety distance (2rs) is also
+
+shown for each case as a dashed red line, and the minimum
+
+distances between robots are shown as two dashed lines in
+
+blue and green for the two previous algorithms, respectively.
+
+(d) Case 4
+
+No collisions occurred in any of the simulations. Across all cases, performance improves dramatically when
+
+Fig. 5: Left: robots and goals starting conﬁgurations for the 4 simulated cases with 16 robots instead of 100 for clarity. Right: total distance to goal over time and minimum distance to neighbors (dashed) with safety distance in red (dashed) for all simulation cases 1-4 respectively. Green color for proposed algorithm and blue for the BVC algorithm with right-hand heuristics (each simulation is presented as a single line, with the average for each algorithm in bold.)
+
+using the proposed algorithm. In the ﬁrst three cases, while both algorithms are eventually able to drive all the robots to their respective goals, the time taken clearly shows the beneﬁts of the early deadlock prediction algorithm, with the proposed algorithm driving the robots to their goals faster in all cases, especially in the most challenging cases (cases 1 and 3), where the robots reach their goals almost twice as fast on average.
+More importantly, the last case demonstrates the impor-
+
+tance of the proposed deadlock prediction and recovery
+
+IV. RESULTS
+
+stages in real scenarios. The algorithm with the right-hand heuristics fails to drive many robots to their goals due to
+
+A. Simulations
+
+unsolved deadlocks, shown by the total distance between
+
+We present simulation results of our collision avoidance algorithm integrating the proposed deadlock avoidance algorithm and compare it to a buffered Voronoi cell based collision avoidance algorithm with right-hand deadlock recovery heuristics.
+All simulations are performed in an interactive opensource web-based multi-robot simulation1. A set of diskshaped single-integrator robots moving in a planar space are simulated, each robot is assigned a speciﬁc goal, and for each simulation, the same collision avoidance algorithm is applied for all robots. Two metrics are tracked and compared:
+
+the robots and their goals reaching a minimum of 100cm on average across all simulations, and in some simulations as high as 250cm.
+In contrast, the proposed algorithm is able to resolve most deadlocks and drive many more robots to their goals, with the total distance between the robots and their goals reaching a minimum of around 10 cm on average across all simulations, almost 10 times better than the previous algorithm.
+It is also important to note that some of these unresolved deadlocks are due to the random nature of this case where some robots become completely surrounded by static robots (already reached their goals) and it is impossible to resolve
+
+1https://github.com/m-abdulhak/Buffered-Voronoi-Cell-Deadlock-Avoidance these cases with the current restrictions (distributed algorithm
+
+434
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+Fig. 6: Real-world validation for case 3: (a) paths with time encoded by transparency; (b) initial and ﬁnal conﬁgurations.
+
+without any communication between agents).
+B. Real-world Validation
+Our experimental platform is a set of Pololu 3pi robots ﬁtted with Raspberry Pi 3 A+ single-board computers to perform the on-board processing. Each robot is also ﬁtted with a unique AprilTag [24], and the localization and sensing are performed with an external server ﬁtted with an overhead camera using software previously developed for unmanned surface vehicles [25]. The server continuously detects the robots’ positions and simulates their sensor data by restricting the passed positions of neighbors for each robot to only those within their own sensing distance. Each robot is assigned a unique AprilTag as its goal, its position is obtained by the robot once at the start of the experiment and used throughout the experiment.
+We performed validation experiments to give conﬁdence to the results obtained in our simulator. We used initial and ﬁnal conﬁgurations arranged in cases 2 and 3 (see Fig. 5), with 9 robots instead of 100. Fig. 6 shows the paths taken by all robots, as well as the initial and ﬁnal conﬁgurations of roobots. The relationship between the robots’ initial conﬁguration and the conﬁguration of goals here is case 3. For this case all robots reached their goals without any collisions and the same result was obtained for case 2 (not shown). We repeated both experiments with tighter spacing between the robots and between the goals so that a robot could not pass between two goals. In these experiments all robots reached their goals except the one in the center, since its path was blocked by surrounding robots who had already reached their goals.
+We also performed targeted experiments where robots were placed in challenging conﬁgurations certain to lead to deadlocks. Figure 7 shows the initial conﬁgurations and the paths taken by a single robot under the control of each algorithm. It shows how the algorithm with right-hand heuristics failed to resolve the deadlock and ended up in livelock, while the proposed algorithm successfully drove the robot to its goal.
+V. CONCLUSIONS
+This paper presented a distributed multi-robot collision avoidance algorithm integrating a novel deadlock avoidance
+
+Fig. 7: Left column: initial conﬁguration (robot with tag 11 has X as its goal). Middle column: paths taken with the BVC collision avoidance algorithm with right-hand heuristics. Right column: paths taken with the proposed algorithm.
+algorithm with a buffered Voronoi cells based approach. Collision avoidance is guaranteed and only the position of the robot and neighboring robots is needed. While our algorithm does not completely eliminate deadlocks, both simulations and experiments showed that it offers drastic improvement in resolving deadlocks compared to the buffered Voronoi cells based approach with right-hand heuristics.
+REFERENCES
+[1] L. Aguilar, R. Alami, S. Fleury, M. Herrb, F. Ingrand, and F. Robert. “Ten autonomous mobile robots (and even more) in a route network like environment”. In: IEEE International Conference on Intelligent Robots and Systems. Vol. 2. 1995, 260–267 vol.2. DOI: 10. 1109/IROS.1995.526170.
+[2] Paolo Fiorini and Zvi Shiller. “Motion Planning in Dynamic Environments Using Velocity Obstacles”. In: The International Journal of Robotics Research 17.7 (1998), pp. 760–772. DOI: 10 . 1177 / 027836499801700706.
+[3] J. van den Berg, Ming Lin, and D. Manocha. “Reciprocal Velocity Obstacles for real-time multi-agent navigation”. In: 2008 IEEE International Conference on Robotics and Automation. 2008, pp. 1928–1935. DOI: 10.1109/ROBOT.2008.4543489.
+[4] J. V. D. Berg, Stephen J. Guy, M. Lin, and D. Manocha. “Reciprocal n-Body Collision Avoidance”. In: ISRR. 2009.
+[5] M. Jager and B. Nebel. “Decentralized collision avoidance, deadlock detection, and deadlock resolution for multiple mobile robots”. In: IEEE International Conference on Intelligent Robots and Systems. Vol. 3. 2001, 1213–1219 vol.3. DOI: 10 . 1109 / IROS . 2001 . 977148.
+
+435
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+
+[6] D. Zhou, Z. Wang, S. Bandyopadhyay, and M. Schwager. “Fast, On-line Collision Avoidance for Dynamic Vehicles Using Buffered Voronoi Cells”. In: IEEE Robotics and Automation Letters 2.2 (2017), pp. 1047–1054. DOI: 10.1109/LRA.2017.2656241.
+[7] J. van den Berg, J. Snape, S. J. Guy, and D. Manocha. “Reciprocal collision avoidance with accelerationvelocity obstacles”. In: IEEE International Conference on Robotics and Automation. 2011, pp. 3475–3482. DOI: 10.1109/ICRA.2011.5980408.
+[8] J. Snape, J. v. d. Berg, S. J. Guy, and D. Manocha. “The Hybrid Reciprocal Velocity Obstacle”. In: IEEE Transactions on Robotics 27.4 (2011), pp. 696–706. DOI: 10.1109/TRO.2011.2120810.
+[9] D. Wilkie, J. van den Berg, and D. Manocha. “Generalized velocity obstacles”. In: IEEE International Conference on Intelligent Robots and Systems. 2009, pp. 5573–5578. DOI: 10.1109/IROS.2009.5354175.
+[10] J. Alonso-Mora, A. Breitenmoser, P. Beardsley, and R. Siegwart. “Reciprocal collision avoidance for multiple car-like robots”. In: IEEE International Conference on Robotics and Automation. 2012, pp. 360–366. DOI: 10.1109/ICRA.2012.6225166.
+[11] A. Giese, D. Latypov, and N. M. Amato. “Reciprocally-Rotating Velocity Obstacles”. In: IEEE International Conference on Robotics and Automation (ICRA). 2014, pp. 3234–3241. DOI: 10.1109/ICRA.2014.6907324.
+[12] A. Best, S. Narang, and D. Manocha. “Real-time reciprocal collision avoidance with elliptical agents”. In: IEEE International Conference on Robotics and Automation (ICRA). 2016, pp. 298–305. DOI: 10.1109/ ICRA.2016.7487148.
+[13] D. H. Shim, H. J. Kim, and S. Sastry. “Decentralized nonlinear model predictive control of multiple ﬂying robots”. In: IEEE International Conference on Decision and Control (IEEE Cat. No.03CH37475). Vol. 4. 2003, 3621–3626 vol.4. DOI: 10 . 1109 / CDC . 2003 . 1271710.
+[14] D. Morgan, S-J. Chung, and F.Y. Hadaegh. “Model Predictive Control of Swarms of Spacecraft Using Sequential Convex Programming”. In: Journal of Guidance, Control, and Dynamics 37.6 (2014), pp. 1725– 1740. DOI: 10.2514/1.G000218.
+[15] H. Zhu and J. Alonso-Mora. “Chance-Constrained Collision Avoidance for MAVs in Dynamic Environments”. In: IEEE Robotics and Automation Letters 4.2 (2019), pp. 776–783. DOI: 10.1109/LRA.2019. 2893494.
+[16] Y. F. Chen, M. Liu, M. Everett, and J. P. How. “Decentralized non-communicating multiagent collision avoidance with deep reinforcement learning”. In: IEEE International Conference on Robotics and Automation. 2017, pp. 285–292. DOI: 10.1109/ICRA. 2017.7989037.
+[17] D. E. Chang, S. C. Shadden, J. E. Marsden, and R. Olfati-Saber. “Collision avoidance for multiple
+
+agent systems”. In: IEEE International Conference on Decision and Control (IEEE Cat. No.03CH37475). Vol. 1. 2003, 539–543 Vol.1. DOI: 10 . 1109 / CDC . 2003.1272619. [18] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada. “Control Barrier Function Based Quadratic Programs for Safety Critical Systems”. In: IEEE Transactions on Automatic Control 62.8 (2017), pp. 3861–3876. DOI: 10.1109/TAC.2016.2638961. [19] M. Wang and M. Schwager. “Distributed Collision Avoidance of Multiple Robots with Probabilistic Buffered Voronoi Cells”. In: 2019 International Symposium on Multi-Robot and Multi-Agent Systems. 2019, pp. 169–175. DOI: 10 . 1109 / MRS . 2019 . 8901101. [20] H. Zhu and J. Alonso-Mora. “B-UAVC: Buffered Uncertainty-Aware Voronoi Cells for Probabilistic Multi-Robot Collision Avoidance”. In: International Symposium on Multi-Robot and Multi-Agent Systems. 2019, pp. 162–168. DOI: 10 . 1109 / MRS . 2019 . 8901092. [21] A. Pierson, W. Schwarting, S. Karaman, and D. Rus. “Weighted Buffered Voronoi Cells for Distributed Semi-Cooperative Behavior”. In: IEEE International Conference on Robotics and Automation. 2020, pp. 5611–5617. DOI: 10 . 1109 / ICRA40945 . 2020.9196686. [22] Jo¨rg-Ru¨diger Sack and Jorge Urrutia. Handbook of computational geometry. Elsevier, 1999. Chap. 5. [23] A. Okabe, B. Boots, K. Sugihara, and S.N. Chiu. Spatial Tessellations: Concepts and Applications of Voronoi Diagrams. Wiley Series in Probability and Statistics. Wiley, 2009. ISBN: 9780470317853. [24] E. Olson. “AprilTag: A robust and ﬂexible visual ﬁducial system”. In: IEEE International Conference on Robotics and Automation. 2011, pp. 3400–3407. DOI: 10.1109/ICRA.2011.5979561. [25] C. Gregory and A. Vardy. “microUSV: A low-cost platform for indoor marine swarm robotics research”. In: HardwareX (2020). ISSN: 2468-0672. DOI: https: //doi.org/10.1016/j.ohx.2020.e00105.
+
+436
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:48:01 UTC from IEEE Xplore. Restrictions apply.
+

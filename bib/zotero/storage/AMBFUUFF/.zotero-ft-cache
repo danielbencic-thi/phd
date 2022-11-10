@@ -1,0 +1,652 @@
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+The FastMap Algorithm for Shortest Path Computations
+Liron Cohen1, Tansel Uras1, Shiva Jahangiri2, Aliyah Arunasalam1, Sven Koenig1 and T. K. Satish Kumar1 1University of Southern California 2University of California, Irvine
+{lironcoh, turas, arunasal, skoenig}@usc.edu, shivaj@uci.edu, tkskwork@gmail.com
+
+Abstract
+We present a new preprocessing algorithm for embedding the nodes of a given edge-weighted undirected graph into a Euclidean space. The Euclidean distance between any two nodes in this space approximates the length of the shortest path between them in the given graph. Later, at runtime, a shortest path between any two nodes can be computed with an A* search using the Euclidean distances as heuristic. Our preprocessing algorithm, called FastMap, is inspired by the data-mining algorithm of the same name and runs in near-linear time. Hence, FastMap is orders of magnitude faster than competing approaches that produce a Euclidean embedding using Semideﬁnite Programming. FastMap also produces admissible and consistent heuristics and therefore guarantees the generation of shortest paths. Moreover, FastMap applies to general undirected graphs for which many traditional heuristics, such as the Manhattan Distance heuristic, are not well deﬁned. Empirically, we demonstrate that A* search using the FastMap heuristic is competitive with A* search using other state-of-the-art heuristics, such as the Differential heuristic.
+1 Introduction and Related Work
+Shortest path computations commonly occur in the inner procedures of many AI programs. In video games, for example, a large fraction of CPU cycles is spent on shortest path computations [Uras and Koenig, 2015]. Many other tasks in AI, including motion planning, temporal reasoning, and decision making [Russell and Norvig, 2009], also involve ﬁnding and reasoning about shortest paths. While Dijkstra’s algorithm [Dijkstra, 1959] can be used to compute shortest paths in polynomial time, speeding up shortest path computations allows one to solve the aformentioned tasks faster. One way to do that is to use A* search with an informed heuristic [Hart et al., 1968].
+A perfect heuristic is one that returns the true distance between any two nodes in a given graph. A* with such
+
+a heuristic and proper tie-breaking is guaranteed to expand nodes only on a shortest path between the given start and goal nodes. In general, computing the perfect heuristic between two nodes is as hard as computing the shortest path between them. Hence, A* search beneﬁts from a perfect heuristic only if it is computed ofﬂine. However, precomputing all pairwise distances is not only time-intensive but also requires a prohibitive O(N 2) memory where N is the number of nodes. The memory requirements for storing all-pairs shortest paths data can be somewhat addressed through compression [Botea and Harabor, 2013; Strasser et al., 2015].
+Existing methods for preprocessing a given graph (without precomputing all pairwise distances) can be grouped into the following categories: Hierarchical abstractions that yield suboptimal paths have been used to reduce the size of the search space by abstracting groups of nodes [Botea et al., 2004; Sturtevant and Buro, 2005]. More informed heuristics [Bjo¨rnsson and Halldo´rsson, 2006; Cazenave, 2006; Sturtevant et al., 2009] focus A* searches better, resulting in fewer expanded nodes. Hierarchies can also be used to derive heuristics during the search [Leighton et al., 2008; Holte et al., 1994]. Dead-end detection and other pruning methods [Bjo¨rnsson and Halldo´rsson, 2006; Goldenberg et al., 2010; Pochter et al., 2010] identify areas of the graph that do not need to be searched to ﬁnd shortest paths. Search with contraction hierarchies [Geisberger et al., 2008] is an optimal hierarchical method, where every level of the hierarchy contains only a single node. It has been shown to be efﬁcient on road networks but seems to be less efﬁcient on graphs with higher branching factors, such as gridbased game maps [Storandt, 2013]. N-level graphs [Uras and Koenig, 2014], constructed from undirected graphs by partitioning the nodes into levels, also allow for signiﬁcant pruning during the search.
+A different approach that does not rely on preprocessing of the graph is to use some notion of a geometric distance between two nodes as a heuristic of the distance between them. One such heuristic for gridworlds is the Manhattan Distance heuristic.1 For many gridworlds, A* search using
+1In a 4-neighbor 2D gridworld, for example, the Manhattan Distance between two cells (x1, y1) and (x2, y2) is |x1 −x2|+|y1 −y2|. Generalizations exist for 8-neighbor 2D and 3D gridworlds.
+
+1427
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+the Manhattan Distance heuristic outperforms Dijkstra’s algorithm. However, in complicated 2D/3D gridworlds like mazes, the Manhattan Distance heuristic may not be sufﬁciently informed to focus A* searches effectively. Another issue associated with Manhattan Distance-like heuristics is that they are not well deﬁned for general graphs.2 For a graph that cannot be conceived in a geometric space, there is no closedform formula for a “geometric” heuristic for the distance between two nodes because there are no coordinates associated with them.
+For a graph that does not already have a geometric embedding in Euclidean space, a preprocessing algorithm can be used to generate one. As described before, at runtime, A* search would then use the Euclidean distance between any two nodes in this space as an estimate for the distance between them in the given graph. One such approach is Euclidean Heuristic Optimization (EHO) [Rayner et al., 2011]. EHO guarantees admissiblility and consistency and therefore generates shortest paths. However, it requires solving a Semideﬁnite Program (SDP). SDPs can be solved in polynomial time [Vandenberghe and Boyd, 1996]. EHO leverages additional structure to solve them in cubic time. Still, a cubic preprocessing time limits the size of the graphs that are amenable to this approach.
+The Differential heuristic is another state-of-the-art approach that has the beneﬁt of a near-linear runtime. However, unlike the approach in [Rayner et al., 2011], it does not produce an explicit Euclidean embedding. In the preprocessing phase of the Differential heuristic approach, some nodes of the graph are chosen as pivot nodes. The distances between each pivot node and every other node are precomputed and stored [Sturtevant et al., 2009]. At runtime, the heuristic between two nodes a and b is given by maxp |d(a, p) − d(p, b)|, where p is a pivot node and d(·, ·) is the precomputed distance. The preprocessing time is linear in the number of pivots times the size of the graph. The required space is linear in the number of pivots times the number of nodes, although a more succinct representation is presented in [Goldenberg et al., 2011]. Similar preprocessing techniques are used in Portal-Based True Distance heuristics [Goldenberg et al., 2010].
+In this paper, we present a new preprocessing algorithm, called FastMap, that produces an explicit Euclidean embedding while running in near-linear time. It therefore has the beneﬁts of the small preprocessing time of the Differential heuristic approach and of producing an embedding from which a heuristic between two nodes can be quickly computed using a closed-form formula. Our preprocessing algorithm, dubbed FastMap, is inspired by the data-mining algorithm of the same name [Faloutsos and Lin, 1995]. It is orders of magnitude faster than SDP-based approaches for producing Euclidean embeddings. FastMap also produces admissible and consistent heuristics and therefore guarantees the generation of shortest paths.
+The FastMap heuristic has several advantages: First, it is deﬁned for general (undirected) graphs. Second, we observe
+2Henceforth, whenever we refer to a graph, we mean an edgeweighted undirected graph unless stated otherwise.
+
+empirically that, in gridworlds, A* using the FastMap heuristic runs faster than A* using the Manhattan or Octile distance heuristics. A* using the FastMap heuristic runs equally fast or faster than A* using the Differential heuristic, with the same memory resources. The (explicit) Euclidean embedding produced by FastMap also has representational beneﬁts like recovering the underlying manifolds of the graph and/or visualizing them. Moreover, we observe that the FastMap and Differential heuristics have complementary strengths and can be easily combined to generate an even more informed heuristic.
+2 The Origin of FastMap
+The FastMap algorithm [Faloutsos and Lin, 1995] was introduced in the data-mining community for automatically generating geometric embeddings of abstract objects. For example, if we are given objects in form of long DNA strings, multimedia datasets such as voice excerpts or images or medical datasets such as ECGs or MRIs, there is no geometric space in which these objects can be naturally visualized. However, there is often a well deﬁned distance function between every pair of objects. For example, the edit distance3 between two DNA strings is well deﬁned although an individual DNA string cannot be conceptualized in geometric space.
+Clustering techniques, such as the k-means algorithm, are well studied in machine learning [Alpaydin, 2010] but cannot be applied directly to domains with abstract objects because they assume that objects are described as points in geometric space. FastMap revives their applicability by ﬁrst creating a Euclidean embedding for the abstract objects that approximately preserves the pairwise distances between them. Such an embedding also helps to visualize the abstract objects, for example, to aid physicians in identifying correlations between symptoms from medical records.
+The data-mining FastMap gets as input a complete undirected edge-weighted graph G = (V, E). Each node vi ∈ V represents an abstract object Oi. Between any two nodes vi and vj there is an edge (vi, vj) ∈ E with weight D(Oi, Oj) that corresponds to the given distance between objects Oi and Oj. A Euclidean embedding assigns to each object Oi a Kdimensional point pi ∈ RK . A good Euclidean embedding is one in which the Euclidean distance between any two points pi and pj closely approximates D(Oi, Oj).
+One of the early approaches for generating such an embedding is based on the idea of multi-dimensional scaling (MDS) [Torgerson, 1952]. Here, the overall distortion of the pairwise distances is measured in terms of the “energy” stored in “springs” that connect each pair of objects. MDS, however, requires O(|V |2) time and hence does not scale well in practice. On the other hand, FastMap [Faloutsos and Lin, 1995] requires only linear time. Both methods embed the objects in a K-dimensional space for a user-speciﬁed K.
+FastMap works as follows: In the very ﬁrst iteration, it heuristically identiﬁes the farthest pair of objects Oa and Ob in linear time. It does this by initially choosing a random object Ob and then choosing Oa to be the farthest object
+3The edit distance between two strings is the minimum number of insertions, deletions or substitutions that are needed to transform one to the other.
+
+1428
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+Ob
+
+Oi
+
+dai
+
+dib
+
+Oa
+
+xi
+
+dab
+(a)
+
+Oi xi − xj
+
+Ob
+
+Oi
+
+xi Oj
+xj Oa
+Oj
+Dnew(·, ·)
+(b)
+
+Figure 1: (a) The three sides of a triangle deﬁne its entire geometry. In particular, xi = (d2ai + d2ab − d2ib)/(2dab). (b) Shows a geometric
+conceptualization of the recursive step in FastMap. In particular, Dnew(Oi, Oj )2 = D(Oi, Oj )2 − (xi − xj )2.
+
+away from Ob. It then reassigns Ob to be the farthest object away from Oa. Once Oa and Ob are determined, every other object Oi deﬁnes a triangle with sides of lengths dai = D(Oa, Oi), dab = D(Oa, Ob) and dib = D(Oi, Ob). Figure 1(a) shows this triangle. The sides of the triangle deﬁne its entire geometry, and the projection of Oi onto OaOb is given by xi = (d2ai + d2ab − d2ib)/(2dab). FastMap sets the ﬁrst coordinate of pi, the embedding of object Oi, to xi. In particular, the ﬁrst coordinate of pa is xa = 0 and of pb is xb = dab. Computing the ﬁrst coordinates of all objects takes only linear time since the distance between any two objects Oi and Oj for i, j ∈/ {a, b} is never computed.
+In the subsequent K − 1 iterations, the same procedure is followed for computing the remaining K − 1 coordinates of each object. However, the distance function is adapted for different iterations. For example, for the ﬁrst iteration, the coordinates of Oa and Ob are 0 and dab, respectively. Because these coordinates fully explain the true distance between them, from the second iteration onwards, the rest of pa and pb’s coordinates should be identical. Intuitively, this means that the second iteration should mimic the ﬁrst one on a hyperplane that is perpendicular to the line OaOb. Figure 1(b) explains this intuition. Although the hyperplane is never constructed explicitly, its conceptualization implies that the distance function for the second iteration should be changed in the following way: Dnew(Oi, Oj)2 = D(Oi, Oj)2 − (xi − xj)2. Here, Oi and Oj are the projections of Oi and Oj, respectively, onto this hyperplane, and Dnew is the new distance function.
+3 FastMap for Shortest Path Computations
+In this section, we provide the high-level ideas for how to adapt the data-mining FastMap algorithm to shortest path computations. In the shortest path computation problem, we are given a non-negative edge-weighted undirected graph G = (V, E) along with a start node vs and a goal node vg. As a preprocessing technique, we can embed the nodes of G in a Euclidean space. As A* searches for a shortest path from vs to vg, it can use the Euclidean distance from v ∈ V to vg as a heuristic for v. The number of node expansions of A*
+
+search depends on the informedness of the heuristic which, in turn, depends on the ability of the embedding to preserve the pairwise distances.
+The idea is to view the nodes of G as the objects to be embedded in Euclidean space. As such, the data-mining FastMap algorithm cannot directly be used for generating an embedding in linear time. The data-mining FastMap algorithm assumes that the distance dij between two objects Oi and Oj can be computed in constant time, independent of the number of objects. Computing the distance between two nodes depends on the size of the graph. Another problem is that the Euclidean distances may not satisfy important properties such as admissibility or consistency. Admissibility guarantees that A* ﬁnds shortest paths while consistency allows A* to avoid re-expansions of nodes as well.
+The ﬁrst issue of having to retain (near-)linear time complexity can be addressed as follows: In each iteration, after we identify the farthest pair of nodes Oa and Ob, the distances dai and dib need to be computed for all other nodes Oi. Computing dai and dib for any single node Oi can no longer be done in constant time but requires O(|E| + |V | log |V |) time instead [Fredman and Tarjan, 1984]. However, since we need to compute these distances for all nodes, computing two shortest path trees rooted at nodes Oa and Ob yields all necessary distances. The complexity of doing so is also O(|E| + |V | log |V |), which is only linear in the size of the graph.4 The amortized complexity for computing dai and dib for any single node Oi is therefore near-constant time.
+The second issue of having to generate a consistent (and thus admissible) heuristic is formally addressed in Theorem 1. The idea is to use L1 distances instead of L2 distances in each iteration of FastMap. The mathematical properties of the L1 distance can be used to prove that admissibility and consistency hold irrespective of the dimensionality of the embedding.
+Algorithm 1 presents data-mining FastMap adapted to the shortest path computation problem. The input is an edgeweighted undirected graph G = (V, E, w) along with two user-speciﬁed parameters Kmax and . Kmax is the maximum number of dimensions allowed in the Euclidean embedding. It bounds the amount of memory needed to store the Euclidean embedding of any node. is the threshold that marks a point of diminishing returns when the distance between the farthest pair of nodes becomes negligible. The output is an embedding pi ∈ RK (with K ≤ Kmax) for each node vi ∈ V .
+The algorithm maintains a working graph G = (V, E, w ) initialized to G. The nodes and edges of G are always identical to those of G but the weights on the edges of G change with every iteration. In each iteration, the farthest pair (na, nb) of nodes in G is heuristically identiﬁed in near-linear time (line 4). The Kth coordinate [pi]K of each node vi is computed using a formula similar to that for xi in Figure 1(a). However, that formula is modiﬁed to (dai + dab − dib)/2 to ensure admissibility and consistency of the heuristic. In each iteration, the weight of each edge
+4unless |E| = O(|V |), in which case the complexity is nearlinear in the size of the input because of the log |V | factor
+
+1429
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+ALGORITHM 1: Shows the FastMap algorithm. G = (V, E, w) is a nonnegative edge-weighted undirected graph; Kmax is the user-speciﬁed upper bound on the dimensionality; is a user-speciﬁed threshold; K ≤ Kmax is the dimensionality of the computed embedding; pi is the Euclidean embedding of node vi ∈ V . Line 11 is equivalent to w (u, v) = w(u, v) −
+pu − pv 1.
+Input: G = (V, E, w), Kmax and . Output: K and pi ∈ RK for all vi ∈ V .
+
+1 w = w; K = 1;
+
+2 while Kmax > 0 do
+
+3 Let G = (V, E, w );
+
+4 (na, nb) ← GetFarthestPair(G );
+
+5 Compute shortest path trees rooted at na and nb
+
+on G to obtain dab, dai and dib for all vi ∈ V ;
+
+6 if dab < then
+
+7
+
+Break;
+
+8 for each v ∈ V do
+
+9
+
+[pv]K = (dav + dab − dvb)/2
+
+10 for each edge (u, v) ∈ E do
+
+11
+
+w (u, v) = w (u, v) − |[pu]K − [pv]K |;
+
+12 K = K + 1; Kmax = Kmax − 1;
+
+is decremented to resemble the update rule for Dnew in Figure 1(b) (line 11). However, that update rule is modiﬁed to w (u, v) = w (u, v) − |[pu]K − [pv]K | to use the L1 distances instead of the L2 distances.
+The method GetFarthestPair(G ) (line 4) computes shortest path trees in G a small constant number of times, denoted by τ .5 It therefore runs in near-linear time. In the ﬁrst iteration, we assign na to be a random node. A shortest path tree rooted at na is computed to identify the farthest node from it. nb is assigned to be this farthest node. In the next iteration, a shortest path tree rooted at nb is computed to identify the farthest node from it. na is reassigned to be this farthest node. Subsequent iterations follow the same switching rule for na and nb. The ﬁnal assignments of nodes to na and nb are returned after τ iterations. This entire process of starting from a randomly chosen node can be repeated a small constant number of times.6
+Figure 2 shows the working of our algorithm on a small gridworld example.
+3.1 Proof of Consistency
+In this section, we prove the consistency of the FastMap heuristic. Since consistency implies admissibility, this also proves that A* with the FastMap heuristic returns shortest paths. We use the following notation in the proofs: wxi y is the weight on the edge between nodes x and y in the ith iteration; dixy is the distance between nodes x and y in the ith iteration (using the weights wi); px is the vector of coordinates produced for node x, and [px]j is its jth coordinate;7
+5τ = 10 in our experiments. 6This constant is also 10 in our experiments. 7The ith iteration sets the value of [px]i.
+
+hixy is the FastMap heuristic between nodes x and y after i
+
+iterations. Note that hixy is the L1 distance between px and
+
+py at iteration i, that is hixy :=
+
+i j=1
+
+|[px]j
+
+−
+
+[py
+
+]j
+
+|.
+
+We
+
+also
+
+deﬁne ∆ix+y1 := dixy − dix+y1. In the following proofs, we use
+
+the fact that |A| + |B| ≥ |A + B| and |A| − |B| ≤ |A − B|.
+
+Lemma 1. For all x, y and i, dixy ≥ 0.
+
+Proof. We prove by induction that, in any iteration i, wui v ≥ 0 for all (u, v) ∈ E. Thus, the weight of each edge in the ith iteration is non-negative and therefore diuv ≥ 0 for all u, v. For the base case, wu1v = w(u, v) ≥ 0. We assume that wui v ≥ 0 and show that wui+v1 ≥ 0. Let na and nb be the farthest pair of nodes identiﬁed in the ith iteration. From lines 9 and 11, wui+v1 = wui v − |(diau − diav)/2 + (divb − diub)/2|. To show that wui+v1 ≥ 0 we show that wui v ≥ |(diau − diav)/2 + (divb − diub)/2|. From the triangle inequality, for any node l, diuv + min(diul, dilv) ≥ max(diul, dilv). Therefore, diuv ≥ |diul−dilv| and thus also 2diuv ≥ |diua−diav|+|diub−dibv|. This means that diuv ≥ |diau − diav|/2 + |divb − diub|/2. Therefore, diuv ≥ |(diau − diav)/2 + (divb − diub)/2|. This concludes the proof since wui v ≥ diuv.
+Lemma 2. For all x, y and i, ∆ix+y1 ≥ |[px]i − [py]i|.
+
+Proof. Let u1 = x, . . . , um = y be the shortest path from
+
+x to y in iteration i. By deﬁnition, dixy =
+
+w m−1 i
+j=1 uj uj+1
+
+and dix+y1 ≤
+
+m−1 j=1
+
+wi+1
+uj uj+1
+
+.
+
+From
+
+line
+
+11,
+
+wi+1
+uj uj+1
+
+=
+
+wi
+uj uj+1
+
+−
+
+|[puj ]i
+
+−
+
+[puj+1 ]i|.
+
+Therefore, ∆ix+y1
+
+= dixy −
+
+dix+y1 ≥
+
+m−1 j=1
+
+|[puj
+
+]i
+
+− [puj+1 ]i|.
+
+This
+
+concludes
+
+the
+
+proof
+
+since
+
+m−1 j=1
+
+|[puj
+
+]i −[puj+1 ]i|
+
+≥
+
+|
+
+m−1 j=1
+
+[puj
+
+]i −[puj+1 ]i|
+
+=
+
+|[px]i − [py]i|.
+
+Lemma 3. For all x, y, g and i, d1xy + hiyg − hixg ≥ dix+y1.
+
+Proof. We prove the lemma by induction on i. The base case for i = 1 is implied by Lemma 2. We assume that d1xy +hiyg − hixg ≥ dix+y1 and show d1xy + hiy+g1 − hix+g1 ≥ dix+y2. We know that hiy+g1−hix+g1 = hiyg−hixg−(|[px]i+1−[pg]i+1|−|[py]i+1−
+[pg]i+1|). Since |[px]i+1 − [pg]i+1| − |[py]i+1 − [pg]i+1| ≤ |[px]i+1 − [py]i+1|, we have hiy+g1 − hix+g1 ≥ hiyg − hixg − |[px]i+1 −[py]i+1|. Hence, d1xy +hiy+g1 −hix+g1 ≥ (d1xy +hiyg − hixg) − |[px]i+1 − [py]i+1|. Using the inductive assumption, we get d1xy + hiy+g1 − hix+g1 ≥ dix+y1 − |[px]i+1 − [py]i+1|. By deﬁnition, dix+y1 = ∆ix+y2 + dix+y2. Substituting for dix+y1, we get d1xy + hiy+g1 − hix+g1 ≥ dix+y2 + (∆ix+y2 − |[px]i+1 − [py]i+1|). Lemma 2 shows that ∆ix+y2 ≥ |[px]i+1 − [py]i+1|, which concludes the proof.
+
+Theorem 1. The FastMap heuristic is consistent.
+
+Proof. For all x, y, g and i: From Lemma 3, we know d1xy +
+
+hiyg − hixg ≥ dix+y1. From Lemma 1, we know dix+y1 ≥ 0.
+
+Put together, we have d1xy + hiyg ≥ hixg. Finally, higg =
+
+i j=1
+
+|[pg ]j
+
+−
+
+[pg]j |
+
+=
+
+0.
+
+1430
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+(a)
+
+100000
+
+0 10
+
+0
+
+0 10 0 0 0
+
+0
+
+1 1 110 00 00
+
+0
+
+0 10 10
+
+0
+
+0 10 10 0 0 0 00
+
+(f)
+
+111111
+
+1 11
+
+1
+
+1 11 1 1 1
+
+1
+
+1 11 11 11 11
+
+1
+
+1 11 11
+
+1
+
+1 11 11 1 1 1 11
+
+(b)
+na
+
+nb
+
+(g)
+
+nb
+
+na
+
+(c)
+
+1, 1 0, 2 0, 2 0, 2 0, 2 0, 2 0, 2
+
+1, 1 0, 2
+
+0, 2
+
+1, 1 0, 2 0, 2 0, 2 0, 2 0, 2
+
+2, 0 1, 1 0, 2 0, 2 0, 2 0, 2
+
+2, 0 1, 1 0, 2
+
+0, 2
+
+2, 0 1, 1 0, 2 0, 2 0, 2 0, 2 0, 2
+
+(h)
+
+8, 6 7, 5 6, 6 5, 7 4, 8 3, 9 2, 10
+
+9, 5 8, 4
+
+1, 11
+
+10, 4 9, 3 10, 211, 112, 0 0, 12
+
+11, 510, 4 9, 3 10, 211, 1 1, 11
+
+10, 6 9, 5 8, 4
+
+2, 10
+
+9, 7 8, 6 7, 5 6, 6 5, 7 4, 8 3, 9
+
+(d)
+
+1000000
+
+10
+
+0
+
+10000
+
+0
+
+21000
+
+0
+
+210
+
+0
+
+2100000
+
+(i)
+
+7765432
+
+88
+
+1
+
+9 9 10 11 12
+
+0
+
+9 9 9 10 11
+
+1
+
+888
+
+2
+
+7776543
+
+(e)
+
+7765432
+
+1000000
+
+88
+
+1
+
+10
+
+0
+
+9 9 10 11 12
+
+0
+
+10000
+
+0
+
+9 9 9 10 11
+
+1
+
+21000
+
+0
+
+888
+
+2
+
+210
+
+0
+
+7776543
+
+2100000
+
+(j)
+
+Figure 2: Illustrates the working of FastMap. (a) shows a 4-neighbor gridworld with obstacles in black. (b) shows the graphical representation of (a) with the original unit weights on the edges. (c) shows the identiﬁed farthest pair of nodes. (d) shows two numbers in each cell representing the distances from na and nb, respectively. (e) shows the ﬁrst coordinate produced for each cell. (f) shows new edge weights for the next iteration. (g), (h) and (i) correspond to (c), (d) and (e), respectively, in the second iteration. (j) shows the produced 2D embedding.
+
+Theorem 2. The informedness of the FastMap heuristic increases monotonically with the number of dimensions.
+Proof. This theorem follows from the fact that for any two nodes x and g, hix+g1 = hixg + |[px]i+1 − [pg]i+1| ≥ hixg.
+4 Experimental Results
+We performed experiments on many benchmark maps from [Sturtevant, 2012]. Figure 3 presents representative results. The FastMap heuristic (FM) and the Differential heuristic (DH) with equal memory resources8 are compared against each other. In addition, we include the Octile heuristic (OCT) as a baseline, that also uses a closed-form formula for the computation of its heuristic.
+We observe that, as the number of dimensions increases, (a) FM and DH perform better than OCT; (b) the median number of expanded nodes when using the FM heuristic decreases (which is consistent with Theorem 2); and (c) the median absolute deviation (MAD) of the number of expanded nodes when using the FM heuristic decreases. When FM’s MADs are high, the variabilities can possibly be exploited in future work using Rapid Randomized Restart strategies.
+FastMap also gives us a framework for identifying a point of diminishing returns with increasing dimensionality. This happens when the distance between the farthest pair of nodes stops being “signiﬁcant”. For example, such a point is observed in Figure 3(f) around dimensionality 5.9
+In mazes, such as in Figure 3(g), A* using the DH heuristic outperforms A* using the FM heuristic. This leads us to believe that FM provides good heuristic guidance in domains that can be approximated with a low-dimensional manifold. This observation also motivates us to create a hybrid
+8The dimensionality of the Euclidean embedding for FM matches the number of pivots in DH.
+9The distances between the farthest pair of nodes, computed on line 4 of Algorithm 1, for the ﬁrst 10 dimensions are: 581, 36, 22, 15, 14, 10, 6, 6, 5, 4 .
+
+FM+DH heuristic by taking the maximum of the two heuristics. Some relevant results are shown in Table 1. We use FM(K) to denote the FM heuristic with K dimensions and DM(K) to denote the DH heuristic with K pivots. For the results in Table 1, all heuristics have equal memory resources. We observe that the number of node expansions of A* using the FM(5)+DH(5) heuristic is always second best compared to A* using the FM(10) heuristic and A* using the DH(10) heuristic. On one hand, this decreases the percentages of instances on which it expands the least number of nodes (as seen in the second row of Table 1). But, on the other hand, its median number of node expansions is not far from that of the best technique in each breakdown.
+5 Conclusions
+We presented a near-linear time preprocessing algorithm, called FastMap, for producing a Euclidean embedding of a general edge-weighted undirected graph. At runtime, the Euclidean distances were used as heuristic by A* for shortest path computations. We proved that the FastMap heuristic is admissible and consistent, thereby generating shortest paths. FastMap produces the Euclidean embedding in nearlinear time, which is signiﬁcantly faster than competing approaches for producing Euclidean embeddings with optimality guarantees that run in cubic time. We also showed that it is competitive with other state-of-the-art heuristics derived in near-linear preprocessing time. However, FastMap has the combined beneﬁts of requiring only near-linear preprocessing time and producing explicit Euclidean embeddings that try to recover the underlying manifolds of the given graphs.
+Acknowledgments
+This work was supported by NSF under grant numbers 1724392, 1409987, and 1319966.
+
+1431
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+Map
+FM(10) DH(10) FM(5)+DH(5)
+
+FM-WINS 570
+
+Med MAD
+
+261
+
+112
+
+358
+
+215
+
+303
+
+160
+
+‘lak503d’
+
+DH-WINS 329
+
+Med MAD
+
+465
+
+319
+
+278
+
+156
+
+323
+
+170
+
+FM+DH-WINS 101
+
+Med MAD
+
+2,222
+
+1,111
+
+885
+
+370
+
+610
+
+264
+
+FM-WINS 846
+
+Med MAD
+
+205
+
+105
+
+217
+
+119
+
+206
+
+105
+
+‘brc300d’
+
+DH-WINS 147
+
+Med MAD
+
+285
+
+149
+
+200
+
+129
+
+267
+
+135
+
+FM+DH-WINS 7
+
+Med MAD
+
+894
+
+472
+
+277
+
+75
+
+249
+
+73
+
+FM-WINS 382 Med MAD 1,649 747 3,107 2,569 2,685 2,091
+
+‘maze512-32-0’
+
+DH-WINS 507 FM+DH-WINS 111
+
+Med MAD Med MAD
+
+11,440 9,861 33,734 13,748
+
+2,859 2,194 8,156
+
+4,431
+
+3,896 2,992 7,439
+
+4,247
+
+Table 1: Shows the median and MAD numbers of A* node expansions for different maps using three different heuristics with equal memory resources on 1000 random instances. FM(10) denotes the FastMap heuristic with 10 dimensions, DH(10) denotes the Differential heuristic with 10 pivots, and FM(5)+DH(5) is a combined heuristic which takes the maximum of a 5-dimensional FastMap heuristic and a 5-pivot Differential heuristic. The results are split into bins according to winners (along with their number of wins).
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+(g)
+
+(h)
+
+(i)
+
+Figure 3: Shows empirical results on 3 maps from Bioware’s Dragon Age: Origins. (a) is map ‘lak503d’ containing 17, 953 nodes and 33, 781 edges; (d) is map ‘brc300d’ containing 5, 214 nodes and 9, 687 edges; and (g) is map ‘maze512-32-0’ containing 253, 840 nodes and 499, 377 edges. In (b), the x-axis shows the number of dimensions for the FastMap heuristic (or the number of pivots for the Differential heuristic). The y-axis shows the number of instances (out of 1, 000) on which each technique expanded the least number of nodes. Each instance has randomly chosen start and goal nodes. (c) shows the median number of expanded nodes across all instances. Vertical error bars indicate the MADs. The ﬁgures in the second and third rows follow the same order. In the legends, “FM” denotes the FastMap heuristic, “DH” denotes the Differential heuristic, and “OCT” denotes the Octile heuristic.
+
+1432
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+References
+[Alpaydin, 2010] Ethem Alpaydin. Introduction to Machine Learning. The MIT Press, 2nd edition, 2010.
+[Bjo¨rnsson and Halldo´rsson, 2006] Yngv Bjo¨rnsson and Ka´ri Halldo´rsson. Improved heuristics for optimal path-ﬁnding on game maps. In Proceedings of the 6th AAAI Conference on Artiﬁcial Intelligence and Interactive Digital Entertainment, 2006.
+[Botea and Harabor, 2013] Adi Botea and Daniel Harabor. Path planning with compressed all-pairs shortest paths data. In Proceedings of the 23rd International Conference on Automated Planning and Scheduling, 2013.
+[Botea et al., 2004] Adi Botea, Martin Mu¨ller, and Jonathan Schaeffer. Near optimal hierarchical path-ﬁnding. Journal of Game Development, 1:7–28, 2004.
+[Cazenave, 2006] Tristan Cazenave. Optimizations of data structures, heuristics and algorithms for path-ﬁnding on maps. In Proceedings of the IEEE Symposium on Computational Intelligence and Games, 2006.
+[Dijkstra, 1959] Edsger W. Dijkstra. A note on two problems in connexion with graphs. Numerische Mathematik, 1(1):269–271, 1959.
+[Faloutsos and Lin, 1995] Christos Faloutsos and King-Ip Lin. Fastmap: A fast algorithm for indexing, data-mining and visualization of traditional and multimedia datasets. In Proceedings of the ACM SIGMOD International Conference on Management of Data, 1995.
+[Fredman and Tarjan, 1984] Michael Fredman and Robert Tarjan. Fibonacci heaps and their uses in improved network optimization algorithms. In Proceedings of the 25th Annual Symposium on Foundations of Computer Science, 1984.
+[Geisberger et al., 2008] Robert Geisberger, Peter Sanders, Dominik Schultes, and Daniel Delling. Contraction hierarchies: Faster and simpler hierarchical routing in road networks. In Proceedings of the 7th International Conference on Experimental Algorithms, 2008.
+[Goldenberg et al., 2010] Meir Goldenberg, Ariel Felner, Nathan Sturtevant, and Jonathan Schaeffer. Portal-based true-distance heuristics for path ﬁnding. In Proceedings of the 3rd Annual Symposium on Combinatorial Search, 2010.
+[Goldenberg et al., 2011] Meir Goldenberg, Nathan Sturtevant, Ariel Felner, and Jonathan Schaeffer. The compressed differential heuristic. In Proceedings of the 25th AAAI Conference on Artiﬁcial Intelligence, 2011.
+[Hart et al., 1968] Peter E. Hart, Nils J. Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems, Science, and Cybernetics, SSC-4(2):100–107, 1968.
+[Holte et al., 1994] Robert Holte, Chris Drummond, M. B. Perez, Robert Zimmer, and Alan Macdonald. Searching with abstractions: A unifying framework and new highperformance algorithm. In Proceedings of the 10th Canadian Conference on Artiﬁcial Intelligence, 1994.
+
+[Leighton et al., 2008] Michael Leighton, Wheeler Ruml, and Robert Holte. Faster optimal and suboptimal hierarchical search. In Proceedings of the 1st International Symposium on Combinatorial Search, 2008.
+[Pochter et al., 2010] Nir Pochter, Aviv Zohar, Jeffery Rosenschein, and Ariel Felner. Search space reduction using swamp hierarchies. In Proceedings of the 24th AAAI Conference on Artiﬁcial Intelligence, 2010.
+[Rayner et al., 2011] Chris Rayner, Michael Bowling, and Nathan Sturtevant. Euclidean heuristic optimization. In Proceedings of the 25th AAAI Conference on Artiﬁcial Intelligence, 2011.
+[Russell and Norvig, 2009] Stuart J. Russell and Peter Norvig. Artiﬁcial Intelligence: A Modern Approach. Prentice Hall, 2009.
+[Storandt, 2013] Sabine Storandt. Contraction hierarchies on grid graphs. In Proceedings of KI: the 36th Annual German Conference on Artiﬁcial Intelligence, 2013.
+[Strasser et al., 2015] Ben Strasser, Adi Botea, and Daniel Harabor. Compressing optimal paths with run length encoding. Journal of Artiﬁcial Intelligence Research, 54:593–629, 2015.
+[Sturtevant and Buro, 2005] Nathan Sturtevant and Michael Buro. Partial pathﬁnding using map abstraction and reﬁnement. In Proceedings of the 20th AAAI Conference on Artiﬁcial Intelligence, 2005.
+[Sturtevant et al., 2009] Nathan Sturtevant, Ariel Felner, Max Barrer, Jonathan Schaeffer, and Neil Burch. Memorybased heuristics for explicit state spaces. In Proceedings of the 21st International Joint Conference on Artiﬁcial Intelligence, 2009.
+[Sturtevant, 2012] Nathan Sturtevant. Benchmarks for gridbased pathﬁnding. Transactions on Computational Intelligence and AI in Games, 4(2):144–148, 2012.
+[Torgerson, 1952] Warren S. Torgerson. Multidimensional scaling: I. theory and method. Psychometrika, 17(4):401– 419, 1952.
+[Uras and Koenig, 2014] Tansel Uras and Sven Koenig. Identifying hierarchies for fast optimal search. In Proceedings of the 28th AAAI Conference on Artiﬁcial Intelligence, 2014.
+[Uras and Koenig, 2015] Tansel Uras and Sven Koenig. Subgoal graphs for fast optimal pathﬁnding. In Steve Rabin, editor, Game AI Pro 2: Collected Wisdom of Game AI Professionals, chapter 15, pages 145–159. A K Peters/CRC Press, 2015.
+[Vandenberghe and Boyd, 1996] Lieven Vandenberghe and Stephen Boyd. Semideﬁnite programming. SIAM Review, 38:49–95, 1996.
+
+1433
+

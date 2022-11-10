@@ -1,0 +1,490 @@
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) September 27 - October 1, 2021. Prague, Czech Republic
+
+2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-1714-3/21/$31.00 ©2021 IEEE | DOI: 10.1109/IROS51168.2021.9636048
+
+Robust and Recursively Feasible Real-Time Trajectory Planning in Unknown Environments
+Inkyu Jang, Dongjae Lee, Seungjae Lee, and H. Jin Kim
+
+Abstract— Motion planners for mobile robots in unknown environments face the challenge of simultaneously maintaining both robustness against unmodeled uncertainties and persistent feasibility of the trajectory-ﬁnding problem. That is, while dealing with uncertainties, a motion planner must update its trajectory, adapting to the newly revealed environment in realtime; failing to do so may involve unsafe circumstances. Many existing planning algorithms guarantee these by maintaining the clearance needed to perform an emergency brake, which is itself a robust and persistently feasible maneuver. However, such maneuvers are not applicable for systems in which braking is impossible or risky, such as ﬁxed-wing aircraft. To that end, we propose a real-time robust planner that recursively guarantees persistent feasibility without any need of braking. The planner ensures robustness against bounded uncertainties and persistent feasibility by constructing a loop of sequentially composed funnels, starting from the receding horizon local trajectory’s forward reachable set. We implement the proposed algorithm for a robotic car tracking a speed-ﬁxed reference trajectory. The experiment results show that the proposed algorithm can be run at faster than 16 Hz, while successfully keeping the system away from entering any dead end, to maintain safety and feasibility.
+I. INTRODUCTION
+Motion planners for autonomous mobile robots in unknown space should tackle two major challenges: being robust against unmodeled uncertainties, and persistently maintaining the feasibility of the planning problem itself.
+Unmodeled uncertainties include the trajectory tracking error, sensor measurement error, and/or external forces such as wind disturbance. Their inﬂuence is often overcome by employing a trajectory planner which is robust against a prescribed class of uncertainties [1–3], e.g., wind disturbance of known maximum speed. Such methodologies provide a tube, within which the system is guaranteed to stay without collision. However, these tube-based methodologies often drive the system into dead ends from which the system cannot escape. Moreover, newly discovered obstacles may invalidate the trajectory. In such cases, failing to ﬁnd a feasible trajectory update might lead to loss of safety.
+Therefore, maintaining persistent feasibility is as important. It is usually ensured through recursion [4, 5]: i.e., recursive feasibility holds if having a single feasible maneuver
+This research was supported by Unmanned Vehicles Core Technology Research and Development Program through the National Research Foundation of Korea (NRF) and Unmanned Vehicle Advanced Research Center (UVARC) funded by the Ministry of Science and ICT, the Republic of Korea (NRF-2020M3C1C1A01086411).
+The authors are with the Department of Aerospace Engineering, and Automation and Systems Research Institute (ASRI), Seoul National University, Seoul, Korea. {leplusbon, ehdwo713, ysz0301, hjinkim}@snu.ac.kr
+
+Fig. 1: An autonomous ground rover avoids obstacle while trying to reach the goal position (marked using yellow arrow) in unknown space (shadowed region). The global path that leads to the goal is marked blue. The FRS around the local receding horizon trajectory is marked red. Starting from the endpoint of the local trajectory, funnels are cyclically composed within known free area to ensure recursive feasibility of the trajectory planner.
+provides either persistent safety or the feasibility of ﬁnding a next one. For many systems, braking is a widely-used recursively feasible maneuvering strategy. [6] assumes the system’s ability to perform a sudden stop, and [7, 8] explicitly compute the spare space needed for the system to brake. However, in some systems such as a ﬁxed-wing aircraft, the mentioned emergency brakes are difﬁcult or impossible. Feasibility must therefore be considered more carefully for them.
+In this paper, we present a real-time trajectory planning algorithm that is both robust to bounded uncertainties and recursively feasible at the same time, without any need of braking capability. We begin by following the common planning framework, planning a global path to the goal through the free and unknown spaces, which is tracked by a receding horizon local trajectory in the free space. We guarantee recursive feasibility by attaching a loop of sequentially constructed funnels starting from the local trajectory. Robustness against uncertainties is guaranteed by requiring the forward reachable set (FRS) of the local trajectory to end inside the funnel loop. Suggested in [6], funnels are basically FRSs that start from a big initial set. If the system is located inside a funnel’s initial set, it can be provably driven to its exit by its associated controller. The set of pre-computed funnels, funnel library, can be used as building blocks for safe trajectory. If a funnel’s entrance encompasses another funnel’s exit, than the two funnels are sequentially composed and act like a single funnel. Fig. 1 brieﬂy shows how the proposed planner runs. At an epoch, the planner ﬁnds the global and local trajectories, the FRS of the local trajectory,
+
+978-1-6654-1714-3/21/$31.00 ©2021 IEEE
+
+1434
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+and a funnel loop that follows the local trajectory. A funnel loop acts like a single funnel whose entrance encompasses its exit, so the system can permanently stay inside the loop without braking.
+A. Contributions
+The contributions of this paper can be summarized as follows.
+• We propose a trajectory planner that utilizes cyclic funnel compositions to guarantee persistent safety and feasibility.
+• We present a forward reachability analysis method that simulates the adversarial disturbance sequence in realtime, in order to check whether the system can robustly be driven into the funnel loop or not.
+• The planner is scalable in execution time. It can be run long without any need of additional memory, since we discard unnecessary funnel loops once another is found.
+• Our planner provides some resilience to map changes. Since it creates the funnel loop only in the neighborhood of the current conﬁguration, persistent feasibility is still guaranteed as long as map changes only occur outside the existing funnel loop.
+• The proposed algorithm is validated through an experiment using an actual ground robot running an off-theshelf mapping software. The proposed planner achieves computation time of less than 60 ms and can be run at real-time.
+B. Relevant Work
+The inﬂuence caused by uncertainties is often overcome by having a reachability-based robust motion planner. Such planners pre-compute the FRS of the system, with known disturbance bounds. The most accurate approximation of the FRS is obtained by solving the Hamilton-Jacobi partial differential equations (PDE) [9, 10], although solving them requires extremely burdensome computation. For polynomial dynamics, one can achieve faster FRS computation by converting the complex PDE into a convex optimization problem. Sum-of-squares (SOS) programming was used in [6], and to further accelerate computation speed, positive polynomials such as Bernstein bases can be used [11]. However, due to the limited expressivity of polynomials, both entail over-conservatism as a trade-off. Some planners circumvent burdensome computations by using precalculated asymptotic bounds on which feedback control and disturbance effects are balanced [2, 12]. [13, 14] propose tube-based model predictive control (MPC) approaches that computes the bound online through min-max inequalities, but they carry heavy computational load.
+In the perspective of motion planning, [6] composes funnels sequentially to build a trajectory in known environments from start to goal. The funnels can be also composed in runtime (not in the planning phase), but it requires the robot to be able to perform a sudden stop in case of an infeasibility. In [1] and [15], Hamilton-Jacobi reachability is directly used. The partial differential equation is translated
+
+to a more conservative but simpler form, so that an overapproximated FRS can be computed in real-time along the planned trajectory.
+To take persistent feasibility into account, [16] identiﬁes inevitable collision states, which are instantaneously collision-free but will unavoidably lead to collision with a nearby obstacle. Avoiding such states provides safety. [7, 17] have separate local planners to ﬁnd a trajectory with ﬁnal stop condition within the known-free space. In [8], the braking maneuver is explicitly considered to guarantee persistent feasibility. [18] addresses the problem for multiple airplanes. Each agent avoids collision and infeasibility by having a virtual box on one side that ﬁts a loiter pattern and letting nothing inside the box. In [5], the system expands the exploration tree consisting only of points from which the agent can safely return to the home position. The algorithm can be applied to systems with no brakes, but is vulnerable to even small changes in obstacle conﬁguration near home, because this change may block many returning paths. In the world of reinforcement learning, in [19], the agents learn how to reset themselves when they encounter irreversible or hazardous states. Penalizing resets will eventually lead the agent to learn a reversible policy, although this is out of the scope of this paper.
+
+II. PRELIMINARIES
+We start by considering a nonlinear discrete-time timeinvariant mobile robot system with state x ∈ Rn and input u ∈ U ⊆ Rm under additive disturbance w ∈ W ⊆ Rn. The evolution of the system at any epoch t is governed by
+
+x(t + 1) = f (x(t), u(t)) + w(t).
+
+(1)
+
+The state space consists of two components: cyclic and noncyclic coordinates. Let x = (xc, xnc) ∈ Rn, where xc ∈ Rd and xnc ∈ Rn−d are the cyclic and noncyclic parts, respectively.
+The system’s governing equation is assumed to be invariant
+under translation in the cyclic coordinates, i.e., we can write
+
+x(t + 1) = f (x(t), u(t)) + w(t)
+
+= x(t) + fˆ(xnc(t), u(t)) + w(t),
+
+(2)
+
+where fˆ : Rn−d × Rm → Rn is a function only of noncyclic coordinates and input. In mobile robot systems, the cyclic coordinates are usually their position in the Euclidean workspace. The cyclic component can be obtained using the projection map Π : Rn → Rd:
+
+xc = Π(x).
+
+(3)
+
+The remaining parts of this paper assume that the cyclic
+coordinates of the system is equal to the robot’s position,
+hence collision checking can be done by just examining the
+cyclic coordinates. A funnel F = (I, E, X) is a tuple consisting of three
+sets: entrance I ⊆ Rn and exit X ⊆ Rn in the state space, encompassing shape E ⊆ Rd in the Euclidean workspace. Mathematically, if x(t0) ∈ I, then there exists an epoch t1 > t0 and u(t, x(t), · · · ) ∈ U , ∀t ∈ [t0,t1], such that x(t1) ∈ X and
+
+1435
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 2: A schematic explanation of the proposed planning algorithm. Green and red arrows denote that the corresponding step has succeeded or failed, respectively. The funnel loop ﬁnding part is marked using a red box.
+
+Π(x(t)) ∈ E, ∀t ∈ [t0,t1]. In this paper, we consider funnels that satisfy the following:
+• The entrance I is of the form I = {(p, xnc) ∈ Rn | p ∈ Π(I), xnc ∈ Inc ⊆ Rn−d}, where Π(I) = {p ∈ Rd | AI(p − pI) ≤ bI}. AI and bI are matrix and column vector with appropriate sizes, respectively. That is, the constraints
+for cyclic and noncyclic coordinates are decoupled, and the cyclic coordinate part is a polytope. pI ∈ Rd is the center of I, which is the starting point of the nominal
+trajectory that traverses the funnel.
+• The exit X is of the form X = {(p, xnc) ∈ X | p − pX 2 ≤ rX , xnc ∈ Xnc ⊆ Rn−d}, where pX is the (cyclic) coordinate of the funnel exit, rX > 0 is the exit radius on the cyclic coordinate.
+• The encompassing shape E is a polytope, i.e., E = {p ∈ Rd | AE p ≤ bE }, where AE is a matrix and bE is a column vector, both with appropriate sizes.
+Additionally, for the sake of simple description, we normal-
+ize each row of AI and AE to be a unit vector. We say that two funnels Fi = (Ii, Xi, Ei) and F j =
+(Ij, Xj, E j) are sequentially composed if the entrance of F j completely encompasses Xi, i.e.,
+
+Xi ⊆ Ij,
+
+(4)
+
+so that starting in Ii guarantees the existence of a trajectory that leads to Xj. We denote this using the symbol, i.e., Fi F j. If F1 · · · FnF and FnF F1, the funnels form a loop, which the system can persistently stay within.
+
+III. ALGORITHM OVERVIEW
+Our algorithm adds the following three steps to the globallocal trajectory planning algorithm mentioned in the introduction: funnel loop candidate searching, forward reachability analysis, and funnel loop closure. In the funnel loop
+
+Fig. 3: A graphical description of the funnel planning algorithm (the red-boxed part of Fig. 2). The system is drawn as an airplane. The obstacle areas are colored brown, and only the bright regions are known to the system. The goal position is marked with yellow arrow. a) A global path (blue curve) and local trajectory (red short curve) are found using the global and local planners. b) A funnel loop candidate is found by growing a tree of funnels. c) Forward reachability analysis ensures that the local trajectory is free from collision and safely leads the system into the ﬁrst funnel’s entrance. d) The funnel positions are adjusted to complete a closed loop.
+
+candidate searching step, we ﬁnd a sequence of funnels which are expected to be adjustable in the cyclic coordinates to form a valid loop. The forward reachability analysis ensures that the planned local trajectory robustly drives the system into the entrance of the ﬁrst funnel, despite the effect of disturbances. In the last step, the funnel positions are adjusted so that the loop is closed while maintaining collision avoidance and robustness of the local planner. As a result, we always have a funnel loop trajectory, which consists of a collision-free funnel loop and a robust local trajectory that drives the system into the loop. The system can stay inside the funnel loop as long as needed, before it ﬁnds a next valid funnel loop trajectory.
+A schematic explanation of this procedure is given in Fig. 2. The proposed three steps are marked using a red box. Fig. 3 provides a graphical explanation of the algorithm. In the next section, we elucidate each step of the proposed algorithm.
+
+IV. ROBUST FUNNEL LOOP PLANNING
+For an ordered set of nF funnels (F1 = (I1, X1, E1), · · · , FnF = (InF , XnF , EnF )) to form a valid loop, (4) should hold for all neighboring index pairs (i, j) ∈ I = {(1, 2), · · · , (nF − 1, nF ), (nF , 1)}. That is, to elaborate,
+
+Xnc·i ⊆ Inc· j ∀(i, j) ∈ I
+
+(5)
+
+and
+
+AIj (pXi − pIj ) ≤ bIj − rXi ∀(i, j) ∈ I.
+
+(6)
+
+The goal of this section is to ﬁnd nF funnels, each of them being a translated funnel from the funnel library F = {FL·1, · · · , FL·nF }, such that the funnels satisfy (5) and (6). We tackle this through a three-step process: in step 1, we
+ﬁnd the funnel sequence that satisﬁes (5) completely and (6)
+roughly using a graph search algorithm (section IV-A); in
+
+1436
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 4: The FRS of a planar quadrotor system with state (x, y, θ , x˙, y˙, θ˙ ) ∈ R6 and input ( f , τ) ∈ R2 in a ﬂipping maneuver shown in the right, where x, y, and θ are the quadrotor’s horizontal displacement, altitude, and pitch angle, respectively. The input consists of thrust f and pitching torque τ. The blue bounds represent the estimated FRS, and black curves are the error trajectories caused
+by adversarial disturbance.
+
+step 2, we conﬁrm that the local trajectory robustly leads to the entrance of the funnel trajectory candidate of step 1 (section IV-B); and in the last step, we adjust the positions of the funnel path candidate to completely satisfy (6) (section IV-C). This is possible owing to the funnel property that the constraints in the cyclic and noncyclic coordinates are decoupled.
+
+A. Funnel Loop Candidate Searching
+We ﬁnd a cyclic funnel path candidate by constructing and traversing a tree of properly connected funnels. First, the tree is initialized with the reachable set of the local trajectory as the root node. Given a node X = Xc × Xnc ⊆ Rn where Xc = {p | p − pX 2 ≤ rX } ⊆ Rd, the funnels that satisfy (5) are chosen and are translated such that the cyclic coordinates of the entrance and pX are matched. If a translated funnel is collision-free, its exit becomes the child node. We continue this process until we ﬁnd a node that is sufﬁciently close to the root node in the cyclic coordinates, and is completely encompassed by the ﬁrst funnel’s entrance in the noncyclic coordinates. The criterion used to determine whether a node is sufﬁciently close may vary depending on the system or the environment, and can be heuristically selected to maximize the success rate of ﬁnding a valid funnel path. Any off-theshelf tree searching algorithm can be used in this step.
+
+B. Forward Reachability Analysis
+After ﬁnding a funnel cycle candidate, the validity of the local planning results is checked. The checking procedure consists of two steps: collision avoidance, and funnel composability.
+Assume that we are given a memoryless feedback controller u(t) = k(t; x(t), xr(t)) and the local trajectory xr(t) ∈ Rn for t ∈ {0, · · · , T }. Then, we have the time-varying closedloop error dynamics
+
+e(t + 1) = f (xr(t) + e(t), k(t; xr(t) + e(t), xr(t)))
+
+− xr(t) + w(t)
+
+(7)
+
+= h(t; e(t)) + w(t)
+
+where the error e(t) ∈ Rn is deﬁned as e(t) = x(t)−xr(t), and h is the function that describes the closed-loop dynamics. We
+
+assume that the disturbance w(t) is bounded by w(t) ∈ W = {w ∈ Rn | Aww ≤ bw}. The goal of this step is to ﬁnd the sequence of disturbance w(t) for t ∈ {0, · · · , τ − 1} for an
+epoch τ ∈ {1, · · · , T }, which drives the system in the way that maximizes a given objective function a : Rn → R. That
+is, we solve the following optimal control problem:
+
+max . a(e(τ))
+
+s.t. e(t + 1) = h(t; e(t)) + w(t) ∀t ∈ {0, · · · , τ − 1}
+
+e(0) = x0 − xr(0)
+
+w(t) ∈ W
+
+∀t ∈ {0, · · · , τ − 1}. (8)
+
+To solve this, we use a modiﬁed version of the differential
+
+dynamic programming (DDP) algorithm that only propagates
+
+the ﬁrst-order gradients, which is an extension of [20] to nonlinear systems.
+First, the algorithm initializes with the disturbance sequence w(t). The error sequence e(t) is determined by simulating (7) forwards. Let gt denote the gradient of the objective function with respect to w(t), on the forwardpassed trajectory. It is straightforward to ﬁnd out that
+
+gτ−1 =
+
+∂ ∂
+
+a e
+
+(e(τ
+
+))
+
+.
+
+(9)
+
+We can now backward-pass gt using
+
+gt−1 =
+
+∂ e(t) ∂ e(t − 1)
+
+gt =
+
+∂ h(t − 1; ·) (e(t − 1)) ∂e
+
+gt ,
+
+(10)
+
+which can be derived using the chain rule. The disturbance
+
+sequence is updated using the steepest ascent by solving the
+
+following quadratic programming (QP) problem:
+
+w(t)
+
+= argmax. gt
+
+w+α
+
+w − w(t)
+
+2 2
+
+,
+
+(11)
+
+w∈W
+
+where w(t) is the new value for w(t). The weight α ≥ 0 penalizes drastic changes in w(t) and prevents the problem from falling into a local optimum. We found that in many cases, setting α = 0 is sufﬁcient: in such cases, the problem becomes a linear programming (LP) problem. Since the domain W is the same in every update, we can pre-compute the vertices and their connectivity in the ofﬂine phase in order to enhance the computation speed. Unlike DDP methods used in trajectory planning or MPC, the backward pass can be calculated in parallel, since (11) does not reuse the previous calculation results. Fig. 4 shows an example FRS calculated using the proposed method for linear objective functions.
+Now, we denote the entrance of the ﬁrst funnel by I1 = {(p, xnc) | AI1 p ≤ bI1 , gnc(xnc) ≤ 0}, where AI1 = [a1 ; · · · ; an1 ] and bI1 = [b1; · · · ; bn1 ]. For FRS-funnel composability check, the objective of (8) is set to a(e) = gnc(xr·nc(T ) + enc) ≤ 0 and a(e) = ai (xr·c(T ) + Π(e)) ≤ bi, for noncyclic and cyclic coordinates, respectively. The cyclic composability check should yield the translatable margin for the ﬁrst funnel as AI1 δ p ≤ bFRS. For each τ ∈ {0, · · · , T }, collision with the environment is also checked. For that, we construct a single safe ﬂight corridor (SFC) in cyclic coordinate space around
+
+1437
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 5: A graphical description of Algorithm 1. a) The target funnel encompassing shape E is depicted blue. The purple squares represent the nearby occupied (or unknown) voxels in the open set. Voxels removed from the open set are colored gray. b) First, an encompassing circle (or sphere) of E is found to obtain cE . c) Starting from the nearest voxel (red), two points p and v are obtained to ﬁnd a wall (depicted using blue line). Voxels outside the wall are removed from the open set. d) After ﬁnite iterations, open set is emptied, and the obtained walls form a convex region in which the funnel can freely translate (yellow polygon).
+the local trajectory using [21]. SFC is a large convex region built in the obstacle-free space, which we can use to bring a nonconvex trajectory optimization problem to a slightly more conservative but convex domain [21, 22]. Denote the obtained SFC by SFC = {p | ASFC p ≤ bSFC} where ASFC = [aSFC·1; · · · ; aSFC·nSFC ]. Similarly, collision can be checked by letting a(e) = aSFC·iΠ(e).
+C. Funnel Loop Closure
+Let the result from the previous step be denoted by an ordered set (F1, · · · , FnF ), which is a valid funnel composition (but yet to be loop-closed). The objective of this step is to adjust the given funnels along the cyclic coordinates, so that FnF and F1 are connected, while not losing validity. We consider the situation in which Fi shall be translated by δ pi ∈ Rd. Two constraints should be satisﬁed for each translation: collision avoidance, and funnel composability.
+1) Colision Avoidance Constraint: For collision avoidance, we propose an algorithm that generates a convex adjustable area of a funnel, in which the funnel can translate without collision. We ﬁrst represent each obstacle as a convex shape in Rd space, which is a voxel in most cases. The unknown space is also considered an obstacle, because the funnel loop must be built within regions known to be free. Our algorithm (algorithm 1) builds linear inequalities, one at a time, whose intersection constructs the adjustable margin. It initializes with the unadjusted encompassing polytope E of a funnel, and the open set that contains neighboring obstacle yet to be considered. The smallest sphere center in line 2 returns the center cE of the smallest sphere that completely covers E. The loop in line 3 iterates over the elements of open set, starting from the nearest obstacle from cE , and ﬁnds a separating hyperplane between the funnel and the obstacle. Using the hyperplane, we ﬁnd the linear constraint written {δ p ∈ Rd | a δ p ≤ b} (a ∈ Rd
+
+Algorithm 1 Funnel adjustable area computation
+
+Input: Funnel bounding polytope E,
+
+the set of nearby occupied voxels {V1, · · · ,VN}
+
+Output: AA, bA
+
+1: open set ← {V1, · · · ,VN}
+
+2: cE ← smallest sphere center(E)
+
+3: while open set is not empty do
+
+4: V ← element of open set closest to cE
+
+5: (p, v) ← argmin v − p 2
+p∈E ,v∈V
+
+6: a ← (v − p)/ v − p 2, b ← v − p 2 7: Remove V from open set.
+
+8: for all V ∈ open set do
+
+9: if a (v − v) > 0 ∀v ∈ V then
+
+10:
+
+Remove V from open set.
+
+11:
+
+end if
+
+12: end for
+
+13: AA ← [AA; a ], bA ← [bA; b]
+
+14: end while
+
+and b ∈ R), which guarantees E to be collision-free when translated by δ p. With an obstacle region V , we ﬁrst ﬁnd two points, each in E and V , that are closest, by solving a QP problem with 2d decision variables:
+
+min.
+p,v∈Rd
+
+p−v
+
+2 2
+
+(12)
+
+s.t. p ∈ E, v ∈ V.
+
+Since the two shapes are convex, we can conclude that E can
+be translated in the direction of v − p by distance v − p 2 while not colliding with V , i.e.,
+
+v− p
+
+v−p 2 δp = a δp ≤ v−p 2 = b
+
+(13)
+
+provides a collision-avoiding bound for δ p. We then remove obstacles that are farther in the v − p direction than V from the open set, as they are already not reachable by E when (13) is satisﬁed. The obtained a and b are added to the rows of AA ∈ RnA×d and bA ∈ RnA This process iterates until the open set is emptied. A brief graphical explanation is provided in Fig. 5.
+2) Cyclic Composability Constraint: For cyclic composability, (6) is directly used. Let Fi F j. A point p lies within the entrance of F j translated by δ p j if
+
+AIj (p − pIj − δ p j) ≤ bIj .
+
+(14)
+
+This should be satisﬁed by the exit of Fi translated by δ pi, with margin rXi .
+
+AIj (pXi − pIj + δ pi − δ p j) ≤ bIj − rXi
+
+(15)
+
+Additionally, the ﬁrst funnel entrance should cover the FRS of the local trajectory:
+
+AI1 pI1 + δ p1 − Π(x(T )) ≤ bFRS
+
+(16)
+
+1438
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 6: The ground rover used in the experiment.
+
+Subject to the mentioned constraints, the following QP problem is solved to ﬁnd feasible adjustment while minimizing jolty motions when switching between funnels:
+
+2
+
+∑ min.
+
+wi, j
+(i, j)∈I
+
+(pXi + δ pi) − (pIj + δ p j)
+
+2
+
++ w0
+
+Π(x(T )) − (pI1 + δ p1)
+
+2 2
+
+s.t. AkAδ pk ≤ bkA ∀k ∈ {1, · · · , nF }
+
+AIj (pXi − pIj + δ pi − δ p j) ≤ bIj − rXi ∀(i, j) ∈ I
+
+AI1 (pI1 + δ p1 − Π(x(T ))) ≤ bFRS (17)
+where AkA is the adjustable area for the k-th funnel and wi, j, w0 ≥ 0 are nonnegative weights. The optimization
+problem (17) minimizes the magnitude of jump required in
+
+switching between funnels in the cyclic coordinates. A good
+
+way to select the weights is to more heavily penalize jumps
+
+with lower indices, since they are more likely to be actually
+
+traversed than the ones with bigger indices.
+
+V. EXPERIMENT RESULTS
+
+To validate the proposed planning algorithm, an experiment was conducted using a ground rover shown in Fig. 6. The rover is an Ackerman steering robot equipped with an onboard computer (Intel NUC), a planar LiDAR sensor (YDLIDAR X4), and an IMU. The onboard computer has a 6-core CPU with base clock frequency of 1.10 GHz and 16 GB memory. The LiDAR scans the environment at 10 Hz. The planning algorithm is implemented in C++, and OSQP [23] is used for solving QPs. For real-time mapping and localization, Cartographer [24] is used. To provide a good initial guess to the SLAM module, pose estimates from the OptiTrack motion capture system and Intel Realsense Tracking Camera T265 are used. The map is updated every second.
+The kinematics of the ground rover system is governed by
+
+TABLE I: The values of the parameters used in the experiment
+
+Parameter
+δt Kp Kd u u
+
+Value
+0.01 s [ 1.2, 0, 0; 0, 6.5, 0.4 ] [ 0.15, 0, 0; 0, 3.0, 0 ]
+[ 0 m/s; −1.1 m−1 ] [ 1.0 m/s; 1.1 m−1 ]
+
+Fig. 7: The ﬁrst ﬁve funnels from the funnel library used in the experiment are depicted. The funnel library consists of 80 funnels in total, where the remaining 75 of them are the rotated ones the ﬁve funnels depicted in this ﬁgure. Dotted black lines represent the actual trajectory recorded from the funnel-building experiment.
+
+the following bicycle-model equation:
+
+px(t + 1) = px(t) + v(t) cos θ (t) · δ t + w1(t) py(t + 1) = py(t) + v(t) sin θ (t) · δ t + w2(t) (18) θ (t + 1) = θ (t) + v(t)κ(t) · δt + w3(t),
+
+where x(t) = [px(t); py(t); θ (t)] ∈ R3, u(t) = [v(t); κ(t)] ∈ R2, and w(t) = [w1(t); w2(t); w3(t)] ∈ R3 are the state, input, and disturbance vectors, respectively. The time discretization step
+δt is a positive constant. The cyclic and noncyclic coordinates are xc(t) = [px(t); py(t)] ∈ R2 and xnc(t) = [θ (t)] ∈ R1, respectively. We use the feedback controller in the following
+form to ﬁnd the set point in speed vs(t) and turning rate κs (t ):
+
+
+
+
+
+
+
+
+
+vs (t ) κs (t )
+
+=
+
+sat
+
+ur (t ) 
+
+−
+
+Kp
+
+·
+
+∆f  ∆l 
+
+ 
+
+−
+
+Kd
+
+·
+
+d dt
+
+∆f  ∆l 
+
+ 
+
+ 
+
+,
+
+∆θ
+
+∆θ
+
+(19)
+
+where Kp and Kd are gain matrices in appropriate sizes, ∆ f and ∆l represent the forward and leftward displacements of the robot measured from the reference trajectory, respectively. ∆θ is the deviation of the heading angle θ with respect to the reference. The function sat : R2 → R2 clips the magnitude of the control commands to u ≤ u(t) ≤ u. The set points are forwarded to the low-level controller, which converts the set points to motor commands. The actual values of the parameters are summarized in Table I.
+To make the experiment more challenging, we restrict the speed of the reference trajectory to be ﬁxed at 0.5 m/s, and the turning rate (curvature) is limited to be less than 1.1 m−1. We however allow small jumps in the reference trajectory, and the tracking error due to jumps or external force is considered disturbance. The funnels and disturbance bound used in the experiment are obtained through a preliminary experiment, in which the tracking error is measured while successively running randomly chosen nominal trajectories. Fig. 7 shows the ﬁrst ﬁve funnels used in the experiment, projected onto the cyclic coordinates. For the global planner, jump point search (JPS) [25] is used. The local planner is sampling-based: we keep a trajectory library consisting of 7 local trajectories and select on that best tracks the global
+
+1439
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Scenario 1
+
+(b) Scenario 2
+
+(c) Scenario 3
+
+Fig. 8: Three scenarios tested in the experiment. (a) The ﬁrst scenario consists of a corridor with both ends open. (b) The second also has a corridor, whose one side is however blocked. (c) The last environment consists of boxes sized about a meter in width and depth. One of them (red-circled box) is manually placed and removed repeatedly during the experiment.
+
+Fig. 9: The trajectory snippets recorded during the experiment. The goal positions are marked using yellow arrows. Each trajectory (black curve) starts from a red circle (•) and ends at an arrow head ( ).
+trajectory. The A algorithm is employed for the funnel loop candidate searching step, as it was one of the fastest among competing algorithms when used in the authors’ implementation.
+The experiment consists of three scenarios. In each scenario, the robot runs in different environments, which are shown in Fig. 8. The goal positions change over time, and are given manually. In the experiment, the robot avoids the obstacle despite large tracking error, whose positions are a priori unknown, while keeping its (tracking) reference speed at 0.5 m/s. The following subsections provide discussions about some important snippets taken from the experiment results.
+1) Goal in Known and Reachable Space: If the goal is given in known and reachable space, the planner acts like a normal receding horizon planner, because the local trajectory gets replaced by a new local trajectory before the robot enters the funnel loop. Fig. 9-(a) shows how the robot reaches the goal in environments where the funnel loops could be found easily.
+2) Goal in Unknown but Reachable Space: Fig. 9-(b) shows the trajectory of the robot when it is told to reach the goal in unknown space behind a wall. The robot cannot reach the goal at once, but while staying inside the funnel loop, it naturally explores the unknown space to build a funnel loop around the wall (Fig. 10).
+3) Goal in Enterable but Not Escapable Space: Goals marked in Fig. 9-(c) are reachable in the myopic sense but not potentially safe, because there is not enough space for the
+
+Fig. 10: Funnel loops generated while trying to reach the goal in unknown space, behind the wall. The robot’s poses are marked using thin yellow arrows. Brown lines represent the global trajectories that lead to the goal position at the big yellow arrow. Each funnel loops start with a local trajectory marked using a red curve.
+robot to turn around and escape. While funnel loops cannot be found in such cases, the robot does not reach the goal.
+4) Nonstatic Environment: The third scenario is designed to verify the resilience of the proposed algorithm to small map changes. The box shown in Fig. 8-(c) is placed and removed repeatedly during the experiment. Fig. 11 shows the recorded trajectory during a 3-minute run, during which the box was placed and removed twice. The robot succeeded to generate safe trajectories despite map changes, and also utilized the freed area during the box was removed.
+Fig. 11: Trajectory data recorded during the third scenario. The position of the box is shown as the magenta rectangle. Red curves are the trajectory with the box in place, while blue curves are run while the box was removed.
+
+1440
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+
+A. Computation Time Analysis
+For the sake of vehicle stability, the planner runs at 5 Hz in the experiment. However, a complete planning procedure ﬁnished in 60 ms (over 16 Hz) in average: 3 ms for global path planning, less than a millisecond for local planning, 47 ms for FRS calculation, 3 ms for funnel loop candidate searching, and 6 ms for the funnel loop adjustment step.
+B. Remarks on Implementation
+The A algorithm is known to become faster with an optimistic heuristic, if optimality can be sacriﬁced. This is precisely the case, since the funnel loop is only used when the trajectory planning fails to ﬁnd the next trajectory update and hence there is very little need to make the cyclic funnel sequence short. Thus, we used the heuristic which is ten times the consistent heuristic, which reduced the number of searches roughly in half.
+Although the proposed algorithm can be run in realtime, the computation time is non-negligible. Thus, the local trajectory should start at the future state expected after the computation time estimation.
+VI. CONCLUSION
+In this paper, we presented a planning algorithm that can be run under disturbances in unknown environments, while guaranteeing safety without emergency brakes. We ﬁrst start by planning global and local trajectories. A loop of sequentially composed funnels is constructed starting from the end of the local trajectory. Requiring the FRS of the local trajectory to lie within the funnel loop entrance guarantees that the system can be driven robustly into the funnel loop, in which it can stay permanently without collision, seeking for the chance of trajectory update. Experiment results showed that the planner can generate safe trajectories in real-time on onboard computers. It also demonstrated that the proposed algorithm is resilient to map changes, as the funnel loop is built locally.
+Future work may include: enhancing the global planner so that it does not repeat planning through unreachable spaces; exploiting other symmetries in the funnel planning step, e.g., rotation; and extending this algorithm to multi-agent systems.
+REFERENCES
+[1] H. Seo, D. Lee, C. Y. Son, C. J. Tomlin, and H. J. Kim, “Robust trajectory planning for a multirotor against disturbance based on hamilton-jacobi reachability analysis,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2019, pp. 3150–3157.
+[2] S. L. Herbert, M. Chen, S. Han, S. Bansal, J. F. Fisac, and C. J. Tomlin, “Fastrack: A modular framework for fast and guaranteed safe motion planning,” in 2017 IEEE 56th Annual Conference on Decision and Control (CDC), 2017, pp. 1517–1522.
+[3] A. Majumdar and R. Tedrake, “Robust online motion planning with regions of ﬁnite time invariance,” in Algorithmic foundations of robotics X. Springer, 2013, pp. 543–558.
+[4] A. Liniger and J. Lygeros, “A viability approach for fast recursive feasible ﬁnite horizon path planning of autonomous rc cars,” in Proceedings of the 18th International Conference on Hybrid Systems: Computation and Control, 2015, pp. 1–10.
+[5] D. Fridovich-Keil, J. F. Fisac, and C. J. Tomlin, “Safely probabilistically complete real-time planning and exploration in unknown environments,” in 2019 International Conference on Robotics and Automation (ICRA). IEEE, 2019, pp. 7470–7476.
+
+[6] A. Majumdar and R. Tedrake, “Funnel libraries for real-time robust feedback motion planning,” The International Journal of Robotics Research, vol. 36, no. 8, pp. 947–982, 2017.
+[7] J. Tordesillas, B. T. Lopez, and J. P. How, “Faster: Fast and safe trajectory planner for ﬂights in unknown environments,” in 2019 IEEE/RSJ international conference on intelligent robots and systems (IROS). IEEE, 2019, pp. 1934–1940.
+[8] S. Kousik, S. Vaskov, F. Bu, M. Johnson-Roberson, and R. Vasudevan, “Bridging the gap between safety and real-time performance in receding-horizon trajectory design for mobile robots,” The International Journal of Robotics Research, vol. 39, no. 12, pp. 1419–1469, 2020.
+[9] S. Bansal, M. Chen, S. Herbert, and C. J. Tomlin, “Hamilton-jacobi reachability: A brief overview and recent advances,” in 2017 IEEE 56th Annual Conference on Decision and Control (CDC). IEEE, 2017, pp. 2242–2253.
+[10] J. Ding, E. Li, H. Huang, and C. J. Tomlin, “Reachability-based synthesis of feedback policies for motion planning under bounded disturbances,” in 2011 IEEE International Conference on Robotics and Automation. IEEE, 2011, pp. 2160–2165.
+[11] H. Seo, C. Y. Son, and H. J. Kim, “Fast funnel computation using multivariate bernstein polynomial,” IEEE Robotics and Automation Letters, pp. 1–1, 2021.
+[12] S. Singh, A. Majumdar, J.-J. Slotine, and M. Pavone, “Robust online motion planning via contraction theory and convex optimization,” in 2017 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2017, pp. 5883–5890.
+[13] M. E. Villanueva, B. Houska, and B. Chachuat, “Uniﬁed framework for the propagation of continuous-time enclosures for parametric nonlinear odes,” Journal of Global Optimization, vol. 62, no. 3, pp. 575–613, 2015.
+[14] M. E. Villanueva, R. Quirynen, M. Diehl, B. Chachuat, and B. Houska, “Robust mpc via min–max differential inequalities,” Automatica, vol. 77, pp. 311–321, 2017.
+[15] H. Seo, C. Y. Son, D. Lee, and H. J. Kim, “Trajectory planning with safety guaranty for a multirotor based on the forward and backward reachability analysis,” in 2020 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2020, pp. 7142–7148.
+[16] T. Fraichard and H. Asama, “Inevitable collision states—a step towards safer robots?” Advanced Robotics, vol. 18, no. 10, pp. 1001–1024, 2004.
+[17] H. Oleynikova, Z. Taylor, R. Siegwart, and J. Nieto, “Safe local exploration for replanning in cluttered unknown environments for microaerial vehicles,” IEEE Robotics and Automation Letters, vol. 3, no. 3, pp. 1474–1481, 2018.
+[18] T. Schouwenaars, J. How, and E. Feron, “Decentralized cooperative trajectory planning of multiple aircraft with hard safety guarantees,” in AIAA Guidance, Navigation, and Control Conference and Exhibit, 2004, p. 5141.
+[19] B. Eysenbach, S. Gu, J. Ibarz, and S. Levine, “Leave no trace: Learning to reset for safe and autonomous reinforcement learning,” arXiv preprint arXiv:1711.06782, 2017.
+[20] I. Jang, D. Lee, and H. J. Kim, “Provably safe real-time receding horizon trajectory planning for linear time-invariant systems,” in 2020 20th International Conference on Control, Automation and Systems (ICCAS). IEEE, 2020, pp. 612–616.
+[21] S. Liu, M. Watterson, K. Mohta, K. Sun, S. Bhattacharya, C. J. Taylor, and V. Kumar, “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-d complex environments,” IEEE Robotics and Automation Letters, vol. 2, no. 3, pp. 1688–1695, 2017.
+[22] R. Deits and R. Tedrake, “Computing large convex regions of obstaclefree space through semideﬁnite programming,” in Algorithmic foundations of robotics XI. Springer, 2015, pp. 109–124.
+[23] B. Stellato, G. Banjac, P. Goulart, A. Bemporad, and S. Boyd, “Osqp: An operator splitting solver for quadratic programs,” Mathematical Programming Computation, pp. 1–36, 2020.
+[24] W. Hess, D. Kohler, H. Rapp, and D. Andor, “Real-time loop closure in 2d lidar slam,” in 2016 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2016, pp. 1271–1278.
+[25] D. Harabor and A. Grastien, “Online graph pruning for pathﬁnding on grid maps,” in Proceedings of the AAAI Conference on Artiﬁcial Intelligence, vol. 25, no. 1, 2011.
+
+1441
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 14:27:47 UTC from IEEE Xplore. Restrictions apply.
+

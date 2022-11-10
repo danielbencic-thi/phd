@@ -1,0 +1,720 @@
+2021 International Conference on Unmanned Aircraft Systems (ICUAS) Athens, Greece. June 15-18, 2021
+
+2021 International Conference on Unmanned Aircraft Systems (ICUAS) | 978-1-6654-1535-4/21/$31.00 ©2021 IEEE | DOI: 10.1109/ICUAS51884.2021.9476686
+
+Efﬁcient Online Jerk-limited Trajectory Generation for Multicopters Using Barrier Functions
+Abdul Hanif Zaini1, Kun Cao1 and Lihua Xie1
+
+Abstract— This paper proposes a jerk-limited trajectory generation algorithm using a discrete implementation of the Zeroing Control Barrier Function method. This method achieves greater computational efﬁciency than previous works as it requires only a single pass in the forward simulation of the triple integrator and does not require a bisection search. A timeoptimal trajectory can be generated from any arbitrary initial state with asymmetric constraints on velocity, acceleration and jerk for a target position with any ﬁnal velocity and zero ﬁnal acceleration. In addition, we demonstrate a one step ahead trajectory controller combined with an Extended State Observer in simulation of a hexacopter model.
+I. INTRODUCTION
+The generation and tracking of jerk-limited trajectories is critical for the performance of systems that are incapable of achieving instantaneous acceleration or torque, or might be damaged by such sudden changes. An example of a jerk-limited trajectory is shown in Fig. 3. Examples of such systems include multicopters or multi-rotor helicopters [1], and robot actuators [2]. Multicopters are vehicles that generate thrust for vertical lift via two or more rotors. Its attitude is controlled by varying the relative speed of its rotors and in so doing allow it to move laterally. A common version of this is the quadcopter or quadrotor [3]. Another example is the 6 rotor multicopter or hexacopter in Fig. 1. Multicopters may require smooth trajectories to protect its payload from damage by vibration or sudden accelerations.
+Various solutions already exist to produce these jerklimited trajectories but typically require heavy computation. Methods requiring relatively heavy computation usually involve some optimization method to produce a threedimensional trajectory with obstacle avoidance. Recent examples include a receding horizon control method in [4], mixed integer quadratic programming to solve for third degree polynomial splines [5], and quadratic programming with n-th degree polynomial trajectories [6].
+However, recently in [1], Lai et al. introduced a computationally efﬁcient method for obstacle avoidance and jerklimited trajectory generation. Their method generates three single-axis jerk-limited trajectories for use within safe ﬂying corridors between way-points. The single-axis trajectory parameters are calculated using kinematic equations and a bisection search of the deceleration start time. A trajectory
+The research is partially supported by the ST Engineering - NTU Corporate Lab through the NRF corporate lab@university scheme.
+1The authors are with the School of Electrical and Electronic Engineering, Nanyang Technological University, Singapore 639798 hanif.zaini@ntu.edu.sg, ahanifbz@gmail.com (A.H. Zaini); KUN001@e.ntu.edu.sg (K. Cao); elhxie@ntu.edu.sg (L. Xie)
+
+can be produced from an arbitrary initial state to the desired position and endpoint velocity with zero ﬁnal acceleration. In addition, the trajectory is time-optimal with asymmetric lower and upper limits on jerk, acceleration. The trajectory time series is then obtained by forward simulating with a triple integrator and the trajectory parameters.
+In [7] and [8], Beul and Behnke proposed the use of the analytic solution to a system of 3rd order polynomial equations representing a time-optimal trajectory with arbitrary desired end velocities. While it is shown to be fast in most cases, the authors also reported that the method required tens of thousands of mathematical computations for the scenarios where the resulting trajectory did not have certain constant acceleration or deceleration segments. However, it was also stated that these scenarios are not common and is still solvable in milliseconds on a recent laptop computer.
+Another recent example of single-axis jerk-limited trajectory generation involves the use of FIR (Finite Impulse Response) ﬁlters to produce a jerk-limited trajectory from an acceleration-limited one [9], [10]. However, the method produces position overshoots which Xia et al. overcomes in [10] by checking and altering acceleration iteratively. Hence, the method requires multiple passes through the trajectory time-series.
+A simpler method is reported in [2], which uses and modiﬁes three reference trajectories. However, the method is limited to zero start and end velocities and accelerations.
+Main Contributions: The method we propose in this paper is designed to be even more efﬁcient by generating the single-axis jerk-limited time-optimal trajectory in only a single pass. Unlike [1], our method does not require a bisection search for the start of deceleration and just generates the trajectory while forward simulating on the triple integrator model. This is done by using kinematic equations with a discrete implementation of the Zeroing Control Barrier Function (ZCBF) similar to our previous work [11] which is based on [12]. For each time step, only three values of jerk input need to be checked which are the minimum, maximum and zero jerk values. Hence, the resulting computation time is only linear in time horizon or length of trajectory and is not affected by certain scenarios unlike [7] and [8]. Our method is also able to produce trajectories from arbitrary initial values with a non-zero desired velocity and zero acceleration at the target position while enforcing asymmetric constraints on jerk and acceleration. We also demonstrate a single-step ahead trajectory controller combined with an Extended State Observer (ESO) in simulation of a 6 rotor multicopter with drag and wind disturbance.
+
+978-0-7381-3115-3/21/$31.00 ©2021 IEEE
+
+321
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+Organization: Section II deﬁnes the model and objective. Barrier certiﬁcates and the discrete treatment are discussed in Section III. The algorithm is presented in Section IV. The one step ahead trajectory controller simulation results are shared in Section V. Finally, some concluding remarks are drawn in Section VI.
+
+II. PROBLEM DEFINITION
+
+A. Multi-rotor Helicopter Dynamics
+
+The multi-rotor helicopter such as the one shown in Fig. 1 generates thrust vertically using a combination of multiple ﬁxed-pitch propellers. Its attitude is controlled by varying the relative speed of the rotors. It moves laterally by tilting to provide thrust in the desired direction.
+Brieﬂy, the model from [13] is
+
+p¨ e
+
+=
+
+−gz +
+
+1 m
+
+RTb
+
+,
+
+(1)
+
+R˙ = RS (ωb) ,
+
+(2)
+
+ω˙ b = Jb−1 (−ωb × Jbωb + τb) ,
+
+(3)
+
+where subscripts e and b denote Earth and body-attached frames of reference, pe ∈ R3 and ωb ∈ R3 are position and angular velocity respectively, g is the gravitational constant, m is the mass, Jb is the inertia matrix, R is the rotation matrix converting from body to Earth frames, z is the vector [0 0 1] , and Tb and τb are thrust and torque respectively. S (.) is the skew symmetric matrix operator such that S (a) b = a × b.
+From [1], the bounds on achievable acceleration due to
+dynamics (1)-(3) are
+
+p¨e + gz
+
+≤ Tmax , m
+
+(4)
+
+z¨e
+
+≥
+
+z¨e,min
+
+≥
+
+Tmin m
+
+−g
+
+,
+
+(5)
+
+where Tmax and Tmin are the maximum and minimum total thrust available, and ze is the vertical position.
+The smallest upper bound on jerk is
+
+p...e
+
+≤
+
+Tmin m
+
+ωmax,
+
+(6)
+
+where ωmax is the maximum rotation rate of the multirotor platform.
+
+Bounds (4)-(6) simply serve to illustrate that the system
+
+cannot achieve instantaneous changes in velocity and accel-
+
+eration. However, for this work we assume that the desired
+
+jerk can be achieved instantaneously as the angular velocity
+
+response for multi-rotor platforms in practice is signiﬁcantly
+
+faster. We may set smaller bounds on jerk when generating
+
+a trajectory.
+
+B. Triple-Integrator Model
+With consideration for velocity, acceleration and jerk limits, the multirotor helicopter system can be approximated to a constrained triple integrator model for generating a trajectory as it is differentially ﬂat [3]. We consider the single axis triple integrator for this work,
+
+p˙ = v, v˙ = a, a˙ = j,
+
+(7)
+
+Fig. 1: Body-attached frame denoted by [bx, by, bz] and propeller spin directions superimposed on a photo of a 6rotor multicopter or hexacopter in ﬂight viewed from below.
+
+where p, v, a and j are the position, velocity, acceleration
+and jerk respectively. We deﬁne the states as x = [p v a] and jerk as the input j ∈ R1. The system constraints are
+
+vmin ≤v ≤ vmax
+
+(8)
+
+amin ≤a ≤ amax
+
+(9)
+
+jmin ≤j ≤ jmax
+
+(10)
+
+where vmin, amin and jmin are strictly negative constants, and vmax, amax and jmax are strictly positive constants set by the user with consideration for (4)-(6).
+In application, we may apply the single axis trajectory generation to multiple orthogonal axes to produce a smooth 3D motion. An example of this is found in [1] and Section V.
+
+C. Objective
+The objective of this work is to design a computationallyefﬁcient online time-optimal trajectory generation method for the constrained triple-integrator system (7)-(10). Speciﬁcally, the trajectory to be generated is a time series consisting of the required position, velocity, acceleration and jerk at ﬁxed time intervals, T , starting from the current system states, x, up to some desired time horizon. The trajectory is required to bring the constrained system to the desired velocity and zero acceleration simultaneously at the waypoint position.
+
+III. ZEROING CONTROL BARRIER FUNCTION BACKGROUND
+The proposed method presented in this paper is formulated based on the Zeroing Control Barrier Function (ZCBF). We give a brief review of the ZCBF here based on [12], [14] and our previous work [11].
+The ZCBF is a function formulated for generating a set of control inputs that guarantees the forward invariance of a desired set of safe states. In other words, we wish to ensure that the system approaches and stays within this safe set.
+Consider the linearly controlled system
+
+x˙ = f (x) + g (x) u,
+
+(11)
+
+where x ∈ Rn is the state, u ∈ U ⊂ Rm is the control input, and f and g are locally Lipschitz continuous.
+
+322
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+The set of safe states is deﬁned as C ⊂ Rn. The ZCBF candidate, h : Rn → R, is then formulated such that
+
+C = {x ∈ Rn | h (x) ≥ 0} .
+
+(12)
+
+Deﬁnition III.1 (From [12]). A continuous function κ : (−b, a) → R for some a, b > 0 is an extended class-K function if it is strictly increasing and κ (0) = 0.
+
+Deﬁnition III.2 (From [12]). Given the set (12) for a smooth function h : D → R, where C ⊆ D ⊂ Rn, h is called a ZCBF
+if there exists an extended class-K function κ such that
+
+sup h˙ (x) + κ (h (x)) ≥ 0
+
+(13)
+
+u∈U
+
+for all x ∈ D, and
+
+h˙ (x) =
+
+∂h (x) (f (x) + g (x) u)
+
+.
+
+(14)
+
+∂x
+
+The function κ is used to modify the approach speed towards the boundary of set C.
+
+From (13) and (14), the control space that ensures that the states, x, stays in set C is
+
+S (x) = u ∈ U h˙ (x) + κ (h (x)) ≥ 0 , x ∈ D . (15)
+
+From theorems in [14] and [12], any Lipschitz continuous controller u : D → Rm where u ∈ S (x) guarantees C to be forward invariant and asymptotically stable in D.
+In [12], Wang et al. formulated the ZCBF based on the minimum deceleration distance to avoid collision between two robots. The resulting control input constraint is used to bound each robot’s nominal controller.
+However, for real discrete-time systems such as robots and unmanned multirotor aircraft, the continuous formulation of [12] produces control input bounds that may not be sufﬁcient to ensure safe set invariance at the next time step. Some systems may operate with relatively low control frequencies perhaps due to computational complexity or communications bottleneck. Hence, the maximum speed and acceleration may have to be limited to reduce overshoots and avoid collision.
+In our previous work [11], we presented a discretized modiﬁcation to bound a holonomic robot within some ﬁxed distance from a desired nominal path. The state at next time step is used to determine the permissible control space. This next state is obtained using the system model and the range of available control inputs.
+If there exists a ZCBF candidate, h (x), as described in Deﬁnition 2, the required control space is simply
+
+Sd (x) = {u ∈ U | h (x (t + T )) ≥ 0} ,
+
+(16)
+
+where t and T are the current sampling time and interval respectively. Note that Deﬁnition 2 requires that h (x) is smooth and zero at the boundary of set C. This requirement is no longer necessary in the discrete case as we just require that h (x (t + T )) ≥ 0. However, deﬁning it according to Deﬁnition 2 simpliﬁes the search for the control space boundary by providing direction.
+
+The continuous version in (15) allowed for initial states to be such that h (x) < 0 as long as S(x) in (15) is not empty. The discretized version in (16) is stricter where h (x (t + T )) ≥ 0 must be reachable within one time step. This is a problem when external disturbances can push the system states out of the safe set C.
+In [11], we obtain conservative bounds on Sd by searching the space U in discrete intervals. If Sd is empty, the u ∈ U that maximizes h(x(t + T )) is used.
+In summary, the use of the ZCBF, h(x), is to map the system’s possible states to a scalar value that indicates the system is in the desired set if h(x) ≥ 0. The smoothness requirement of h(x) and the existence of class-K function (Deﬁnitions 1 and 2) enables the design of a Lipschitz continuous controller that satisﬁes (15). The discretized version for discrete systems in (16) does not need these requirements but they are useful for simplifying control space search. However, both cases can become infeasible due to unmodeled disturbances, i.e., S(x) or Sd(x) are empty.
+In the sequel, we adapt the ZCBF and the discretized approach of (16) into an optimization problem to generate a jerk-limited trajectory in one dimension. Instead of generating a control set that guarantees forward invariance, we use the ZCBF to drive the system to the boundary of the safe set C regardless of initial state.
+IV. JERK-LIMITED BARRIER-BASED TRAJECTORY GENERATION
+A. Optimization with ZCBF
+In our application, we formulate the ZCBF such that the boundary of set C, where h(x) = 0, is the objective. As (7) is a single input system we simply require that the ZCBF be also monotonic in control input j ∈ [jmin, jmax].
+The ZCBF here is inspired by [12] which was developed on in our previous work in [11]. In both works, the ZCBF chosen represents the distance of the robot from some boundary subtracted by the minimum required distance to decelerate to zero velocity relative to the boundary. In [12], only maximum acceleration is used to calculate the deceleration distance. In [11], we consider the maximum jerk as well but the acceleration is non-zero after reducing velocity to zero. In the current application, we require the acceleration to be zero as it reaches the desired velocity at the waypoint position.
+The control input at each time step to generate the trajectory is obtained by solving
+jinput = argmin (|h(x(t + T ))| + dacc + dvel) , (17)
+j∈[jmin, jmax]
+where
+• h(x(t + T )) is the ZCBF function at next time step and is strictly decreasing in j ∈ [jmin, jmax] (deﬁned in Section IV-B), and
+• dacc and dvel are offset values encoding soft constraints on acceleration and velocity respectively (deﬁned in Section IV-C).
+
+323
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+Solving (17), is simpliﬁed by searching only 3 values of jerk input which are jmin, 0 and jmax. Only these three values of jerk input are needed to generate a time-optimal trajectory in addition to maximizing acceleration in either direction where possible [15].
+
+B. Discrete ZCBF Design
+The design objective for the discrete ZCBF candidate, hT = h(x(t + T )), is to encode safe combinations of states, x, and input, j, for the constrained system (7) such that if the system approaches d0 = 0 and hT ≥ 0, then v0 → v ≤ vd and a0 → a ≤ 0. d0, v0, a0 and vd are deﬁned as follows.
+
+d0 = |pdesired − p(t)| ,
+
+(18)
+
+v0 =
+
+v(t) −v(t)
+
+if pdesired − p(t) ≥ 0 , otherwise ,
+
+(19)
+
+a0 =
+
+a(t) −a(t)
+
+if pdesired − p(t) ≥ 0 , otherwise ,
+
+(20)
+
+vd =
+
+vdesired −vdesired
+
+if pdesired − p(t) ≥ 0 , otherwise ,
+
+(21)
+
+where pdesired and vdesired are the desired waypoint position and velocity respectively. We simplify the problem by considering the positive direction to be towards pdesired.
+Algorithm 1 is used to determine hT. Subscript T denotes the value at next time step where the time interval is of length T . j ∈ {jmin, 0, jmax} is the jerk value to be checked. a0, v0, d0 and vd are from (18)-(21). amin, jmin and jmax are constrains set by the user in (9) and (10).
+Algorithm 1’s function is summarized in the two following propositions.
+
+Proposition IV.1. Using Algorithm 1, hT is strictly decreasing in j ∈ [jmin, jmax] with all other inputs constant.
+Proof. In lines 1-2 of Algorithm 1, with other inputs constant, aT and vT are strictly increasing in j. Consequently, in lines 4-9, taT→0 and vaT→0 are also strictly increasing in j.
+For vaT→0 > vd, the total deceleration distance, s1 + s2 + s3, increases with aT , vT , vaT→0 and taT→0. Thus max (s1 + s2 + s3, 0) is non-decreasing in j.
+For vaT→0 ≤ vd and aT > 0, s1 similarly increases with aT , vT and taT→0. Considering only positive deceleration distances, max (s1 + s2 + s3, 0) is smaller than in the case vaT→0 > vd with s2 = 0 and s3 = 0 and decreased jerk, j. If instead aT ≤ 0, s1+s2+s3 = 0 and therefore non-decreasing in j. Thus max (s1 + s2 + s3, 0) is also non-decreasing in j here.
+Hence, hT is strictly decreasing in j because dT is also strictly decreasing while max (s1 + s2 + s3, 0) is nondecreasing.
+
+Remark 1. This strictly decreasing property of hT ensures that it is clear that increasing acceleration using positive j drives hT to 0 or more negative. Intuitively, increasing acceleration also drives d0 → 0. In the next proposition, we
+
+Algorithm 1: Calculate hT
+
+Input : j, a0, v0, d0, vd, amin, jmin, jmax and T
+
+Output: hT
+
+1 aT = a0 + jT
+
+2
+
+vT
+
+= v0 + a0T
+
++
+
+1 2
+
+j
+
+T
+
+2
+
+3 dT = d0 −
+
+v0T
+
++
+
+1 2
+
+a0T
+
+2
+
++
+
+1 6
+
+j
+
+T
+
+3
+
+4 if aT > 0 then
+
+5
+
+taT→0 = −aT/jmin
+
+6
+
+vaT→0
+
+=
+
+vT
+
++
+
+aTtaT→0
+
++
+
+1 2
+
+jmin
+
+taT
+
+→0
+
+2
+
+7 else
+
+8
+
+taT→0 = −aT/jmax
+
+9
+
+vaT→0
+
+=
+
+vT
+
++
+
+aTtaT→0
+
++
+
+1 2
+
+jmax
+
+taT
+
+→0
+
+2
+
+10 end if
+
+11 if vaT→0 > vd then 12 a1 = max (aT, amin) 13 if aT > 0 then
+
+14
+
+a− = −
+
+2 (vaT→0 − vd) /
+
+− 1
+
+1
+
+jmax
+
+jmin
+
+15 else
+
+16
+
+a− =
+
+−
+
+2 (vT
+
+−
+
+vd)
+
+−
+
+a1 2 jmin
+
+/
+
+− 1
+
+1
+
+jmax
+
+jmin
+
+17 end if
+
+18 a3 = max (a−, amin)
+
+19 t3 = −a3/jmax
+
+20 t1 = (a3 − a1)/jmin
+
+21
+
+v2
+
+=
+
+vT
+
++
+
+a1t1
+
++
+
+1 2
+
+jmint12
+
+22
+
+v3
+
+=
+
+vd
+
+−
+
+a3t3
+
+−
+
+1 2
+
+jmaxt32
+
+23 t2 = max ((v3 − v2)/amin, 0)
+
+24
+
+s1
+
+=
+
+vTt1
+
++
+
+1 2
+
+a1t12
+
++
+
+1 6
+
+jmin
+
+t1
+
+3
+
+25
+
+s2
+
+=
+
+v2t2
+
++
+
+1 2
+
+amint22
+
+26
+
+s3
+
+=
+
+v3t3
+
++
+
+1 2
+
+a3t3
+
+2
+
++
+
+1 6
+
+jmaxt33
+
+27 else
+
+28 s2 = 0
+
+29 s3 = 0
+
+30 if aT > 0 then
+
+31
+
+s1
+
+=
+
+vTtaT→0
+
++
+
+1 2
+
+aT
+
+taT
+
+→0
+
+2
+
++
+
+1 6
+
+jmin
+
+taT
+
+→0
+
+3
+
+32 else
+
+33
+
+s1 = 0
+
+34 end if
+
+35 end if
+
+36 return hT = dT − max (s1 + s2 + s3, 0)
+
+also show how this and maintaining hT ≥ 0 achieves the ZCBF design objective.
+Remark 2. Negative distances are unnecessary as the algorithm is for restricting movement towards the waypoint. Moreover, it will add to the complexity with additional cases to ensure max (s1 + s2 + s3, 0) is non-decreasing.
+Proposition IV.2. Consider system (7) with input j ∈ [jmin, jmax] and no external disturbances. Using Algorithm 1, if the current states, x, are such that an input j ∈ [jmin, jmax] exists that produces hT ≥ 0, then an input j ∈ [jmin, jmax] also exists such that hT ≥ 0 for the next time step. Then, if
+
+324
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+j is chosen at each time step satisfying hT ≥ 0, then it is guaranteed that if d0 → 0,
+1) v0 → v ≤ vd and 2) a0 → a ≤ 0.
+Proof. For system (7), lines 1-3 of Algorithm 1 perfectly predicts remaining distance, dT, to pdesired as well as the acceleration and velocity at the next time step.
+In addition, s1 + s2 + s3 in Algorithm 1 in general is the minimum distance needed to reduce the predicted velocity, vT, to the desired velocity (condition 1) with zero ﬁnal acceleration (condition 2) using j ∈ {jmin, 0, jmax} and amin ≤ a ≤ amax.
+Speciﬁcally, if vaT→0 > vd (velocity after reducing absolute acceleration to zero is greater than desired), vd would be reached by reducing acceleration from predicted aT to amin at jerk, jmin and then raising it back to 0 with jmax. The required negative acceleration and duration applied to reduce vaT→0 to vd is calculated in lines 12-26. This deceleration sequence is shown in Fig. 2.
+However, if vaT→0 < vd, condition 1 is met but condition 2 is checked. If predicted acceleration aT > 0, then line 31 determines minimum deceleration distance for condition 2.
+Since the deceleration distance is calculated using j ∈ {jmin, 0, jmax}, there always exists an input j ∈ [jmin, jmax] such that hT is unchanged from the previous time step to the current, e.g., select j = jmin when t1 = 0 to match the required deceleration sequence. Moreover, we established in Prop. IV.1 that hT is strictly decreasing in j ∈ [jmin, jmax] for the current state, x. Hence, we can not only ensure that hT ≥ 0 for subsequent steps, but also reduce it if a more positive j ∈ [jmin, jmax] is feasible to drive d0 → 0. Thus hT ≥ 0 at the current time step indicates that conditions 1 and 2 are reachable as d0 → 0.
+
+Remark 3. Selecting j to reduce hT while maintaining hT ≥ 0 automatically drives d0 → 0. hT is simply the buffer distance before deceleration to desired velocity is required. When the buffer is at or close to zero, the encoded deceleration sequence is followed if hT ≈ 0 is maintained.
+Remark 4. It is possible for v0 < vd, a0 < 0 or both when hT = 0 at d0 = 0. This is due to insufﬁcient distance to accelerate to vd, increase acceleration from negative to 0 or both.
+
+C. Soft Constraints on Acceleration and Velocity
+It should be noted that Algorithm 1 does not impose explicit limits on acceleration and velocity. As the algorithm runs at discrete ﬁxed time intervals, T , and the range of jerk inputs, j, searched is also discrete, it is not always possible for the system to reach the maximum acceleration exactly as required by the deceleration sequence. This can result in some situations where there is no feasible input.
+Instead, we propose the use of soft constraints implemented in (17) as follows.
+
+dvel = αv max (vaT→0 − vmax, 0) ,
+
+(22)
+
+Fig. 2: Deceleration sequence divided into three sections: section 1 with time t1 where acceleration is reduced from the current value to amin at jerk jmin, section 2 with time t2 where acceleration is maintained at amin, and section 3 with time t3 where acceleration is raised from amin to zero at jerk jmax. t1, t2 and t3 are used to obtain respectively the deceleration distances s1, s2 and s3 in Algorithm 1.
+dacc = αa max (max (aT − amax, amin − aT ), 0) , (23)
+where • aT and vaT→0 are respectively obtained from line 1 and lines 4-9 of Algorithm 1, • amax, amin and vmax are the motion constraints from (8)(9) deﬁned by the user, and • αv and αa are non-negative constant parameters. In (22), vaT→0 is used to account for continuous accelera-
+tion. If vaT→0 −vm > 0, jerk values that increase acceleration are penalized. When vaT→0 − vm ≤ 0, no penalty is needed as the system is automatically driven to increase acceleration again using Algorithm 1 and (17). Comparing vT instead with vm will excessively reduce velocity below the maximum due to constrained jerk. Consequently, negative velocity need not be constrained.
+It is recommended that the user set αa > αv preferably by an order of magnitude or more to prioritize acceleration constraint ﬁrst over velocity.
+D. Trajectory Generation Examples
+In this section, we demonstrate the trajectory generation by forward simulating with a triple integrator. Speciﬁcally, jerk values are obtained for the current time step using (17) and Algorithm 1, and then used to calculate the position, velocity and acceleration at the next time step using kinematic equations. The time intervals between steps is constant.
+In Fig. 3, we generate a simple trajectory at 400Hz with zero velocity and acceleration at start and end for a waypoint that is 40m away. This trajectory also exhibits the use of asymmetric limits on both acceleration and jerk. The acceleration and velocity are appropriately constrained by the terms (22) and (23) within the bounds denoted by black dotted lines. The parameters used are αv = 1e5 and αa = 1e6.
+In Fig. 4, we generate the same trajectory as Fig. 3 but at 40Hz instead of 400Hz. Fig. 4, shows a slight overshoot
+
+325
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 3: Jerk-limited time-optimal trajectory generated using
+the proposed algorithm at 400Hz in blue solid lines. Target position is at 40m and ﬁnal velocity is 0ms−1. The velocity limit here is 2ms−1. Asymmetric constraints on acceleration and jerk are used here: 0.1ms−2 maximum and −0.2ms−2 minimum accelerations, and 0.03ms−3 maximum and −0.15ms−3 minimum jerks.
+
+Fig. 4: Jerk-limited time-optimal trajectory generated using
+the proposed algorithm at 40Hz in blue solid lines. Target position is at 40m and ﬁnal velocity is 0ms−1. The velocity limit here is 2ms−1. Asymmetric constraints on acceleration and jerk are used here: 0.1ms−2 maximum and −0.2ms−2 minimum accelerations, and 0.03ms−3 maximum and −0.15ms−3 minimum jerks. A slight overshoot
+in the acceleration is visible when position approaches 40m.
+
+in the acceleration at 40s. This acceleration overshoot is due to the system compensating for a slight undershoot of the position near 40m which is not visible in the ﬁgure. This overshoot also occurs because of the discrete values of jerk and time interval used to calculate the trajectory. This can be mitigated by using smaller intervals or by checking additional jerk values between jmin and jmax.
+In Fig. 5, a trajectory is generated with an initial non-zero velocity of −0.5ms−1 and ﬁnal velocity of 1ms−1. This demonstrates how the algorithm sufﬁciently accounts for the deceleration distance to reduce it to 1ms−1 or less before reaching the 40m target position. The algorithm is also able to generate from any initial velocity. However, this is already evident as the next trajectory point is determined based on the current at each time step.
+A trajectory with negative ﬁnal velocity can also be generated. However, the system will overshoot the target position and return with the negative ﬁnal velocity at the target.
+Fig. 6 shows how (22) drives the velocity to within the imposed 2ms−1 limit without overshooting by ensuring sufﬁcient time to raise the negative acceleration back to zero at the limit. The use of soft constraints drives the system to reduce the acceleration and velocity if they initially or currently exceed the imposed limits.
+However, it should be noted that as this is a discrete implementation, the resulting trajectory position, velocity and acceleration values only approximates the exact values from the time-optimal trajectory encoded in Algorithm 1. The solution improves with smaller time intervals as highlighted
+
+Fig. 5: Jerk-limited time-optimal trajectory generated using the proposed algorithm at 400Hz in blue solid lines. Initial velocity is −0.5ms−1. Target position is at 40m and ﬁnal velocity is 1ms−1. The velocity limit here is 2ms−1. Asymmetric constraints on acceleration and jerk are used here: 0.1ms−2 maximum and −0.2ms−2 minimum accelerations, and 0.03ms−3 maximum and −0.15ms−3 minimum jerks.
+with Fig. 3 and 4. In addition, as observed with the overshoot in Fig. (22),
+the discrete implementation can lead to chattering about the target waypoint. This may be mitigated by implementing
+
+326
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+V. SIMULATION IMPLEMENTATION
+In addition to trajectory generation, our proposed method of (17) and Algorithm 1 may also be used as a one step ahead trajectory controller when combined with an Extended State Observer (ESO) to ﬂy a multicopter from one way-point to the next. We use a 2nd order ESO based on [16] in our simulations. We test this controller with a control frequency of 40Hz in simulation of a hexacopter model subject to drag and wind turbulence disturbance.
+(17) and Algorithm 1 in this implementation is used to obtain the required jerk for the current time step, which is then used to determine the acceleration input for the hexacopter’s attitude control. The acceleration input before subtracting for disturbance is simply
+
+Fig. 6: Jerk-limited time-optimal trajectory generated using the proposed algorithm at 400Hz in blue solid lines. Initial velocity is 3ms−1. Target position is at 40m and ﬁnal velocity is 1ms−1. The velocity limit here is 2ms−1. Asymmetric constraints on acceleration and jerk are used here: 0.1ms−2 maximum and −0.2ms−2 minimum accelerations, and 0.03ms−3 maximum and −0.15ms−3 minimum jerks.
+thresholds on distance, velocity and acceleration about the waypoint. Within the threshold, the trajectory position, velocity and acceleration may be set to the desired ﬁnal waypoint values.
+E. Computational Requirement Comparison
+For a single trajectory point, our proposed method only requires the solving of (17) in combination with Algorithm 1 for 3 jerk values, j ∈ {jmin, 0, jmax}. Speciﬁcally, the mathematical computation is simple and ﬁxed for each trajectory point.
+The rest of the trajectory is generated by repeating this process with the forward simulation of the triple integrator model similar to Lai et al.’s work in [1]. Thus, the computational complexity is O(n) where n is the number of time intervals desired or until the target waypoint is reached.
+In comparison, Lai et al.’s work uses a bisection search with O(log(n)) complexity to determine the start of the deceleration sequence. Typically, this bisection search would only be required at the start of the trajectory generation process to determine its parameters. Thus the performance is expected to be similar assuming the time interval length used for both methods is similar. However, if frequent readjustments and regeneration are required, then this bisection search is conducted each time. Our method is more efﬁcient in comparison.
+Additionally, unlike Beul and Behnke’s work in [7] and [8], our method is invariant computationally under different scenarios. Speciﬁcally, our method is able to handle scenarios where no constant acceleration and deceleration is required in the trajectory without requiring additional computation.
+
+ad(t) = jinput(t)T ,
+
+(24)
+
+where T is the control time interval. The attitude setpoint for common ﬂight controllers such as
+the one described in [13] is determined based on command accelerations without compensating for disturbances. Specifically, the attitude is obtained by solving for the rotation matrix, R, or its components in (1).
+The initial states used in Algorithm 1 prior to obtaining jinput(t) at each time step is
+
+x(t) = [p(t), v(t), ad(t − T )] .
+
+(25)
+
+We use the desired acceleration at the previous time step, ad(t − T ), to determine the desired acceleration for the current. This is to avoid the typically noisy acceleration signal of the multicopter’s inertial measurement unit.
+Finally, the disturbance estimated, aESO(t), by the ESO is subtracted from ad(t) to obtain
+
+acmd(t) = ad(t) − aESO(t) .
+
+(26)
+
+The 2nd order ESO takes as input the previous position and the previous acceleration command, acmd(t − T ).
+The acceleration command, acmd(t), of this one step ahead trajectory controller implementation is obtained independently for two axes. The main axis runs parallel to the direction from the previous way-point to the next way-point. The second axes is orthogonal to the ﬁrst and its direction is determined by the multicopter’s position deviation from the line joining the way-points. This second axis controls the multicopter to move via a smooth trajectory back to the line if it is disturbed by wind. In this work, we demonstrate this controller on the XY-plane only. The total command is the sum of this two axes.
+The simulation scenario is a square way-point path ﬂight of a hexacopter subject to a 5m/s wind in the positive Xaxis direction with some turbulence generated using the Dryden wind turbulence model [17]. The simulation is done in MATLAB Simulink based on [13]. The results are shown in Figures 7-9.
+In Fig. 7, the X and Y axes positions are shown in blue with the desired way-point positions in dotted red lines.
+
+327
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 7: X and Y positions of the hexacopter square way-point ﬂight simulation. The blue line denotes the position and the red dotted line denotes the way-point target position.
+
+Smooth trajectories are observed with relatively negligible overshoots even with the wind.
+In Fig. 8, the X and Y velocities similarly show smooth trajectories with velocity successfully constrained to less than 3m/s, which is the limit set for this simulation.
+Lastly, in Fig. 9, the values for ad, acmd and the system’s actual acceleration, are respectively plotted in blue, yellow and red. This important ﬁgure shows how the system’s actual acceleration is able to closely track the desired acceleration, ad, obtained via our proposed one step ahead trajectory generation method. This is achieved by subtracting the disturbance acceleration, aESO, estimated by the ESO. The resulting command acmd deviates from the desired acceleration ad produced by the trajectory controller to compensate for the disturbance without requiring any alteration to the attitude control. This compensation works to match the actual acceleration as closely as possible to the desired one. The result is a smooth jerk-limited nearly time-optimal motion of the system without requiring partial or full generation of the entire trajectory prior to tracking it.
+
+Fig. 8: X and Y velocities of the hexacopter square waypoint ﬂight simulation. The blue lines denote the velocities. The upper and lower black dotted lines denote respectively the imposed upper and lower limits on the velocity.
+
+VI. CONCLUSION
+In this paper, we proposed an efﬁcient online jerk-limited barrier-based trajectory generation method that only requires a single pass. Speciﬁcally, the trajectory is directly obtained via forward simulation of the triple integrator without requiring a bisection search and trajectory parameters a priori. The Zeroing Control Barrier Function was applied in a discrete manner to encode the deceleration sequence. Only the minimum, maximum and zero jerk values need to be checked at each time interval. The trajectory generation capability was demonstrated with varying interval frequency, non-zero start and end velocities, and velocities greater than the velocity limit. In addition, we demonstrated a one step ahead trajectory controller in combination with an Extended State Observer in simulation of a hexacopter model subjected to drag and wind disturbances. For future work, we may consider the application of our proposed method to path planning through obstacles such as the safe ﬂying corridor
+
+Fig. 9: X and Y accelerations of the hexacopter square waypoint ﬂight simulation. Command without ESO in blue is the desired acceleration, ad, actual acceleration is shown in red, and the command with ESO in yellow is acmd from (26).
+described in [1]. Application to three-axes ﬂight may also be considered.
+REFERENCES
+[1] S. Lai, M. Lan, Y. Li, and B. M. Chen, “Safe navigation of quadrotors with jerk limited trajectory,” Frontiers of Information Technology & Electronic Engineering, vol. 20, no. 1, pp. 107–119, 2019.
+[2] P. Byeong-Ju, L. Hong-Jun, O. Kwang-Kyo, , and M. Chae-Joo, “Jerk-limited time-optimal reference trajectory generation for robot actuators,” The International Journal of Fuzzy Logic and Intelligent Systems, vol. 17, no. 4, pp. 264–271, 2017.
+
+328
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+
+[3] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in 2011 IEEE International Conference on Robotics and Automation. IEEE, 2011, pp. 2520–2525.
+[4] S. Lai, K. Wang, H. Qin, J. Q. Cui, and B. M. Chen, “A robust online path planning approach in cluttered environments for micro rotorcraft drones,” Control Theory and Technology, vol. 14, no. 1, pp. 83–96, 2016.
+[5] J. Tordesillas, B. T. Lopez, and J. P. How, “Faster: Fast and safe trajectory planner for ﬂights in unknown environments,” in 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2019, pp. 1934–1940.
+[6] L. Xi, Z. Peng, and L. Jiao, “Trajectory generation for quadrotor while tracking a moving target in cluttered environment,” in 2020 39th Chinese Control Conference (CCC), 2020, pp. 6792–6797.
+[7] M. Beul and S. Behnke, “Analytical time-optimal trajectory generation and control for multirotors,” in 2016 International Conference on Unmanned Aircraft Systems (ICUAS). IEEE, 2016, pp. 87–96.
+[8] ——, “Fast full state trajectory generation for multirotors,” in 2017 International Conference on Unmanned Aircraft Systems (ICUAS), 2017, pp. 408–416.
+[9] P. Besset, R. Beare´e, and O. Gibaru, “Fir ﬁlter-based online jerkcontrolled trajectory generation,” in 2016 IEEE International Conference on Industrial Technology (ICIT), 2016, pp. 84–89.
+[10] G. Xia, X. Xia, B. Zhao, C. Sun, P. Wang, and Y. yang, “A method of online trajectory generation based on ﬁr ﬁlter,” in 2019 Chinese Automation Congress (CAC), 2019, pp. 919–924.
+[11] A. H. Zaini and L. Xie, “Jerk-limited holonomic robot motion planning using barrier functions,” in 2019 IEEE International Conference on Cybernetics and Intelligent Systems (CIS) and IEEE Conference on Robotics, Automation and Mechatronics (RAM), 2019, pp. 410–415.
+[12] L. Wang, A. D. Ames, and M. Egerstedt, “Safety barrier certiﬁcates for collisions-free multirobot systems,” IEEE Transactions on Robotics, vol. 33, no. 3, pp. 661–674, 2017.
+[13] R. Mahony, V. Kumar, and P. Corke, “Multirotor aerial vehicles: Modeling, estimation, and control of quadrotor,” IEEE Robotics & Automation Magazine, vol. 19, no. 3, pp. 20–32, 2012.
+[14] X. Xu, P. Tabuada, J. W. Grizzle, and A. D. Ames, “Robustness of control barrier functions for safety critical control,” IFAC-PapersOnLine, vol. 48, no. 27, pp. 54–61, 2015.
+[15] R. Haschke, E. Weitnauer, and H. Ritter, “On-line planning of timeoptimal, jerk-limited trajectories,” in 2008 IEEE/RSJ International Conference on Intelligent Robots and Systems, 2008, pp. 3248–3253.
+[16] M. Ran, J. Li, and L. Xie, “A new extended state observer for uncertain nonlinear systems,” submitted.
+[17] Dryden wind turbulence model. Mathworks. [Online]. Available: https://www.mathworks.com/help/aeroblks/ drydenwindturbulencemodelcontinuous.html
+329
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 21,2022 at 09:26:11 UTC from IEEE Xplore. Restrictions apply.
+

@@ -1,0 +1,2276 @@
+Efﬁcient Search of the k Shortest Non-homotopic Paths by Eliminating Non-k-Optimal Topologies
+Tong Yang, Li Huang, Yue Wang∗ and Rong Xiong
+
+arXiv:2207.13604v1 [cs.RO] 27 Jul 2022
+
+Abstract—An efﬁcient algorithm to solve the k shortest nonhomotopic path planning (k-SNPP) problem in a 2D environment is proposed in this paper. Motivated by accelerating the inefﬁcient exploration of the homotopy-augmented space of the 2D environment, our fundamental idea is to identify the non-k-optimal path topologies as early as possible and terminate the pathﬁnding along them. This is a non-trivial practice because it has to be done at an intermediate state of the path planning process when locally shortest paths have not been fully constructed. In other words, the paths to be compared have not rendezvoused at the goal location, which makes the homotopy theory, modelling the spatial relationship among the paths having the same endpoint, not applicable.
+This paper is the ﬁrst work that develops a systematic distancebased topology simpliﬁcation mechanism to solve the k-SNPP task, whose core contribution is to assert the distance-based order of non-homotopic locally shortest paths before constructing them. If the order can be predicted, then those path topologies having more than k better topologies are proven free of the desired k paths and thus can be safely discarded during the path planning process. To this end, a hierarchical topological tree is proposed as an implementation of the mechanism, whose nodes are proven to expand in non-homotopic directions and edges (collision-free path segments) are proven locally shortest. With efﬁcient criteria that observe the order relations between partly constructed locally shortest paths being imparted into the tree, the tree nodes that expand in non-k-optimal topologies will not be expanded. As a result, the computational time for solving the k-SNPP problem is reduced by near two orders of magnitude.
+I. INTRODUCTION
+Given the starting location and the goal location in a fully known 2D environment, the k shortest non-homotopic path planning (k-SNPP) problem aims to collect not only the globally shortest path but (k − 1) alternative optimal paths, where the “alternative” property translates to path non-homotopy, and the “optimal” property indicates that every resultant path is the locally shortest one in its own homotopy class of paths. Requiring both the geometry awareness for distance optimality and topology awareness for path non-homotopy, the k-SNPP problem is essentially a combination of the shortest path planning (SPP) problem [1] and the topological path planning (TPP) problem and is crucial [2] as a fundamental sub-module for other robot tasks, such as minimising the conﬂicts between multiple robots [3], ﬁnding alternative routes [4], providing an initial value for non-homotopic trajectory generation [5], multi-robot exploration [6].
+Tong Yang, Yue Wang and Rong Xiong are with the State Key Laboratory of Industrial Control and Technology, Zhejiang University, P.R. China. Yue Wang is the corresponding author wangyue@iipc.zju.edu.cn.
+Li Huang is with the Institute of Advanced Digital Technologies and Instrumentation, Zhejiang University, P.R. China.
+
+Fig. 1. Illustration of an intermediate state of a homotopy-aware pathﬁnding process for a k-SNPP task. The envelope of the explored part of the environment is visually depicted by the blue curve. Black arrows represent the part of paths that have been constructed by the planner, whilst dotted arrows are the path segments that remain to be constructed in the subsequent pathﬁnding process. On the one hand, it is noteworthy that the homotopy between partly constructed paths, such as γ11 ∗ γ21 and γ12 ∗ γ22, cannot be observed at the current planning state. Only after both γ21 and γ22 have been constructed can we identify their homotopy and discard one of them. On the other hand, the concrete implementation to stop the pathﬁnding along a homotopy, such as continuing the pathﬁnding along γ12 whilst stopping it along γ13, is unknown, because they may share the same path segment γ22. Moreover, large amounts of path topologies, intuitively depicted in cyan dotted arrows for illustration, would not contain one of the k-SNPP resultant paths. However, there has not existed any method that instructs (eliminates) the topological directions for path searching from a distance-based perspective.
+Existing works [7] [2] [8] solved the k-SNPP problem by dealing with topology awareness and geometry awareness separately. The homotopy-augmented graph is required to fully characterise the topology information of the collision-free environment, whereby non-homotopic paths in the 2D environment, after being mapped into the homotopy-augmented graph, are proven to have distinct goals. Then, the geometry awareness is handled by performing distance-based pathﬁnding processes in the homotopy-augmented graph, such as the Dijkstra [9] algorithm. In this regard, the k-SNPP problem in the 2D environment is equivalently solved as an inﬁnite-goal shortest pathﬁnding in the homotopy-augmented graph, from the image of the 2D starting location to all of the images of the 2D goal location, and the pathﬁnding ﬁnishes after k nearest goals are reached. Note that the pathﬁnding process
+
+could not know in prior which k goals are the k nearest, hence it inevitably looks for the resultant paths in all directions and would be extremely inefﬁcient.
+One natural idea that motivates a signiﬁcant improvement in algorithmic efﬁciency is to develop a mechanism that couples geometric information and topological information, leveraging the topological information to identify non-k-optimal path topologies whilst the pathﬁnding process is performing. As such, the pathﬁnding along non-k-optimal topologies can be safely terminated. A simple example could be easily appreciated to reﬂect the efﬁciency of a possible distance-based topology simpliﬁcation mechanism: Let the A* algorithm be applied to ﬁnd the globally shortest path in a symmetric ringlike collision-free environment, it will expand nodes symmetrically in all (two) directions, both clockwise (CW) and counter-clockwise (CCW), because which topology contains the globally shortest path is unknown. If any assertion of the topological optimality exists, such as “the globally shortest path bypasses the obstacle in CCW direction”, then the A* searching space would be reduced to half (the CCW direction only) without loss of global optimality of the resultant path. Unfortunately, there has not existed any work that predicts the distance-based optimality of path topologies.
+Save from the toy example discussed above, a distancebased topology simpliﬁcation mechanism is in general a module that predicts the distance-based order among nonhomotopic locally shortest paths. For any two path topologies, the one having a shorter locally shortest path is better than the other one. The pathﬁnding process along the k-best topologies must be necessary to collect the k desirable resultant paths, whilst that of any other topologies would be unnecessary. Developing a topology simpliﬁcation mechanism is however a non-trivial practice because of the following three reasons (see Fig. 1 for illustration):
+1) The mechanism functions at an intermediate state of the homotopy-aware pathﬁnding process, when all locally shortest paths are still partly constructed and thus have not rendezvoused at the goal location. This means that the term “homotopy” among partly constructed paths is undeﬁned. Topological deﬁnitions such as Hsignature [2] and winding number [8] may be legit in distinguishing different partly constructed paths which have the same endpoint, but they have not been developed to perform topology simpliﬁcation.
+2) Since “homotopy” is undeﬁned, the implementation of terminating the pathﬁnding along “a speciﬁc homotopy” is also undeﬁned.
+3) Since locally shortest paths are only partly-constructed, their length is unknown, which makes comparing their length an unachievable task. This becomes further impossible because the length of locally shortest paths, closely related to the goal locations and the shape of obstacles in the environment, cannot be precisely predicted.
+In this paper, a practical distance-based topology simpliﬁcation mechanism to efﬁciently solve the k-SNPP problem in 2D environments is deeply investigated. Throughout this
+
+paper, we assume that the planner knows no prior information about the environments, neither topological nor geometrical. For example, when the planner detects two disconnected parts of the boundary of a single obstacle, it is unable to distinguish whether they belong to a single obstacle or there are two obstacles with a traversable corridor in between. In particular, the number of internal obstacles is unknown which was usually required for calculating topological invariants such as the Hsignature. The main contributions of this paper are summarised as follows:
+1) We generalise the classic deﬁnition of “homotopy” to a new deﬁnition “distinguished homotopy” so that the intermediate state of the homotopy-aware path planning process can be analysed in depth.
+2) A goal location relaxation strategy is presented and shown necessary for proposing any distance-based topology simpliﬁcation mechanism. (Section III)
+3) A hierarchical topological tree is proposed as an implementation of the mechanism, whose nodes are collisionfree robot locations, edges are collision-free paths connecting nodes, and each node is assigned a sub-region in the environment. Topologically, the tree explores the environment in a complete manner, exhaustively in all topologies. Geometrically, the concatenation of edges is proven locally shortest, which is in contrast to all existing hierarchical topological structures [10] [11]. The tree is essentially an exhaustive solver for k-SNPP without any topology simpliﬁcation. (Section IV and V)
+4) Efﬁcient criteria that compare the partly constructed locally shortest paths are imparted to the topological tree, which act as a tree branch pruning mechanism so that the nodes expanded in non-k-optimal topologies are discarded. As a result, the k-SNPP problem is solved in a reasonable computational time. (Section VI)
+The following sections are organised as follows: Section II formally deﬁnes the k-SNPP problem. Section III deeply analyses the necessity of a goal location relaxation strategy for distance-based topology simpliﬁcation. Section IV presents the construction of a hierarchical topological tree. Section V proves the completeness of pathﬁnding in tree node subregions and the local optimality of the concatenation of tree edges. Section VI constructs the topology simpliﬁcation mechanism upon the tree structure. Experiments are collected in Section VII. Relation to existing works are summarised in Section VIII, with ﬁnal concluding remarks gathered in Section IX.
+II. PROBLEM MODELLING: k-SNPP
+In this section, we provide formal deﬁnitions and notations for the k-SNPP problem.
+Deﬁnition 1. (Homotopy [12]) Given two collision-free paths γ1 and γ2 connecting the start point pstart and the goal point pgoal of the planning task, they are homotopic, denoted by γ1 γ2, if one can be continuously deformed into the other within the collision-free part of the environment, with endpoints ﬁxed. Each homotopy class is denoted by [·]. By writing [γ] we take path γ as a representative of its homotopy class.
+
+Remark 2. We formally denote ϕ as the quotient mapping from a set of paths to the homotopy classes. Here the set of
+paths is given in the context. Then the subset of paths that belongs to [γ] is denoted as ϕ−1([γ]).
+
+Deﬁnition 3. (Locally Shortest Path) Given one homotopy class of paths, the locally shortest path is the path with minimum length,
+
+γ∗ = argmin g(γ˜)
+
+(1)
+
+γ˜∈ϕ −1 ([γ ])
+
+where g(·) returns the length of path. In 2D planning scenarios, the locally shortest path in a single homotopy class is unique.
+
+The k-SNPP problem is to ﬁnd the ﬁrst k locally shortest paths, formally deﬁned as:
+
+Problem 4. (k Shortest Non-homotopic Path Planning) Given
+the start point pstart , the goal pgoal in a 2D environment, the k shortest non-homotopic path planning (k-SNPP) problem is to ﬁnd the resulting paths γ1∗, · · · , γk∗ from the set of all paths P, such that:
+1) γ1∗ is the shortest locally optimal path among all homotopy classes of paths, i.e., the globally optimal path. If there are multiple such paths, γ1∗ is one of them.
+2) γi∗, 2 ≤ i ≤ k is the shortest locally optimal path in the left-out path space P\ ϕ−1([γ1∗]) ∪ · · · ∪ ϕ−1([γi∗−1]) . If there are multiple such paths, γi∗ is one of them.
+
+III. GOAL LOCATION RELAXATION FOR DISTANCE-BASED TOPOLOGY SIMPLIFICATION
+In this section, we ﬁrst deﬁne the terminology distinguished homotopy which is used to analyse partly constructed locally shortest paths. Then, a goal location relaxation strategy is shown necessary for a distance-based topology simpliﬁcation mechanism.
+Note that in this section we assume that the planner discussed is a generic exploration process of the conﬁguration space from the starting conﬁguration to the goal conﬁguration, such as A* [13] and RRT* [14] for solving SPP, and homotopy-aware Dijkstra [2] and A* [15] for solving kSNPP. The discussion is not applicable if either the topological information or the geometric information of the whole environment has been pre-abstracted prior to the path planner being adopted. Cases belonging to this category may be (a) the Voronoi graph [16] is pre-calculated wherein different paths must be non-homotopic, and (b) the environment has been modelled into a polygonal environment and the Visibility graph [17] is pre-calculated wherein all locally shortest path segments have been collected.
+
+A. Distinguished Homotopy
+Deﬁnition 5. (Distinguished Homotopy) Let γ be a collisionfree path whose endpoints are pstart and a generic point p. The distinguished homotopy class of γ represents the set of paths such that
+1) The paths start from pstart and visit p.
+
+2) The locally shortest path homotopic to γ has been known by the planner.
+Without abuse of symbols, we also use [γ] as the notation of the distinguished homotopy represented by γ. And the set of such paths is still represented by ϕ−1([γ]) for consistency. When the path from pstart to p is well-deﬁned in the context, we also use [p] to refer to the distinguished homotopy, and ϕ−1([p]) to refer to the set of paths in [p].
+The distinguished homotopy is a generalisation of the homotopy because for a path whose endpoints are pstart and pgoal, its distinguished homotopy is the same as its homotopy. And terminating the pathﬁnding along a distinguished homotopy [γ] could be clearly deﬁned as discarding all the paths in ϕ−1([γ]) during the planning process.
+
+B. Distance-based Topology Simpliﬁcation
+The distance-based topology simpliﬁcation is literally to remove the path topologies whose locally shortest path is too long to be one of the k-SNPP resultant paths. To this end, whether a locally shortest path is one of the k-SNPP resultant paths depends on its distance-based priority against all other locally shortest paths, i.e., the number of other locally optimal paths that have a shorter length. This can be also interpreted as the comparison between homotopies, referred to as relative optimality, deﬁned as follows:
+
+Deﬁnition 6. (Relative Optimality of Homotopies) Given the starting location pstart and the goal location pgoal, the distance-based relative optimality between homotopy classes is deﬁned by comparing the length of their locally shortest path,
+
+[γ1] ≤ [γ2] ⇔ min g(γ) ≤ min g(γ) (2)
+
+γ ∈ϕ −1 ([γ1 ])
+
+γ ∈ϕ −1 ([γ2 ])
+
+where g(·) returns the length of path. When strict inequality
+[γ1] < [γ2] is obtained, we say [γ1] is relatively optimal (compared to [γ2]), and [γ2] is relatively non-optimal (compared to [γ1]).
+
+The relative optimality of homotopies is relevant to all the distance-based planning problems, indicating the unnecessity of non-k-optimal path homotopies for planning. Its significance in solving SPP and k-SNPP are presented in the following corollary:
+
+Corollary 7. (Unnecessity of Homotopy) For two homotopy classes of paths [γ1] and [γ2], if [γ1] < [γ2], then
+1) The globally shortest path will not lie in ϕ−1([γ2]). 2) If there have existed (k − 1) smaller elements of [γ2], i.e.,
+[γ21 ] < [γ2], · · · , [γ2k−1 ] < [γ2], then any path in ϕ−1([γ2]) will not be one of the paths of the k-SNPP solution. 3) If [γ2] has been unnecessary, then any homotopy [γ3] that satisﬁes [γ2] ≤ [γ3] is also unnecessary.
+However, one logistic contradiction in the above deﬁnitions is that, if the length of the two locally shortest paths are known, then we have already constructed them. This means that even if the relatively non-optimal homotopy is identiﬁed, the computational load for the pathﬁnding along it has been
+
+paid. Therefore, although the above discussions are correct as deﬁnitions, they cannot be directly applied to path planner designing. In contrast, similar deﬁnitions based on distinguished homotopy are motivated.
+
+Deﬁnition 8. (Relative Optimality of Distinguished Homotopies) Given the starting location pstart , the distance-based relative optimality of distinguished homotopies is deﬁned by
+
+[γ1] ≺ [γ2] ⇔ min g(γ) < min g(γ) (3)
+
+γ ∈ϕ −1 ([γ1 ])
+
+γ ∈ϕ −1 ([γ2 ])
+
+When [γ1] ≺ [γ2], we say [γ1] is relatively optimal (compared to [γ2]), and [γ2] is relatively non-optimal (compared to [γ1]). Here the partial order notation is adopted to indicate that not all distinguished homotopies are comparable. And we ignore the coincidental cases when two locally shortest paths are of the same length.
+
+The main difference in Deﬁnition 8 and Deﬁnition 6 is that paths are unnecessary to be fully known (i.e., in Deﬁnition 8 we may have γ1(1) = γ2(1), γ1(1) = pgoal, and γ2(1) = pgoal. And the paths from γ1(1) and γ2(1) to pgoal could be left unconstructed).
+The utilisation of the relative optimality of distinguished homotopies is presented as the following corollary:
+
+Corollary 9. (Unnecessity of Distinguished Homotopy) During the planning process, for two distinguished homotopies [γ1] and [γ2], once we observe [γ1] ≺ [γ2], then
+1) For SPP, the pathﬁnding along [γ2] can be safely terminated.
+2) For k-SNPP, if there have existed (k − 1) smaller elements of [γ2], i.e., [γ21 ] ≺ [γ2], · · · , [γ2k−1 ] ≺ [γ2], then the pathﬁnding along [γ2] can be safely terminated.
+3) If a distinguished homotopy [γ2] has been observed unnecessary, then any distinguished homotopy [γ3] that satisﬁes [γ2] ≺ [γ3] can also be safely terminated.
+
+The only remaining problem is how to construct the relative optimality among distinguished homotopies whilst the planner is performing.
+
+C. Goal Location Relaxation
+The length of locally shortest paths is theoretically sensitive to the goal location because locally shortest paths are always the concatenation of straight path segments and wall-following path segments. As a result, a small variation of the goal location may inﬂuence the distance-based priority of locally shortest paths thoroughly. A simple example is that, say the goal location is in the vicinity of the saddle curve [18] formed by two path topologies, then the comparison of the two topologies fully depends on the side of the saddle curve that the goal lies in. See Fig. 2 for illustration. In this regard, the precise length of locally shortest paths cannot be predicted. In order to remove the goal location dependency when constructing the relative optimality, we are inspired to consider relaxing the goal location from a single point to a region in the environment.
+
+Fig. 2. Illustration of the relative optimality of topologies in an SPP task. Topological directions are visualised as arrowed paths, represented by [γ1] ∼ [γ4]. Theoretically, the points towards which the locally shortest path in [γ2] will be shorter than the one in [γ1] are conditioned by their saddle curve. In (a), under the assumption that both the robot and the internal obstacle are circular,
+the saddle curve can be predicted as a straight line segment. If the goal is
+given in the bottom half of the ring-like region, then ideally the pathﬁnding process should not be performed along topology [γ2], because even if a locally shortest path is constructed, it is not the SPP solution. The key problem is how to observe that [γ2] is relatively non-optimal than [γ1] because as long as obstacles are not ideal, such as the case in (b), the shape of the saddle curve
+is unknown. In a slightly more generalised environment it can be further seen
+that the “topologies” will bifurcate with the path planner running, as shown in (c), where [γ1] bifurcates to [γ1] and [γ4], and [γ2] bifurcates to [γ2] and [γ3]. Intuitively, the desired topology simpliﬁcation should be “preserving [γ1] and [γ2], terminating [γ3] and [γ4]”. However, there does not exist an algorithm that makes assertions about the distance-based optimality of topology. Solution to
+this case study will be presented in detail in Section VI-C.
+
+Theorem 10. (Goal Location Relaxation) Given two distinguished homotopies [γ1] and [γ2], if there exists a collision-free connected region Ω such that:
+1) pstart ∈/ Ω and pgoal ∈ Ω. 2) Regarding any collision-free location q on the boundary
+of the Ω region as a fake goal location for planning, the relative optimality between distinguished homotopies [γ1] ≺ [γ2] still holds. This means that, denoting the set of paths that connect pstart and q as Pq, and letting ϕq be the quotient mapping from Pq to its homotopy equivalence, we have
+
+min g(γ) < min g(γ)
+
+(4)
+
+γ ∈ϕq−1 ([γ1 ])
+
+γ ∈ϕq−1 ([γ2 ])
+
+where g(·) returns the length of path.
+then we observe [γ1] ≺ [γ2].
+Proof. Denote the shortest path in ϕ−1([γ2]) as γ2∗. Since pstart ∈/ Ω and pgoal ∈ Ω, there must be an intersection of γ2∗ and the boundary of Ω, denoted as q. Since γ2∗ is collision-free, q is also collision-free.
+Then, we can ﬁnd the locally shortest path in ϕq−1([γ1]). We concatenate it with the truncated part of γ2∗ that starts at q and ends at pgoal and denote the concatenated path as γ1∗q. By condition 2), g(γ1∗q) < g(γ2∗). And notice that γ1∗q is essentially the locally shortest path that not only belongs to ϕ−1([γ1]) but also visits q. Hence we have
+
+min
+γ ∈ϕ −1 ([γ1 ])
+
+g(γ
+
+)
+
+≤
+
+g(γ1∗q)
+
+<
+
+g(γ2∗)
+
+=
+
+min
+γ ∈ϕ −1 ([γ2 ])
+
+g(γ )
+
+(5)
+
+which yields [γ1] ≺ [γ2].
+
+Theorem 10 is a sufﬁcient and unnecessary proposition to observe relative optimality between distinguished homotopies. This can be easily revealed by letting the Ω region be a singlepoint region, {pgoal}, where then the conditions become the
+
+TABLE I NOMENCLATURE
+
+Symbols Meanings
+
+i, j, k, l Generic indices
+
+γ
+
+A path
+
+[·]
+
+Homotopy class of paths
+
+ϕ
+
+The mapping from a set of paths to its homotopy
+
+classes. The set of paths depends on the context.
+
+P∗ e(θ j) Mfree pi
+
+A set of paths. The endpoint of the j-th ray of the node The collision-free part of the environment The source point of the i-th node
+
+pstart
+pgoal Qi
+
+The start point for k-SNPP The goal point for k-SNPP The sub-region of the i-th node
+
+R
+
+The lethal radius of the robot
+
+(Below are for the k-th corridor of the i-th node)
+
+αki
+
+An edge of the topological tree
+
+∆ik
+
+The gap sweeper
+
+cik
+
+The critical point
+
+Dik
+
+The corridor
+
+eeifinkk
+
+The obstacle that obstructs gap sweeper ∆ik The obstacle that hit by the near ray forming the gap
+
+oik
+
+The endpoint of the gap sweeper
+
+same as Eqn. (3) (pgoal ∈ {pgoal} is obvious, and the boundary of Ω is a single point pgoal which makes Eqn. (3) and Eqn. (4) exactly the same formula). It is noteworthy that although in generic an unnecessary proposition makes the result more difﬁcult to be concluded, the merit of Theorem 10 is that we can freely design the shape of Ω to verify the conditions in Theorem 10 with high efﬁciency.
+In summary, a k-SNPP planner with a distance-based topology simpliﬁcation mechanism should perform as follows: Whilst the planner is constructing paths in different topologies, it keeps looking for possible construction of the abovementioned region Ω between two distinguished homotopies say [γ1] and [γ2]. Once Ω is veriﬁed to satisfy the conditions in Theorem 10, the relative optimality between [γ1] and [γ2] is observed, say [γ1] ≺ [γ2]. Then, the unnecessity of [γ2] is checked as per Corollary 9. If [γ2] is unnecessary, the pathﬁnding along [γ2] will be terminated. In this paper, the Ω region construction will be presented in Theorem 23 which is based on the geometric structures of the hierarchical topological tree (to be proposed in Section IV and Section V), whose veriﬁcation of the conditions in Theorem 10 would be extremely efﬁcient, detailed in Section VI.
+IV. CONSTRUCTION OF TOPOLOGICAL TREE
+In this section, the construction of a hierarchical topological tree is proposed. The procedure of constructing a node of the tree is alternately running three modules, sparse raycasting, planning in corridor, and sweeping the gap. We assume that the robot is circular whose radius is R. Without loss of generality, we also assume the environment is represented by grids. Frequently used variables are listed in Table I.
+A. Overview
+The reader is referred to the algorithm pseudocode given in Algorithm 1. The core role that the topological tree plays is to construct all locally shortest paths segment-by-segment
+
+Fig. 3. Stopping criterion of inserting new rays.
+
+instead of point-by-point. The tree edges will be proven a part of locally shortest paths. And in the opposite, each locally shortest path will be proven incrementally constructed by a branch of tree nodes. As such, each node represents a distinguished homotopy, and the branching of nodes represents the bifurcation of the corresponding distinguished homotopy.
+
+B. Sparse Raycasting
+This module aims to ﬁnd a list of obstacles that implicitly form connected C-space obstacles in a reasonable computational time. Given the radius of the robot’s footprint as R, we need to ﬁnd a sequence of obstacle points with clearance less than 2R.
+Given a source point p and an orientation θ j, rays depart from p and extend until hitting an obstacle denoted by e(θ j). We also use p to represent “the node whose source point is p” in short. The orientation of rays are such that
+
+[0, 2π],
+
+for the root node
+
+θ j ∈ [θmin, θmax],
+
+for other nodes
+
+(6)
+
+where θmin and θmax are given by its parent node which will
+
+be presented at the end of this section. The length of the ray is
+
+denoted by Φp(θ j). There have been efﬁcient implementations
+
+for raycasting, such as Bresenham’s line algorithm [19], so we
+
+omit its details. For the root node, we initially create 5 rays
+
+orienting
+
+to
+
+0,
+
+π 2
+
+,
+
+π
+
+,
+
+3π 2
+
+,
+
+2π
+
+,
+
+whilst
+
+for
+
+other
+
+nodes,
+
+we
+
+create
+
+2 rays orienting to θmin and θmax, as such the angle bisector
+
+of consecutive rays are meaningful. Storing all rays in angle
+
+increasing order as shown in Eqn. (7), new rays are inserted
+
+into the bisector of consecutive rays.
+
+{θ j, e(θ j), Φp(θ j)}, j = 1, · · · , n, 0 ≤ θ1 < · · · < θn ≤ 2π (7)
+
+There are clear stopping criteria for inserting rays between the j-th and ( j + 1)-th rays:
+
+1) If
+
+e(θ j) − e(θ j+1) 2< 2R
+
+(8)
+
+then we stop inserting new rays between the j-th ray and the ( j + 1)-th ray, because a robot with lethal radius R cannot go through the middle of e(θ j) and e(θ j+1).
+
+Fig. 4. Variables in the corridor corresponding to a gap.
+
+2) When the clearance between occluded obstacles is larger than 2R, then Eqn. (8) cannot be satisﬁed. 1 If e(θ j) is near the ( j + 1)-th ray enough, constrained by ε whose physical meaning is the minimal admissible distance
+between the robot’s footprint and the obstacle,
+
+(Φp(θ j))2 −
+
+e(θ
+
+j)
+
+·
+
+e(θ j+1) Φp(θ j+1)
+
+2
+< ε2
+
+(9)
+
+we also stop inserting new rays. See Fig. 3 for the physical meaning of ε. In a practical setting ε as 0.1d is enough for grid-based applications, where d is the grid size of the map.
+
+Two consecutive rays violating Eqn. (8) but satisfying Eqn. (9) form a depth discontinuity of the node’s surrounding region, which was also referred to as a gap [20]. (line 11 and line 22 in Algorithm 1)
+
+C. Planning in Corridor
+This module deﬁnes a corridor (note that we do not assume that corridors are obstacle-free as in [10]) for each gap, and path planning is carried out within the corridor. The corridor is a rectangle staying symmetrically on the long ray that forms the gap. See Fig. 4 for visualisation. Let the j-th ray and the ( j + 1)-th ray satisfy Eqn. (9), then
+
+Φnear Φp(θ j), Φfar Φp(θ j+1)
+
+(10)
+
+Let a be the unit vector parallel to the long ray,
+
+a = cos θ j+1, sin θ j+1
+
+(11)
+
+b be perpendicular to a,
+
+b=
+
+cos
+
+θ
+
+j+1
+
++
+
+π 2
+
+, sin
+
+θ
+
+j+1
+
++
+
+π 2
+
+(12)
+
+(a, b) forms an orthonormal coordinate. Then the corridor D is the collision-free part of a rectangular region spanned by a and b, which can be parameterised as
+
+D ⊂ {p + φ a + ϕb}, φ ∈ [0, Φnear], ϕ ∈ [−R, R] (13)
+
+After Eqn. (13) we can represent every point in the modiﬁed
+
+frame by (φ , ϕ), such as the source point p is (0, 0).
+
+Finally, the critical point c is deﬁned as a corner point of
+
+D,
+
+c = p + Φneara + Rb
+
+(14)
+
+1The cases given Φp(θ j) > Φp(θ j+1) or Φp(θ j) < Φp(θ j+1) are totally symmetric, so hereafter we assume that Φp(θ j+1) − Φp(θ j) > 2R.
+
+Algorithm 1 k-SNPP Solver
+
+Input: start point pstart , goal point pgoal Output: k shortest non-homotopic paths α1, · · · , αk
+1: Initialise the priority queue, open = {pstart } 2: Initialise the edge list edge = ∅
+
+3: Initialise the gap sweeper list gs = ∅ 4: while in the i-th cycle do
+
+5: if open == ∅ then
+
+6:
+
+return all collected result paths (Thm 14)
+
+7: end if 8: pi = currently best candidate in the open list
+
+9: // Expand node i
+
+10: list of gaps gaps = ∅ 11: gaps ← Sparse Raycasting from pi
+
+12: while for each gap in gaps (say the l-th) do
+
+13:
+
+list of new obstacle newobs = ∅
+
+14:
+
+Deﬁne corridor Dil
+
+15:
+
+[newobs, αli] ← Planning in Corridor
+
+16:
+
+if αli is found then
+
+17:
+
+[newobs, ∆il] ← Sweeping the Gap
+
+18:
+
+else
+
+19:
+
+Removing this gap by removing rays
+
+20:
+
+end if
+
+21:
+
+Inserting rays towards all obstacles in newobs
+
+22:
+
+gaps ← Sparse Raycasting from pi
+
+23:
+
+// new gaps may be collected
+
+24: end while
+
+25: // Looking for result paths
+
+26: if pgoal ∈ Qi then
+
+27:
+
+if Found path in Qi from pi to pgoal then
+
+28:
+
+Collect the result path
+
+29:
+
+else
+
+30:
+
+return no path (Thm 13)
+
+31:
+
+end if
+
+32: end if
+
+33: // Assume there are L critical points
+
+34: // Looking for partial order relations
+
+35: for each gap (say the l-th) do
+
+36:
+
+for each gap sweeper in gs (say ∆mj ) do
+
+37:
+
+Compare
+
+∆il
+
+to
+
+j
+∆m
+
+(Lem
+
+24,
+
+Prop
+
+29)
+
+38:
+
+Compare
+
+αli
+
+to
+
+j
+∆m
+
+(Lem
+
+25,
+
+Cor
+
+26)
+
+39:
+
+end for
+
+40:
+
+for each edge in edge (say αmj ) do
+
+41:
+
+Compare
+
+∆il
+
+to
+
+j
+αm
+
+(Lem
+
+25,
+
+Cor
+
+26)
+
+42:
+
+Compare
+
+αli
+
+to
+
+j
+αm
+
+(Lem
+
+27)
+
+43:
+
+end for
+
+44:
+
+Store αli into edge
+
+45:
+
+Store ∆il into gs
+
+46: end for
+
+47: Inherit partial order relation to child nodes (Thm 28)
+48: Estimate the cost g(cil) + h(cil), l = 1, · · · , L 49: Push cil, l = 1, · · · , L into the open list 50: Update open list (Thm 21)
+
+51: end while
+
+Regarding p as the start point and c as the goal point in D, we use the A* [13] planner to ﬁnd the shortest path connecting
+
+p and c within D, denoted by α. If the path α cannot be found, then D is not C-space
+connected, and we have detected the obstacles that obstruct the robot. In this case, we do the following steps to exclude missing obstacles, remove the rays that have been inserted to the unreachable area, discard the invalid gap, and ﬁnd missing gaps (line 15 ∼ line 23 in Algorithm 1):
+1) We create rays pointing at all the newly detected obstacles and insert them into the ray list.
+2) In the updated ray list, if the distance between the endpoint of two rays is less than 2R, then We remove all the rays between them.
+3) The D does not admit the path α, so the gap is invalid and is removed. Note that the removal of a gap is simply avoiding creating a child node (will be presented in Section IV-F).
+4) Since the new rays might violate the stopping criteria of sparse raycasting (Eqn. (8) and Eqn. (9)), we may need to insert new rays at the angle bisector of a ray inserted in step 1) and a ray created initially.
+5) New gaps may be detected by step 4). If so, we insert them into the gap list. Note that the gap list need not be ordered when creating the node, so the gap insertion is simply appending them at the rear.
+Illustrations of the above steps are provided in Fig. 5. Note that the more rays are created, the rarer that missing
+obstacle appears, with the above steps being seldom executed. But these steps would still exist for the completeness of the algorithm because the creation of a large number of sparse rays is still different from dense raycasting which is computationally unaffordable in practice.
+
+D. Sweeping the Gap
+After the path has been constructed in the corridor, we do collision-checking starting from c with orientation a (the long ray) until a position o where the robot hits an obstacle. The checked line segment is referred to as a gap sweeper, denoted by ∆ and parameterised as
+
+∆ ⊂ {p + φ a + Rb}, φ ∈ [Φnear, Φfar]
+
+(15)
+
+The obstacle that stops the gap sweeping process is denoted by ef. (line 17 in Algorithm 1)
+This process is very simple but is a ﬁnishing touch to the completeness of planning in the tree node sub-region (to be formally deﬁned in the next subsection): All points in ∆ are reachable by the robot since the edge α has been constructed and ∆ is collision-free. In fact, the gap sweepers of a node guarantees that all the collision-free points on the boundary of the sub-region are reachable by travelling along the tree. An example showing the necessity of the gap sweeper will be given in Section V-B.
+
+E. Sub-Region of a Node
+After running the above-mentioned modules, rays and gaps have been created. For each gap, the corridor has been deﬁned, the shortest path within the corridor that connects the source
+
+(a) The path connecting p and c within D does not exist, because there is a missing obstacle which is overlooked by rays and detected in the planning phase. New rays are created, a new corridor structure is constructed, and the old corridor is discarded.
+
+(b) Two corridors are obstructed mutually. When the intermediate rays are removed, both corridors are removed.
+Fig. 5. The cases where the planning in corridor fails. In all the cases shown above, new rays will be inserted and the gap structures will be updated. When the node expansion ﬁnishes, all the corridors admit a collision-free path.
+
+point and the critical point has been found, and the gap sweeper has been constructed. See Fig. 6 for a conceptual illustration of the whole process. Let the corresponding subregion of node p be denoted by Q. A visualisation of the boundary of Q is illustrated in Fig. 6(g). Concretely, denoting the endpoint of the short ray forming the gap as en e(θ j), the point en, c, o, and ef form a C-space connected boundary. So the combination of such points of all gaps {enk, ck, ok, efk} and the endpoint of all rays {e(θ∗)} form a C-space closed contour, which is the boundary of Q.
+Finally, θf and θn are the related orientation of ef and en to c, which also speciﬁes the orientation range (in Eqn. (6)) of the sparse raycasting of the child node. To list the rays of the child node in an orientation-increasing order, θmin, θmax are given as follows
+
+(θmin, θmax) =
+
+(θf, θn), Φp(θ j) > Φp(θ j+1) (θn, θf), Φp(θ j) < Φp(θ j+1)
+
+(16)
+
+They are shifted by 2π so that
+
+0 ≤ θmin < 2π, θmin < θmax < θmin + 2π
+
+(17)
+
+F. Iterative Expansion of Nodes
+The hierarchical topological tree is constructed by iteratively creating new nodes, where the critical point will be the source point of the child node. The edges of the tree are the path segments constructed in the corridors. For simplicity, we deﬁne the terminology for easy reference to the path indicated by the tree.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+(g)
+
+(h)
+
+Fig. 6. Illustration of the node expansion. (a) Using sparse rays, one corridor D1 is deﬁned whilst a small obstacle is overlooked. (b) After α1 is found in D1, the gap sweeper ∆1 (represented by the red dashed line) is constructed and stops at o1 (where the robot is about to hit the missing obstacle). (c) A new ray is inserted pointing at the obstacle that o1 hits, ef1. (d) The rays with orientation between en1 and ef1 are removed. (e) With new rays being inserted, a new gap is detected. (f) A new corridor D2 is deﬁned, together with c2. (g) After the gap sweeper ∆2 is constructed, all points marked by × together with ∆1 and ∆2 are well-deﬁned and form a C-space connected boundary of Q (painted in light purple). (h) Illustration of the orientation of sparse raycasting of child nodes.
+
+Deﬁnition 11. (Tree Path) Given a point x, the tree path is the path connecting pstart and x following the “parent-child” structures of the tree. Concretely,
+1) When x is a source point or a critical point, the tree path is the concatenation of edges.
+2) When x is a point on the edge, the tree path is the concatenation of edges truncated at x.
+3) When x is a point on the gap sweeper, the tree path concatenates not only the edges but also the gap sweeper truncated at x.
+4) When x is a generic point in the sub-region of a node, say Qi, the tree path the concatenation of the tree path of pi and the locally shortest path from pi to x in Qi.
+If x is in multiple structures, then the tree path depends on the context. The length of the tree path is denoted by g(x).
+As a ﬁnal remark, the expansion order of nodes makes no difference to the shape of their sub-regions, because the construction of a new node only requires the position of p and the value of θmin and θmax, which depend only on its parent node. Hence we may follow the basic idea of the priority queue (the same one as A* [13]): Pushing all the unexpanded critical points into a queue whereby the cost is the sum of the cost-to-come and a heuristic cost-to-go,
+
+Fcost Gcost + Hcost = g(c)+ c − pgoal 2
+
+(18)
+
+And the critical point with the least cost will be chosen as the seed point for the next iteration.
+
+V. COMPLETENESS AND LOCAL OPTIMALITY
+In this section, the completeness of planning in sub-regions and the local optimality of tree edges are proven. All notations are adopted, with super-script denoting the index of the node, and sub-script denoting the index of the corridor.
+
+A. Completeness
+Proposition 12. Assume pgoal ∈ Q j. If there exists a path from pstart to pgoal in the whole environment, then there must be a path from p j to pgoal in Q j.
+
+Proof. The proof is constructive. If there exists a path from
+
+pstart to pgoal which does not enter Q j at p j, then it must have
+
+an
+
+intersection
+
+with
+
+one
+
+of
+
+the
+
+gap
+
+sweepers,
+
+say
+
+j
+∆l
+
+.
+
+Denote
+
+the intersection as q, we can construct a collision-free path
+
+from p j to pgoal in Q j: starting from p j, passing through clj
+
+to q, and taking over the following segment of the path to
+
+pgoal .
+
+Theorem 13. (Sub-Region Completeness) Assume pgoal ∈ Q j. If we cannot ﬁnd a collision-free path in Q j from p j to
+
+pgoal, then there does not exist a resultant path in the whole environment. In other words, the planning algorithm can
+
+terminate immediately with proven no path.
+
+Proof. The contrapositive of Proposition 12.
+
+Theorem 14. (Completeness) When there is no node to expand, if pgoal ∈/ Qi, ∀i, then there does not exist a path
+connecting pstart and pgoal in the whole environment.
+
+Proof. Denote the union of the sub-regions of all nodes as
+
+Qunion = Qi, ∀i
+
+(19)
+
+i
+
+The boundary of Qunion is formed by the obstacle points detected by rays, where the clearance between consecutive
+obstacle points is less than 2R. Since the robot’s radius is R,
+it cannot move from inside Qunion to outside Qunion. Since pstart = p1 ∈ Q1 ⊂ Qunion and pgoal ∈/ Qunion, there is no resultant path.
+
+B. An Example of Non-completeness without Gap Sweepers
+To help the reader understand the necessity of gap sweepers, we give a counterexample: If rays are sparse and we do not
+
+(a)
+
+(b)
+
+Fig. 7. Illustration of a counterexample of node expansion where gap sweepers are not generated. (a) The non-existence of a path connecting pi and the goal in Qi is not equivalent to the non-existence of a path connecting the root and the goal in the whole map. (b) The desired construction of Qi with gap
+sweeper involved.
+
+generate gap sweepers, then the region Q loses completeness.
+See Fig. 7, four small obstacles are missing by the rays emitting from pi, and they are not detected during the pathﬁnding from pi to cik. So the expansion of nodes ﬁnishes normally. Given the goal shown in the ﬁgure (within Qi), there is no path in Qi connecting pi and the goal. However, a resultant path exists that visits p j. Hence, the local non-existence of paths towards the goal in Qi is not equivalent to the non-existence of
+the resultant path in the whole environment, i.e., no sub-region
+completeness.
+
+C. Local Optimality
+In this subsection, we prove that locally shortest paths must be a concatenation of tree edges, hence are being constructed segment-by-segment along with the node expansion.
+
+Proposition 15. Denote PDik as the set of paths that connect pi and cik in Dik. Denote PQi as the set of paths that connect pi and cik in Qi. Assume that there is no internal obstacle in Qi overlooked by the sparse rays, then
+
+argmin g(α) = argmin g(α)
+
+(20)
+
+α ∈PDik
+
+α ∈PQi
+
+Proof. We prove that ∀α ∈ PQi , α ∈/ PDik , ∃α˜ ∈ PDik such that g(α˜ ) < g(α). Since cik, pi ∈ Dik, α must have two intersections with the boundary of Dik. We replace the part of the path in α that is outside Dik by the corresponding straight path segments on the boundary of Dik, and then α˜ is constructed. The straight path segment is always shorter than the curved
+one in α, hence g(α˜ ) < g(α).
+
+Theorem 16. Denote PDik as the set of paths that connect pi and cik in Dik. Denote PQi as the set of paths that connect pi and cik in Qi. Then
+
+(αki =) argmin g(α) = argmin g(α)
+
+(21)
+
+α ∈PDik
+
+α ∈PQi
+
+Proof. If there is no missing obstacle in Qi, then it is Proposition 15. So we assume that some missing obstacles {O j} ( j is a generic index) were overlooked by sparse rays. Denote
+
+Q¯ i = Qi ∪ {O j}
+
+(22)
+
+(the missing obstacles are purposely overlooked to construct the simply-connected region Q¯i) and denote PQ¯i as the set of paths that connect pi and cik in Q¯i. By Proposition 15,
+
+min g(α) = min g(α)
+
+α ∈PQ¯ i
+
+α ∈PDik
+
+argmin g(α) ⊂ Dik
+
+(23)
+
+α ∈PQ¯ i
+
+Since Dik ⊂ Qi,
+
+min g(α) ≥ min g(α)
+
+(24)
+
+α ∈PDik
+
+α ∈PQi
+
+Since Qi ⊂ Q¯i,
+
+min g(α) ≥ min g(α)
+
+(25)
+
+α ∈PQi
+
+α ∈PQ¯ i
+
+Summarising the result from Eqn. (23), Eqn. (24), and Eqn. (25),
+
+min g(α) ≥ min g(α) ≥ min g(α) = min g(α)
+
+α ∈PDik
+
+α ∈PQi
+
+α ∈PQ¯ i
+
+α ∈PDik
+
+⇒ min g(α) = min g(α) = min g(α)
+
+α ∈PDik
+
+α ∈PQi
+
+α ∈PQ¯ i
+
+(26)
+
+Recall Dik ⊂ Qi, so argmin g(α) ⊂ Qi, hence we have
+α ∈PDik
+
+(αki =) argmin g(α) = argmin g(α)
+
+(27)
+
+α ∈PDik
+
+α ∈PQi
+
+As a simple corollary of Theorem 16, to ﬁnd the locally shortest paths connecting pi and cik in Qi, we only need to run A* in the corridor Dik instead of in the whole Qi region.
+Generally, the concatenation of locally shortest paths is no longer locally shortest. However, we prove that the local optimality is preserved when concatenating the edges of the proposed topological tree.
+Proposition 17. For ∀s ∈ ∆ik, deﬁne PQi as the set of paths that connect pi and s in Qi. Then
+
+cik ∈ argmin g(α)
+
+(28)
+
+α ∈PQi
+
+Proof. Let
+
+s − cik
+
+=
+
+d.
+
+Deﬁne
+
+D
+
+i k
+
+as
+
+the
+
+collision-free
+
+part
+
+in a prolonged corridor:
+
+D
+
+i k
+
+⊂
+
+{ pik
+
++
+
+φa
+
++
+
+ϕ b|φ
+
+∈
+
+[0, Φnear
+
++
+
+d], ϕ
+
+∈
+
+[−R, R]}
+
+(29)
+
+Then s is the corner point of D ik. Following the same discussion in Theorem 16,
+
+argmin g(α) = argmin g(α)
+
+(30)
+
+α
+
+∈P
+D
+
+i k
+
+α ∈PQi
+
+where
+
+PD
+
+i k
+
+is
+
+the
+
+set
+
+of
+
+paths
+
+that
+
+connect
+
+pi
+
+and
+
+s
+
+within
+
+D
+
+i k
+
+.
+
+Note
+
+that
+
+when
+
+φ
+
+= Φnear,
+
+cik
+
+is
+
+the
+
+only
+
+collision-free
+
+point
+
+in
+
+the
+
+section
+
+of
+
+D
+
+i k
+
+,
+
+cik ∈ argmin g(α)
+
+(31)
+
+α
+
+∈P
+D
+
+i k
+
+Theorem 18. Assume pgoal ∈ Q j. Any locally shortest path of pgoal is a tree path.
+
+Proof. The proof is inductive. If j = 1, by the deﬁnition of
+tree path, the claim is correct. Assume j = 2 and p2 = c1k. Let γ be the locally shortest
+path from pstart (= p1) to pgoal. Since γ must intersect with ∆1k, the intersecting point is denoted as s which separates γ into γ1 (from pstart to s) and γ2 (from s to pgoal). Since γ is a
+locally shortest path, both γ1 and γ2 are locally shortest paths. And by Proposition 17,
+
+c1k ∈ γ1 = argmin g(α)
+
+(32)
+
+α ∈PQ1
+
+where PQ1 is the set of paths that connect p1 and s in Q1. hence αk1 ⊂ γ1 ⊂ γ, i.e., the claim is correct.
+When j > 2, let node j be the k-th child of node i, i.e., p j = cik, and pgoal ∈ Q j. Let γ be the locally shortest path from pstart (= p1) to pgoal. Since γ must intersect with ∆ik, the intersected point is denoted as s which separates γ into
+γ1 (from pstart to s) and γ2 (from s to pgoal). By induction,
+assume the statement is true for the parent of node i, then
+
+s ∈ Qi ⇒ pi ∈ γ1
+
+(33)
+
+Then, applying the above discussion for another time,
+
+pgoal ∈ Q j ⇒ p j ∈ γ
+
+(34)
+
+Hence γ is the concatenation of the tree path of p j and the ﬁnal path segment from p j to pgoal found in Q j.
+
+Finally, its opposite is also correct:
+
+Theorem 19. Assume pgoal ∈ Q j. Any tree path of pgoal is a locally shortest path.
+
+Proof. Proof by contradiction. If a tree path is not the locally
+shortest path, then we denote the locally shortest path (homotopic to the tree path) as γ∗. By Theorem 18, γ∗ is a tree path. Hence the two paths are the same.
+
+VI. CONSTRUCTION OF RELATIVE OPTIMALITY
+
+In this section, the relative optimality between distinguished
+
+homotopies is constructed. This is achieved by constructing the
+
+Ω region of a certain distinguished homotopy, and proving that
+
+it satisﬁes the constraint in Theorem 10. The set of criteria
+
+proposed in this section can be seen as a baseline of the
+
+distance-based topology simpliﬁcation strategy built upon the
+
+proposed hierarchical topological tree, and more criteria might
+
+be created in the future. For notation, the k-th child of node i
+
+and the l-th child of node j are again referred: Let cik and clj
+
+be the critical points to be discussed. The source point pi, p j,
+
+the
+
+path
+
+in
+
+corridors
+
+αki ,
+
+j
+αl
+
+,
+
+and
+
+the
+
+gap
+
+sweepers
+
+∆ik ,
+
+j
+∆l
+
+have
+
+been constructed. The distinguished homotopy represented by
+
+the tree path of pi, p j, cik, and clj are denoted as [pi], [p j], [cik], and [clj], respectively. We formally introduce the notation leaf
+
+node for easy discussion.
+
+Remark 20. (Leaf node) Leaf nodes are unexpanded critical points.
+
+A. Observation of Relative Optimality
+
+As an introduction, we ﬁrst present a sufﬁcient condition of relative optimality provided by a newly found resultant path.
+
+Theorem 21. (Comparison to Resulting Paths) Denote clj as the last critical point expanded before a locally shortest path
+
+is found with length L (i.e., the newly found resultant path passes clj). For any critical point cik that is still in the priority queue with cost g(cik) + h(cik), if g(cik) + h(cik) > L, then we obtain [clj] ≺ [cik].
+
+Proof. The length of the result path visiting cik must be longer than the estimated cost g(cik) + h(cik), so
+
+min g(pgoal)
+ϕ −1 ([cik ])
+
+=
+
+g(cik) + g(pgoal )|visiting
+
+cik
+
+> g(cik) + h(cik)
+
+(35)
+
+> L = min g(pgoal)
+ϕ −1 ([clj ])
+
+Hence [clj] ≺ [cik].
+
+In the sequel, we assume pgoal is still out of reach by sub-regions of node i, j and their predecessors. We deﬁne the uncovered region of the pathﬁnding along a distinguished homotopy as U. The region Ω will be constructed based on U under some conditions.
+
+Deﬁnition 22. (Uncovered region of a distinguished homotopy) Given a distinguished homotopy [cik], the predecessors (i.e., its parent, and the parent of the parent, · · · ) of node i
+are well-deﬁned whose indices are recorded in Pi. The region U[cik] is all the collision-free area that is uncovered by the subregion of node i and its predecessors. Formally, it is
+
+U[cik] = Mfree\
+
+Qm
+
+m∈Pi∪{i}
+
+(36)
+
+Then, the most important symbol of this paper, the Ω[cik] region for the distinguished homotopy [cik], is constructed as follows:
+
+Theorem 23. (Construction of Ω region) For a distinguished homotopy [cik], if we can ﬁnd another distinguished homotopy [clj] satisfying that,
+
+min g(m) < min g(m),
+
+ϕ −1 ([clj ])
+
+ϕ −1 ([cik ])
+
+∀m ∈ ∆ik
+
+(37)
+
+then U[cik] is our construction of Ω[cik], and we obtain [clj] ≺ [cik].
+
+Proof. Note that the boundary of U[cik] consists of ∆ik, its sibling gap sweepers (∆i1, · · · , ∆ik−1, ∆ik+1, · · · ), and the sibling
+
+gap sweepers of its predecessors. And since we assumed that
+
+pgoal has not been covered by Qm, m ∈ Pi ∪ {i} (or else the
+
+locally shortest path has been fully constructed), pgoal ∈ U[cik] is
+
+guaranteed. When the gap sweepers except
+
+∆pika,thsaeynt∆eriks−U1,[ctikh] ebypainthterascetcutailnlgy
+
+with the belongs
+
+to another distinguished homotopy [cik−1] but not [cik]. Hence
+
+the points that remain to be veriﬁed in Theorem 10 is reduced
+
+to ∆ik, i.e.,
+
+min g(m) < min g(m),
+
+ϕ −1 ([clj ])
+
+ϕ −1 ([cik ])
+
+∀m ∈ ∆ik
+
+(38)
+
+(a) g1 + g2 > g3 + g4 + g5+ clj − q 2 + q − cik 2
+
+(b) g1 + g2 + g6 > g3 + g4+ p j − q 2 + q − cik 2
+
+Fig. 8.
+
+(a)
+
+Illustration
+
+of
+
+the
+
+comparison
+
+between
+
+[cik ]
+
+and
+
+[clj ]
+
+when
+
+∆ik ,
+
+j
+∆l
+
+intersect at q. (b) As cik
+
+expands further, the movement cost increases from g1 + g2
+
+to g1 + g2 + g6, while the cost to be compared reduces. Sooner or later, the relative optimality can be observed.
+
+The following Lemma 24, Lemma 25, Corollary 26, and Lemma 27 are sufﬁcient propositions when Eqn. (37) is guaranteed.
+
+Lemma
+
+24.
+
+(Comparison
+
+between
+
+Gap
+
+Sweepers)
+
+Let
+
+∆ik
+
+,
+
+j
+∆l
+
+intersect and the intersection be q. If
+
+g(cik) > g(clj)+ clj − q 2 + q − cik 2
+
+(39)
+
+then
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+<
+
+ϕ
+
+min
+−1 ([cik ])
+
+g(m),
+
+∀m
+
+∈
+
+∆ik
+
+(40)
+
+Proof. See illustration in Fig. 8(a). For a point m on ∆ik, by the local optimality of the tree path,
+
+min
+ϕ −1 ([cik ])
+
+g(m)
+
+=
+
+g(cik)+
+
+cik − m 2
+
+(41)
+
+If Eqn. (39) is satisﬁed, then we can ﬁnd an alternative path
+
+towards m: The robot ﬁrst visits clj following the tree path of
+
+clj ,
+
+then
+
+visits
+
+q
+
+along
+
+j
+∆l
+
+,
+
+and
+
+ﬁnally
+
+reaches
+
+m
+
+along
+
+∆ik .
+
+It
+
+is
+
+actually a path belonging to the distinguished homotopy [clj],
+
+and we have
+
+g(m)|visitingclj = g(clj)+ clj − q 2 + q − m 2
+
+< g(clj)+ clj − q 2
+
++ q − cik 2 + cik − m 2
+
+(42)
+
+< g(cik)+ cik − m 2
+
+= min g(m)
+ϕ −1 ([cik ])
+
+Since m is arbitrarily chosen, and the length of the alternative
+
+path is an upper bound of the length of the locally shortest path in [clj], we have
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+<
+
+ϕ
+
+min
+−1 ([cik ])
+
+g(m),
+
+∀m
+
+∈
+
+∆ik
+
+(43)
+
+Fig. 9. Illustration of the intersection between the edge αki and the gap
+
+sweeper
+
+j
+∆l
+
+.
+
+It can be noticed that even if the inequality Eqn. (39) is currently not satisﬁed, see Fig. 8(b), with the leaf node cik being expanded, the movement cost along [cik] is increasing, whilst the cost to be compared is decreasing. Hence the comparison between path homotopies will sooner or later be observed with the tree growing.
+If a gap sweeper intersects with an edge, then we may also have a lemma similar to Lemma 24.
+
+Lemma 25. (Comparison between Gap Sweeper and Edge)
+
+Let
+
+the
+
+gap
+
+sweeper
+
+j
+∆l
+
+and
+
+the
+
+edge
+
+αki
+
+intersect
+
+at
+
+q.
+
+Separating αki at q, the length of the truncated parts from pi to
+
+q and from q to cik are denoted as g(q)|from pi and g(cik)|from q,
+
+respectively. If
+
+g(pi) + g(q)|from pi > g(clj)+ clj − q 2
+
+(44)
+
+then
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+<
+
+ϕ
+
+min
+−1 ([cik ])
+
+g(m),
+
+∀m
+
+∈
+
+∆ik
+
+(45)
+
+Proof. See Fig. 9 for illustration. For a point m on ∆ik, its tree path is proven the locally shortest path, thus
+
+min
+ϕ −1 ([cik ])
+
+g(m)
+
+=
+
+g(cik)+
+
+cik − m 2
+
+= g(pi) + g(q)|from pi
+
+(46)
+
++ g(cik)|from q+ cik − m 2
+
+If Eqn. (44) is satisﬁed, a shorter path towards q is observed,
+
+which indicates an alternative path towards m following path
+
+homotopy [clj]: The path ﬁrst goes to clj following the tree
+
+path,
+
+then
+
+reaches
+
+q
+
+along
+
+j
+∆l
+
+,
+
+and
+
+ﬁnally
+
+reaches
+
+m
+
+along
+
+the
+
+remaining part of αki . The length of the alternative path is
+
+g(m)|visiting clj = g(clj)+ clj − q 2
+
++ g(cik)|from q+ cik − m 2
+
+< g(pi) + g(q)|from pi
+
++ g(cik)|from q+ cik − m 2
+
+(47)
+
+= g(cik)+ cik − m 2
+
+= min g(m)
+ϕ −1 ([cik ])
+
+Since m is arbitrarily chosen, and the length of the constructed alternative path is only an upper bound of the local minimum,
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+<
+
+ϕ
+
+min
+−1 ([cik ])
+
+g(m),
+
+∀m
+
+∈
+
+∆ik
+
+(48)
+
+Similarly, the edge being relatively optimal than the gap sweeper may be observed.
+
+Corollary
+
+26.
+
+Let
+
+the
+
+gap
+
+sweeper
+
+j
+∆l
+
+and
+
+the
+
+edge
+
+αki
+
+intersect at q. If
+
+g(clj) > g(pi) + g(q)|from pi + q − clj 2
+
+(49)
+
+then
+
+min
+ϕ −1 ([ pi ])
+
+g(m)
+
+<
+
+min
+ϕ −1 ([clj ])
+
+g(m),
+
+∀m
+
+∈
+
+j
+∆l
+
+(50)
+
+Proof. For a point m on ∆lj,
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+=
+
+g(clj )+
+
+clj − m 2
+
+(51)
+
+If Eqn. (49) is satisﬁed, then we obtain an alternative path visiting pi, q, clj, m in order,
+
+g(m)|visiting pi = g(pi) + g(q)|from pi
+
++ q − clj 2 + clj − m 2
+
+< g(clj)+ clj − m 2
+
+(52)
+
+= min g(m)
+ϕ −1 ([cik ])
+
+Hence
+
+min
+ϕ −1 ([ pi ])
+
+g(m)
+
+<
+
+min
+ϕ −1 ([clj ])
+
+g(m),
+
+∀m
+
+∈
+
+j
+∆l
+
+(53)
+
+Fig. 10. Illustration of the optimality criterion when two gap sweepers intersect, with pgoal ∈/ Θ (painted in blue).
+
+Lemma 27. (Comparison between Edges) When two edges αki
+
+and
+
+j
+αl
+
+intersect
+
+at
+
+q.
+
+Separating
+
+αki
+
+and
+
+j
+αl
+
+at
+
+q,
+
+the
+
+length
+
+of the truncated part of paths from pi to q and from p j to q
+
+are denoted as g(q)|from pi and g(q)|from pj . Then
+
+g(pi) + g(q)|from pi > g(p j) + g(q)|from p j
+
+(54)
+
+⇒
+
+min
+ϕ −1 ([clj ])
+
+g(m)
+
+<
+
+min
+ϕ −1 ([cik ])
+
+g(m),
+
+∀m
+
+∈
+
+∆ik
+
+(55)
+
+g(p j) + g(q)|from p j > g(pi) + g(q)|from pi
+
+(56)
+
+⇒
+
+min
+ϕ −1 ([cik ])
+
+g(m)
+
+<
+
+min
+ϕ −1 ([clj ])
+
+g(m),
+
+∀m
+
+∈
+
+j
+∆l
+
+(57)
+
+Proof. Easy, based on the classic shortcut mechanism.
+
+One ﬁnal result is that the Ω region of the child node is included in that of the parent node, so the following inheritance of relative non-optimality is guaranteed.
+
+Theorem 28. (Inheritance of Relative Non-optimality along Tree Expansion)
+
+[clj] ≺ [pi] ⇒ [clj] ≺ [cik], ∀k
+
+(58)
+
+Proof. By Theorem 18,
+
+pi ∈ argmin g(α), ∀k
+
+(59)
+
+α ∈ϕ −1 ([cik ])
+
+hence
+
+ϕ−1([pi]) = ϕ−1([cik])
+
+(60)
+
+k
+
+Then,
+
+[clj] ≺ [pi]
+
+⇒ min g(α) < min g(α)
+
+α ∈ϕ −1 ([clj ])
+
+α ∈ϕ −1 ([ pi ])
+
+⇒ min g(α) < min g(α), ∀k
+
+α ∈ϕ −1 ([clj ])
+
+α ∈ϕ −1 ([cik ])
+
+(61)
+
+⇒[clj] ≺ [cik], ∀k
+
+Based on Theorem 28, all nodes, including not only leaf nodes but also expanded nodes and unnecessary nodes (those having been observed as relatively non-optimal), are meaningful for constructing the relative optimality between distinguished homotopies.
+
+B. More Efﬁcient Comparison Concerning the Goal Location
+
+In all the discussions above, intuitively speaking, observing [clj] ≺ [cik] by Theorem 10 requires the distinguished homotopy [clj] to be better “enough” to be observed: For any goal location in Ω[cik] the locally shortest path in ϕ−1([clj]) is always shorter than the locally shortest path in ϕ−1([cik]). Noticing that the goal for the planning tasks is known prior, constructing a smaller region Ω[clj] will make the sufﬁcient conditions “weaker”, which means that the relative optimality can be observed more easily. In this regard, the following Proposition 29 shows as an example that there indeed exists more delicate constructions of the criteria of relative optimality.
+
+Proposition 29. (Relative Optimality Depending on the Goal
+
+Location)
+
+Let
+
+∆ik
+
+and
+
+j
+∆l
+
+intersect
+
+at
+
+q.
+
+The
+
+tree
+
+path
+
+of
+
+q
+
+along the distinguished homotopy [cik] and [clj] form a closed
+
+boundary of an internal region, denoted by Θ. See Fig. 10 for
+
+illustration. If
+
+ 
+
+pgoal
+
+∈/
+
+Θ
+
+
+
+Both leaf nodes will expand “inside” Θ (62)
+
+g(cik)+ cik − q 2> g(clj)+ clj − q 2
+
+then [clj] ≺ [cik].
+
+Proof. Based on the location of pgoal, the theorem is proven
+
+by enumerating all possible point m and m
+
+on
+
+j
+∆l
+
+and ∆ik
+
+that the path may visit to reach pgoal in Ω[cik]\(Ω[cik] ∩ Θ). See Fig. 10 for illustration.
+
+Denote m as a point in ∆lj, between clj and q. Note that
+
+we have the triangular inequality for the minimal length of
+
+paths towards m in homotopy [cik], because cik, q, and m are
+
+not colinear,
+
+min g(m) > min g(q)− q − m 2
+
+ϕ −1 ([cik ])
+
+ϕ −1 ([cik ])
+
+(63)
+
+= g(cik)+ cik − q 2 − q − m 2
+
+And also notice that clj, m, and q are colinear,
+
+ϕ
+
+min
+−1 ([clj
+
+])
+
+g(m)
+
+=
+
+g(clj
+
+)+
+
+clj − m 2
+
+(64)
+
+= g(clj)+ clj − q 2 − q − m 2
+
+If the inequality in Eqn. (62) is satisﬁed, then an alternative path along the distinguished homotopy [clj] will be always shorter than the one in [cik],
+
+ϕ
+
+min
+−1 ([clj
+
+])
+
+g(m)
+
+=
+
+g(clj
+
+)+
+
+clj − q 2 −
+
+q−m 2
+
+< g(cik)+ cik − q 2 − q − m 2
+
+(65)
+
+< min g(m)
+ϕ −1 ([cik ])
+
+Similarly, denoted m as a point in ∆ik, between q and oik. Since cik, q and m are colinear, we have
+
+min
+ϕ −1 ([cik ])
+
+g(m
+
+)
+
+=
+
+g(cik)+
+
+cik − m
+
+2
+
+(66)
+
+= g(cik)+ cik − q 2 + q − m 2
+
+And by the triangular inequality,
+
+min g(m ) < min g(q)+ q − m 2
+
+ϕ −1 ([clj ])
+
+ϕ −1 ([clj ])
+
+(67)
+
+= g(clj)+ clj − q 2 + q − m 2
+
+Hence
+
+min g(m ) < min g(m )
+
+(68)
+
+ϕ −1 ([clj ])
+
+ϕ −1 ([cik ])
+
+Since m and m are arbitrarily chosen, we prove that [clj] ≺ [cik].
+
+Note that Eqn. (62) is a sufﬁcient condition of Eqn. (39), which supports our claim at the beginning of this subsection that, a smaller Ω region generally leads to a more delicate construction of the relative optimality. We believe that more efﬁcient criteria exist and will be exploited by the community. In particular, a potential direction for further improvements, ﬁnding the minimal Ω region may be taken in the future.
+
+C. Solution to SPP of the Fig. 2(c) Case
+To ﬁnalise the discussion of this section, we show step-by-
+step the solution to the unsolved problem, and how unnec-
+essary path topologies are discarded in Fig. 2(c). See Fig. 11
+for illustration. For clarity, the path topology that bypasses the
+internal obstacle from upwards is drawn in red, and the one
+from downwards is drawn in blue. The leaf nodes that have
+been proven relatively non-optimal will be removed for clarity
+even if they have been constructed. Before the topological tree
+grows as shown in Fig. 11(a), no relative optimality can be constructed. See Fig. 11(b), when p4(= c21) is expanded,
+1) ∆43 and ∆32 intersect at q1, where by Proposition 29 we obtain [c32] ≺ [c43]. So leaf node c43 is removed from the priority queue.
+2) α24 and ∆32 intersect at q2, where by Lemma 25 we obtain [c32] ≺ [c42]. So leaf node c42 is removed from the priority queue.
+After c31 is expanded as the source point of node 5, c31 = p5, see Fig. 11(c),
+1) ∆51 and ∆21 intersect at q3, where by Proposition 29 we obtain [c21] ≺ [c51]. So leaf node c51 is removed from the priority queue.
+2) α25 and ∆41 intersect at q4, where by Corollary 26 we obtain [p5] ≺ [c41]. So leaf node c41 is removed from the priority queue.
+Note that here all leaf nodes drawn in red have been dis-
+tinguished to be non-optimal, which physically means that
+any path that bypasses the internal obstacle from its upwards
+will not be the globally shortest path. This is in contrast to
+our initial guessing about the resultant solution in Section II.
+Finally, see Fig. 11(e), after node 6-9 have been constructed and the critical point c91 has been expanded as the 10-th node, a locally shortest resulting path along the distinguished homotopy [c91] is constructed. Then, all the remaining critical points in the priority queue, c71, c72, and c82, have a heuristic cost greater than the length of the currently shortest resulting
+path. Hence the priority queue is wiped out and the algorithm
+terminates.
+
+illustration. The robot’s initial location is at the bottom-central of the map, and the goal is set at the top-central.
+Fig. 12(a)∼(o) are screenshots after node 1 ∼ 15 are constructed. Black and grey grids represent the physical obstacles and C-space obstacles respectively. Tree edges are drawn in red curves, and gap sweepers are drawn in cyan. The topological structure intersections that indicate valid relative optimality between distinguished homotopies are marked by ×. The relatively non-optimal distinguished homotopy will be marked by blue arrows. Fig. 12(p)∼(r) are screenshots when the 1-st, 2-nd, and 3-rd shortest non-homotopic paths are obtained.
+It can be seen that the proposed algorithm can ﬁgure out relatively non-optimal topologies even at a very early stage of the planning process. Most notably, see Fig. 12(a), where only two nodes have been constructed, two gap sweepers intersect and a child of the second node is inspected to be relatively nonoptimal, and is thus paused because the algorithm is currently looking for the globally shortest path. This makes the 1-st shortest path obtained with very high efﬁciency (after only 6 nodes are expanded). For the subsequent processes, since the shape of nodes is independent of the sequencing order of nodes, we only need to continue expanding the leaf nodes, no re-expansion is required. Finally, the 3-SNPP problem is solved after 19 nodes are expanded, as shown in Fig. 12(r).
+
+Fig. 11. Illustration of how pathﬁnding along unnecessary path homotopies are terminated in the case of Fig. 2(c).
+VII. EXPERIMENTAL RESULTS The proposed k-SNPP algorithm is a hierarchical topological tree equipped with an efﬁcient topology simpliﬁcation mechanism to eliminate the pathﬁnding along non-k-optimal path homotopies in a multiply-connected environment from a distance-based perspective. To the best of the author’s knowledge, there does not exist such a topology simpliﬁcation mechanism before. So in the ﬁrst experiment in Section VII-A the whole construction of the hierarchical topological tree is decomposed into concrete steps. The second experiment in Section VII-B compares the proposed algorithm to existing works [2] for solving k-SNPP. The experiments show that the proposed algorithm has signiﬁcantly simpliﬁed the complexity of k-SNPP path searching to transform it into a computationally affordable task.
+A. Case Study
+In this experiment, we illustrate the iterative expansion of the proposed hierarchical topological tree by a case study of solving 3-SNPP implemented in MATLAB. See Fig. 12 for
+
+B. Computational Time
+The algorithm is also implemented in C++ 2. The radius of the robot is set as 0.8m. The map for testing is a challenging environment given by the RoboCup 2019 Rescue Virtual Robot League (RVRL) 3, as shown in Fig. 13. The size of the map is 120m, and the grid resolution is 0.2m. So there are 600 × 600 grids in the map. With the existence of concave obstacles, narrow passages, and large obstacle-free regions, the evaluation is persuasive. Given the fact that the inﬂation of obstacles has been effectively implemented and widely utilised in the costmap module, the collision-checking process in all algorithms is simpliﬁed to just reading the value from the cost-map. The robot’s location is set at the centre, (350, 300) (grid index). We compare the computational time between the algorithm proposed in [2] and ours. The locally optimal paths of a single topology in a grid-map are not unique, so the solutions of the two algorithms are not precisely the same, as shown in Fig. 14, where however both of them are correct k-SNPP solutions. The screenshots of the proposed algorithm ﬁnding 1-SNPP, 2-SNPP and 3-SNPP towards (467, 299) and (320, 463) have been visualised in Fig. 15. The statistics of the computational time have been summarised in Table. II. Note that the time is not incrementally recorded. For example, the time for ﬁnding two and three shortest non-homotopic paths from (350, 300) to (445, 428) are 211.70ms and 302.02ms, respectively, which means that only 88.19ms has been addictively used to ﬁnd the third shortest path that is non-homotopic to the shortest two paths. Statistics in Table. II show that the proposed mechanism
+2Experiments are run on a computer with I7-8700 CPU and 32GB RAM 3https://github.com/RoboCupRescueVirtualRobotLeague/ RoboCup2019RVRL Demo/wiki
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(p)
+
+(f)
+
+(g)
+
+(h)
+
+(i)
+
+(j)
+
+(q)
+
+(k)
+
+(l)
+
+(m)
+
+(n)
+
+(o)
+
+(r)
+
+Fig. 12. Concrete steps of the proposed hierarchical topological tree and the homotopy simpliﬁcation mechanism running in a multiply-connected environment for solving a 3-SNPP problem. Black points and grey points are physical obstacles and C-space obstacles. The raycasting process is omitted in this ﬁgure. Red curves are the path segments found in narrow corridors, and cyan straight line segments are the gap sweepers. In (a)∼(o), the × are the intersected points where a partial order relation between homotopy classes of paths is ascertained, and the purple arrows represent the relatively non-optimal path homotopies. The result paths of the 3-SNPP problem are visualised in blue, in (p)(q)(r).
+
+(a)
+
+(b)
+
+(a) Ours
+
+(b) [2]
+
+Fig. 13. Illustration of (a) the simulated environment given by RoboCup 2019 RVRL, (b) the pre-constructed map for tests. The environment has been re-scaled to ﬁt into a 600 × 600 grid-map.
+reduces the computational time of solving the k-SNPP problem with a proportion of ≥93%. This eventually makes k-SNPP a computationally reasonable task.
+VIII. RELATED WORKS
+
+Fig. 14. The solution of a 4-SNPP demo from (350, 300) to (467, 299). (a) The solution given by the proposed implementation. Only the rays and the resultant paths are depicted. (b) The solution given by [2]. Both solutions are correct k-SNPP solutions since the distance optimality is measured in grid-map.
+A. Shortest Path Planning
+The years have witnessed many contributions to the shortest path planning (SPP) tasks in the mobile robot planning area [1]. Early works such as the Visibility graph [17] and the Tangent graph [21] are theoretically sound for shortest path
+
+TABLE II COMPUTATIONAL TIME (AVERAGE OF 10 TRIALS)
+
+(445, 428)
+
+Ours
+
+Baseline1 %2
+
+(320, 463)
+
+Ours
+
+Baseline1
+
+1-SNPP 2-SNPP 3-SNPP 4-SNPP
+
+211.70ms 302.02ms 320.21ms 335.77ms
+
+8.31s 12.45s 24.43s 26.18s
+
+2.55% 2.43% 1.31% 1.28%
+
+189.29ms 773.93ms 983.92ms 998.81ms
+
+7.17s 11.27s 134.13s 153.85s
+
+1 Baseline: [2] 2 %: The proportion of computational time, Ours /[2]×100%
+
+%2
+2.64% 6.87% 0.73% 0.65%
+
+(467, 299)
+
+Ours
+
+Baseline1
+
+272.03ms 640.77ms 656.06ms 835.78ms
+
+27.98s 53.11s 90.00s 123.18s
+
+%2
+0.97% 1.21% 0.73% 0.68%
+
+(111, 206)
+
+Ours
+
+Baseline1
+
+82.38ms 812.74ms 866.45ms 877.72ms
+
+27.11s 98.44s 99.38s 223.93s
+
+%2
+0.3% 0.83% 0.87% 0.39%
+
+based maps were also adopted which establish a more ﬂexible
+
+representation of the obstacle. Regarding the grids in the map
+
+as nodes, graph searching-based algorithms were developed
+
+for optimal planning, such as the Dijkstra algorithm [9] and
+
+the A* algorithm [13]. The SPP problem was also studied by
+
+sampling-based approaches [22], which do not need a pre-
+
+discretisation of the environment, and thus are more ﬂexible.
+
+However, the random selection of collision-free positions as
+
+waypoints with distance-based connectivities between way-
+
+points (PRM [22], RRT [23]) has been shown with zero proba-
+
+(a)
+
+(b)
+
+bility to be optimal [14]. The milestone of the probabilistically
+
+optimal sampling-based planners, the RRT* algorithm [14],
+
+together with its subsequent progresses [24] [25], proposed a
+
+novel mechanism to rewire the node to the best parent in a
+
+small neighbourhood if lower movement cost can be found.
+
+It is observed that a shortcut mechanism [26] is embedded
+
+in all existing SPP solutions, which is a process of using a new,
+
+shorter path to replace an old path with the same endpoints.
+
+Taking the A* algorithm as an example, once a lower-cost path
+
+towards an already-expanded node is constructed, the parent
+
+of the node is switched to the lowest-cost neighbour to ensure
+
+optimality, which is essentially a shortcut mechanism. Also,
+
+(c)
+
+(d)
+
+in sampling-based algorithms such as the RRT* [14], the key
+
+process to acquiring a distance-optimal path to a node is to
+
+look for its best parent node (within a neighbourhood, for
+
+an algorithmic complexity consideration). Although the graph
+
+searching-based planners [27] [28] and the sampling-based
+
+planners [24] [25] have been signiﬁcantly improved in recent
+
+years, the time-costly shortcut mechanism has to be preserved
+
+for the distance optimality.
+
+(e)
+
+(f)
+
+Fig. 15. Illustration of the algorithm execution. Left ﬁgures are the (a) 1SNPP, (c) 2-SNPP, and (e) 3-SNPP solution from (350, 300) to (467, 299). Right ﬁgures are the (b) 1-SNPP, (d) 2-SNPP, and (f) 3-SNPP solution from (350, 300) to (320, 463). The obstacles have been inﬂated based on the robot’s radius, shown in black. The rays are visualised in grey, with the resulting paths being shown in red.
+
+planning in structural environments. The Visibility graph [17] claimed that locally shortest paths for particle robots always consist of the straight paths connecting the vertices of polygonal obstacles. The Tangent graph [21] generalised the locally shortest path to the “tangent” of polygonal or curved obstacles. Besides the polygonal and the curved map, grid-
+
+B. Topological Path Planning
+Compared to the solutions to SPP, solutions to the topological path planning (TPP) tasks are far less mature. In a simplyconnected environment, all closed paths (the path which starts and terminates at the same point) can continuously shrink to a single point, i.e., homotopic to the single-point path. As such it is proven that the locally shortest path must be also the globally shortest path, which however is not true in a multiply-connected environment. In other words, the nontrivialness of homotopy classes of paths is intrinsic to the multiply-connected environment.
+Early reports on the TPP problem are heuristic. Constructing a graph with randomly sampled waypoints as vertices [22] and generating multiple paths [29] may be valid strategies for obtaining non-homotopic resulting paths, but there is no guarantee for the pairwise non-homotopy of paths. The visibility
+
+condition [30] can be utilised for the removal of homotopic resulting paths [31]. However, it cannot instruct the planner to ﬁnd non-homotopic paths. So there is still no guarantee for acquiring non-homotopic path results. Within a limited computational time, the algorithms might not ﬁnd the desired number (k) of non-homotopic paths. In the worst case, all founded paths might be homotopic. So early sampling-based strategies [31] were essentially looking for multiple resulting paths, expecting that some of them are non-homotopic.
+It has been noted that path segments in the Voronoi Graph [16] [32] [33] [34] are unique amidst two obstacles, then different paths found in the Voronoi Diagram guarantee non-homotopy. Hence Voronoi-based methods are valid algorithms for TPP. However, when an environment is transformed into a Voronoi graph, the k shortest Voronoi paths are not pairwise homotopic to the k shortest non-homotopic paths in the grid-map. So locally optimising the k-shortest Voronoi paths will not be the correct k-SNPP solution. This is why the topology-awareness of the Voronoi graph cannot be generalised to solve k-SNPP. Another disadvantage for Voronoi-based methods is that generating Voronoi Graph is a costly exercise, but the k-shortest non-homotopic paths need not be Voronoi. This makes generating Voronoi Graph for path planning to be a last-sorted approach for TPP.
+There indeed exist algorithms [29] [35] that adopt topological invariants to distinguish different homotopy classes of paths. Typical topological invariants [36] are the Hsignature [2] and the winding number [8]. Such algorithms are essentially carrying out the path planning in not the 2D environment but its universal covering space (UCS), or sometimes called homotopy-augmented graph. Since distancebased optimal path searching in UCS is a valid strategy for solving k-SNPP, we discuss it in detail in the next subsection.
+
+towards the nearest k images of the goal point. Although the idea is novel in its topological representation, the pathﬁnding strategies [2] [41] and the distance-optimal planners adopted are independent. For example, A* may be adopted, whose homotopy awareness is to augment a node from a 2D location to a combination of the 2D location and the topological invariants of its currently shortest paths (e.g., the H-signature). Only the path-level shortcut mechanism is adopted, i.e., an old path will be replaced only when a newly constructed path has the same H-signature and is shorter than it. As for the paths that visit the same location but have different H-signatures, the algorithms have to preserve them all for topology completeness. Similar algorithms have been also proposed for tethered robot applications [42] [15], whose underlying ideas are essentially equivalent as above. This is in contrast to the distance-based topology simpliﬁcation mechanism proposed in this paper, where our main concentration has been paid to comparing the locally shortest paths belonging to different topologies.
+Please also note that the classic k shortest path planning problem in graph theory is different from the problem discussed in this paper because in graph theory the environment has been modelled into the concatenation of edges, and different paths rendezvous at node (a single point), thus different paths must be non-homotopic paths, and the travelling distance comparison of non-homotopic paths can be easily obtained by the path-level shortcut mechanism. In robotics, when the environment is transformed to an abstract graph [43] [29] [44], the optimality metric changes jointly. Short-cutting the k shortest paths obtained from an abstract graph [45] cannot yield the desired k-SNPP solution. In contrast, the problem tackled in this work appears exactly because of the nonexistence of a single point that all paths in two homotopy classes of paths will visit.
+
+C. Topology-Aware Distance-Optimal Path Planning
+Two kinds of homotopy-aware shortest path planners have been proposed [37]: One is to ﬁnd the shortest path in the given path homotopy [38], and the other is to look for k shortest non-homotopic paths among multiple path homotopies [2].
+For algorithms belonging to the ﬁrst category [39] [40] [26], the input data is a non-optimal path or the character of a homotopy class, and the resultant path is the locally shortest path in the given topology. The requirement of input topology restricts the algorithm applicability, because there may be no initial path available. And such algorithms bypass the problem of selecting the optimal path homotopies among a mammoth set of path homotopies. So we omit to survey them further.
+A systematic solution to the k-SNPP problem has been proposed by path searching in the universal covering space [2] (UCS). The UCS of a 2D multiply-connected environment is a manifold such that, the image of non-homotopic paths in the original environment will have different endpoints in the UCS: The image of the starting point is still a single conﬁguration in the UCS, but the goal point will have multiple (inﬁnite) image conﬁgurations. Then the k-SNPP problem in the 2D environment is transformed into a multi-goal SPP problem in the UCS, where the desired k paths are those
+
+IX. CONCLUSION
+The main contribution of this work is a systematic mechanism for distance-based topology simpliﬁcation, which reduces the algorithmic complexity of ﬁnding the k-shortest non-homotopic paths. In a 2D environment with n internal obstacles, 2n different non-self-crossing homotopy classes of paths can be characterised, wherein only k ones are desired and all other (2n − k) ones are unnecessary. All existing kSNPP algorithms are equivalent to an exhaustive exploration process in the conﬁguration space which is mathematically the universal covering space of the 2D environment until k resultant paths are collected. This is a time-consuming practice, and removing unnecessary path topologies naturally motivates a comparison between different homotopy classes of paths, where the non-k-optimal topologies should be discarded as early as possible whilst planning.
+The main difﬁculty in carrying out topology simpliﬁcation is to compare the length of locally shortest paths before knowing their length because the paths have not been constructed at an intermediate state of the planning process. To formally solve the problem, we have introduced a novel representation of topologies in an intermediate state of the path planning
+
+process, distinguished homotopy. A goal location relaxation
+strategy has been proposed in Section III which we think is
+necessary for any possible distance-optimal topology simpli-
+ﬁcation mechanism that might be proposed in the future. A
+hierarchical topological tree has been developed in Section IV
+and Section V. Finally, the distance-based topology simpliﬁ-
+cation mechanism has been built upon the topological tree in
+Section VI. A step-by-step illustration of the proposed algo-
+rithm has been illustrated in this paper. Extensive comparisons
+for the algorithmic efﬁciency in C++ have been carried out.
+REFERENCES
+[1] S. M. LaValle, Planning Algorithms. Cambridge, U.K.: Cambridge University Press, 2006. Available at http://planning.cs.uiuc.edu/.
+[2] S. Bhattacharya, M. Likhachev, and V. Kumar, “Topological constraints in search-based robot path planning,” Autonomous Robots, vol. 33, no. 3, pp. 273–290, 2012.
+[3] A. S. Kimmel and K. Bekris, “Minimizing conﬂicts between moving agents over a set of non-homotopic paths through regret minimization,” in Workshops at the Twenty-Seventh AAAI Conference on Artiﬁcial Intelligence, 2013.
+[4] M. Werner and S. Feld, “Homotopy and alternative routes in indoor navigation scenarios,” in 2014 International Conference on Indoor Positioning and Indoor Navigation (IPIN), pp. 230–238, IEEE, 2014.
+[5] C. Ro¨smann, F. Hoffmann, and T. Bertram, “Integrated online trajectory planning and optimization in distinctive topologies,” Robotics and Autonomous Systems, vol. 88, pp. 142–153, 2017.
+[6] S. Kim, S. Bhattacharya, R. Ghrist, and V. Kumar, “Topological exploration of unknown and partially known environments,” in Proceedings of the 2013 IEEE/RSJ International Conference on Intelligent Robots and Systems, pp. 3851–3858, IEEE, 2013.
+[7] S. Kim, S. Bhattacharya, and V. Kumar, “Path planning for a tethered mobile robot,” in Proceedings of the 2014 IEEE International Conference on Robotics and Automation (ICRA), pp. 1132–1139, IEEE, 2014.
+[8] F. T. Pokorny, D. Kragic, L. E. Kavraki, and K. Goldberg, “Highdimensional winding-augmented motion planning with 2d topological task projections and persistent homology,” in Proceedings of the 2016 IEEE International Conference on Robotics and Automation (ICRA), pp. 24–31, IEEE, 2016.
+[9] E. W. Dijkstra, “A note on two problems in connexion with graphs,” Numerische mathematik, vol. 1, no. 1, pp. 269–271, 1959.
+[10] S. S. Ge, Q. Zhang, A. T. Abraham, and B. Rebsamen, “Simultaneous path planning and topological mapping (sp2atm) for environment exploration and goal oriented navigation,” Robotics and Autonomous Systems, vol. 59, no. 3-4, pp. 228–242, 2011.
+[11] A. AlDahak, L. Seneviratne, and J. Dias, “Frontier-based exploration for unknown environments using incremental triangulation,” in 2013 IEEE International Symposium on Safety, Security, and Rescue Robotics (SSRR), pp. 1–6, IEEE, 2013.
+[12] J. J. Rotman, An introduction to algebraic topology, vol. 119. Springer Science & Business Media, 2013.
+[13] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic determination of minimum cost paths,” IEEE transactions on Systems Science and Cybernetics, vol. 4, no. 2, pp. 100–107, 1968.
+[14] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” The International Journal of Robotics Research, vol. 30, no. 7, pp. 846–894, 2011.
+[15] S. Kim and M. Likhachev, “Path planning for a tethered robot using multi-heuristic a* with topology-based heuristics,” in Proceedings of the 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 4656–4663, IEEE, 2015.
+[16] F. Aurenhammer, “Voronoi diagrams: a survey of a fundamental geometric data structure,” ACM Computing Surveys (CSUR), vol. 23, no. 3, pp. 345–405, 1991.
+[17] T. Lozano-Pe´rez and M. A. Wesley, “An algorithm for planning collisionfree paths among polyhedral obstacles,” Communications of the ACM, vol. 22, no. 10, pp. 560–570, 1979.
+[18] I. Shnaps and E. Rimon, “Online coverage by a tethered autonomous mobile robot in planar unknown environments,” IEEE Transactions on Robotics, vol. 30, no. 4, pp. 966–974, 2014.
+[19] J. E. Bresenham, “Algorithm for computer control of a digital plotter,” IBM Systems journal, vol. 4, no. 1, pp. 25–30, 1965.
+
+[20] B. Tovar, R. Murrieta-Cid, and S. M. LaValle, “Distance-optimal navigation in an unknown environment without sensing distances,” IEEE Transactions on Robotics, vol. 23, no. 3, pp. 506–518, 2007.
+[21] Y. Liu and S. Arimoto, “Path planning using a tangent graph for mobile robots among polygonal and curved obstacles,” The International Journal of Robotics Research, vol. 11, no. 4, pp. 376–382, 1992.
+[22] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces,” IEEE transactions on Robotics and Automation, vol. 12, no. 4, pp. 566–580, 1996.
+[23] S. M. LaValle and J. J. Kuffner Jr, “Randomized kinodynamic planning,” The international journal of robotics research, vol. 20, no. 5, pp. 378– 400, 2001.
+[24] K. Naderi, J. Rajama¨ki, and P. Ha¨ma¨la¨inen, “Rt-rrt* a real-time path planning algorithm based on rrt,” in Proceedings of the 8th ACM SIGGRAPH Conference on Motion in Games, pp. 113–118, 2015.
+[25] M. Otte and E. Frazzoli, “Rrtx: Asymptotically optimal single-query sampling-based motion planning with quick replanning,” The International Journal of Robotics Research, vol. 35, no. 7, pp. 797–822, 2016.
+[26] A. Efrat, S. G. Kobourov, and A. Lubiw, “Computing homotopic shortest paths efﬁciently,” Computational Geometry, vol. 35, no. 3, pp. 162–172, 2006.
+[27] A. Stentz et al., “The focussed d* algorithm for real-time replanning,” in IJCAI, vol. 95, pp. 1652–1659, 1995.
+[28] S. Koenig, M. Likhachev, and D. Furcy, “Lifelong planning a*,” Artiﬁcial Intelligence, vol. 155, no. 1-2, pp. 93–146, 2004.
+[29] E. Schmitzberger, J. Bouchet, M. Dufaut, D. Wolf, and R. Husson, “Capture of homotopy classes with probabilistic road map,” in Proceedings of the 2002 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), vol. 3, pp. 2317–2322 vol.3, 2002.
+[30] L. Jaillet and T. Simeon, “Path deformation roadmaps: Compact graphs with useful cycles for motion planning,” The International Journal of Robotics Research, vol. 27, no. 11-12, pp. 1175–1188, 2008.
+[31] B. Zhou, F. Gao, J. Pan, and S. Shen, “Robust real-time uav replanning using guided gradient-based optimization and topological paths,” in 2020 IEEE International Conference on Robotics and Automation (ICRA), pp. 1208–1214, 2020.
+[32] J. Pettre, J.-P. Laumond, and D. Thalmann, “A navigation graph for real-time crowd animation on multilayered and uneven terrain,” in First International Workshop on Crowd Simulation, vol. 43, p. 194, New York: Pergamon Press, 2005.
+[33] B. Banerjee and B. Chandrasekaran, “A framework for planning multiple paths in free space,” in Proceedings of 25th Army Science Conference, Orlando, FL, vol. 5, 2006.
+[34] J. Wang and M. Q.-H. Meng, “Optimal path planning using generalized voronoi graph and multiple potential functions,” IEEE Transactions on Industrial Electronics, vol. 67, no. 12, pp. 10621–10630, 2020.
+[35] E. Hernandez, M. Carreras, and P. Ridao, “A path planning algorithm for an auv guided with homotopy classes,” in Proceedings of the International Conference on Automated Planning and Scheduling, vol. 21, 2011.
+[36] F. T. Pokorny, M. Hawasly, and S. Ramamoorthy, “Topological trajectory classiﬁcation with ﬁltrations of simplicial complexes and persistent homology,” The International Journal of Robotics Research, vol. 35, no. 1-3, pp. 204–223, 2016.
+[37] E. Hernandez, M. Carreras, and P. Ridao, “A comparison of homotopic path planning algorithms for robotic applications,” Robotics and Autonomous Systems, vol. 64, pp. 44–58, 2015.
+[38] E. Hernandez, M. Carreras, P. Ridao, J. Antich, and A. Ortiz, “A searchbased path planning algorithm with topological constraints. application to an auv,” IFAC Proceedings Volumes, vol. 44, no. 1, pp. 13654–13659, 2011.
+[39] J. Hershberger and J. Snoeyink, “Computing minimum length paths of a given homotopy class,” Computational geometry, vol. 4, no. 2, pp. 63– 97, 1994.
+[40] S. Bespamyatnikh, “Computing homotopic shortest paths in the plane,” Journal of Algorithms, vol. 49, no. 2, pp. 284–303, 2003.
+[41] D. Yi, M. A. Goodrich, and K. D. Seppi, “Homotopy-aware rrt*: Toward human-robot topological path-planning,” in 2016 11th ACM/IEEE International Conference on Human-Robot Interaction (HRI), pp. 279–286, IEEE, 2016.
+[42] X. Wang and S. Bhattacharya, “A topological approach to workspace and motion planning for a cable-controlled robot in cluttered environments,” IEEE Robotics and Automation Letters, vol. 3, no. 3, pp. 2600–2607, 2018.
+
+[43] T. Sime´on, J.-P. Laumond, and C. Nissoux, “Visibility-based probabilistic roadmaps for motion planning,” Advanced Robotics, vol. 14, no. 6, pp. 477–493, 2000.
+[44] F. Blochliger, M. Fehr, M. Dymczyk, T. Schneider, and R. Siegwart, “Topomap: Topological mapping and navigation based on visual slam maps,” in Proceedings of the 2018 IEEE International Conference on Robotics and Automation (ICRA), pp. 3818–3825, IEEE, 2018.
+[45] S. Daneshpajouh and M. Ghodsi, “A heuristic homotopic path simpliﬁcation algorithm,” in International conference on computational science and its applications, pp. 132–140, Springer, 2011.
+

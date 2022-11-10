@@ -1,0 +1,1035 @@
+1
+
+Persistent Homology for Path Planning in
+
+Uncertain Environments
+
+Subhrajit Bhattacharya∗
+
+Robert Ghrist†
+
+Vijay Kumar‡
+
+Abstract
+We address the fundamental problem of goal-directed path planning in an uncertain environment represented as a probability (of occupancy) map. Most methods generally use a threshold to reduce the gray scale map to a binary map before applying off-the-shelf techniques to ﬁnding the best path. This raises the somewhat illposed question, what is the right (optimal) value to threshold the map? We instead suggest a persistent homology approach to the problem – a topological approach in which we seek the homology class of trajectories that is most persistent for the given probability map. In other words, we want the class of trajectories that is free of obstacles over the largest range of threshold values. In order to make this problem tractable and practical, we use homology in Z2 coefﬁcients (instead of the standard Z coefﬁcients), and describe how graph search-based algorithms can be used to ﬁnd trajectories in different homology classes. Our simulation results demonstrate the efﬁciency and practical applicability of the algorithm proposed in the paper.
+I. INTRODUCTION
+A. Related Work
+Motion planning in uncertain environments is an important ﬁeld of research in robotics. Uncertainty naturally arises in unknown environments, in the presence of process and/or observation noise, and unknown dynamics of the environment. For mobile robots, the most common representation of the environment is an occupancy grid in which each cell is assigned a value of probability of occupancy [27], [26], [14]. Path planning is generally solved by ﬁrst designating all cells with a probability of occupancy below some threshold to be free (and traversable), while others above the threshold are designated as occupied [24], [4], [23]. Graph search algorithms such as Dijkstra’s [11] and A* [17] can be used for ﬁnding shortest paths in this graph representation of the environment. However, in this approach, it is unclear how to select this threshold. Low values of threshold result in suboptimal paths while higher values may result in unsafe trajectories.
+Alternatively, weights/costs can be assigned to the edges of the graph according to the probability value at the location of the edge, thus penalizing paths that tend to pass through regions with high possibility of occupancy [28], [9]. However, these approaches lack robustness because there are cases when the penalties for some edges are not high enough to offset the incentive offered by a shorter path, and the resulting plan may very well pass through regions with high probability of occupancy.
+We note that incremental search algorithms like D* [25] can be used in conjunction with either of the above approaches when the probability map can be updated using incoming sensor data. However these algorithms do not address the fundamental question of how to plan a path for a given probability map.
+∗ Department of Mathematics, University of Pennsylvania. subhrabh@math.upenn.edu
+† Department of Mathematics and Department of Electrical and Systems Engineering, University of Pennsylvania. ghrist@math.upenn.edu
+‡ Department of Mechanical Engineering and Applied Mechanics, University of Pennsylvania. kumar@seas.upenn.edu
+
+In this paper we consider the fundamental problem of ﬁnding a safe trajectory between two points in an environment, given the probability of occupancy/inaccessibility at each point in the environment. We take a topological approach to solving this problem using concepts from the ﬁeld of persistent homology [12], [29], [15], and ﬁnd the homology class of trajectories that is most persistent for a given probability map. We formulate this problem using coefﬁcients in Z2 (integer coefﬁcients modulo 2) and reduce it to a discrete graph search which can be solved efﬁciently.
+B. Problem Description We are given a workspace, W ⊆ Rn, and a (continuous) prob-
+ability distribution on it P : W → [0, 1]. This is the probability that a point in W is inaccessible (otherwise known as the occupancy probability). In robotics applications, such a probability map may be obtained from sensor readings and ﬁltering algorithms [27], [14]. Deﬁne the -thresholded space1 U = {q ∈ W | P (q) ≤ } for
+∈ [0, 1]. This is the subset of W where the probability of occupancy is less than or equal to – the free space assuming that we threshold the probability map at . For convenience we also deﬁne the obstacle set, O := W − U . Typically [24], [4], [23] the problem of planning trajectories for a robot in W , given the probability distribution P , boils down to ﬁnding an “optimal” ∗ that, on one hand should minimize net probability (or some indicator of probability) that a
+∗
+trajectory planned in U will be invalid (or will require substantial change/re-planning during the course of execution), while on the other hand should take into account the objective of minimizing the cost or length of the trajectory.
+In this paper we suggest that the correct solution approach to this problem is not to ﬁnd an optimal value for . Instead, using concepts from persistent homology [12], [29], [15], we suggest processing all -values and extracting the most persistent class of trajectories.
+We assume some background in algebraic topology and differential topology. Although we give a quick overview of some of the required concepts in the next section, for more details the reader may refer to the standard texts, [18] and [5], on these respective subjects.
+II. PRELIMINARIES In this section we review some of the standard concepts from topology and algebraic topology [18], [22] and its basic application in search-based path planning [2], [3].
+A. Homology We specialize to (persistent) homology of 1-dimensional curves,
+which constitute trajectories. This will be indicated as a subscript 1 in various notations for groups that will follow. The homology of a space X, H1(X), consists of equivalence classes of cycles (“closed loops”) [18]. The deﬁnition is as follows: In a topological space X (in this paper, X will be the free conﬁguration space, U ), one considers the set Z1(X) of all cycles (closed oriented loops), given a group structure by means of a formal sum with Z-coefﬁcients. The boundary group, B1(X), is the subgroup of Z1(X) generated
+1Throughout this paper the threshold parameter in superscripts of various symbols will indicate an indexing, and not exponential or power.
+
+2
+
+(a) Probability map, P : W → (b) Surface M
+
+= (c) U 0.2 = {q ∈ W | P (q) ≤ (d) U 0.9 = {q ∈ W | P (q) ≤
+
+[0, 1]. White: P = 0.0, black: P = {[x, y, z] | [x, y] ∈ W, z = 0.2} (in white).
+
+0.9} (in white).
+
+1.0.
+
+P ([x, y])} ⊂ R3.
+
+Fig. 1: Probability map, P , and the change in topology of U as is changed.
+
+as boundary cycles of a 2-d oriented region (formally, a 2-chain) in X. The (ﬁrst) homology group of X is then deﬁned as the quotient group H1(X) = Z1(X)/B1(X). What this means is that two cycles, γ1 and γ2, are equivalent (written [γ1] = [γ2]) if their difference is the boundary of an oriented 2-d region; furthermore, any cycle which bounds a 2-d region represents the zero class 0 ∈ H1(X) (see Figure 2(a)). For comprehensive deﬁnitions, see [18].
+This deﬁnition can be naturally extended for deﬁning homology classes of trajectories connecting ﬁxed start and goal points [2], [3]. We say trajectories τ and τ connecting ﬁxed start (qs) and goal (qg) points, belong to the same homology class if (τ −τ ) is a boundary (i.e. [τ −τ ] = 0 ∈ H1(X)). Thus, in Figure 2(b), since (τ1 −τ3) ∈ Z1(X) is not a boundary, τ1 and τ3 are not homologous. But since (τ1 −τ2) ∈ B1(X) ⊆ Z1(X), we say τ1 and τ2 are homologous. There is however a caveat in the later deﬁnition: The set of homology classes of paths/trajectories (connecting ﬁxed end points) deﬁned this way does not have a preferred 0 (trivial) element, and thus does not form a group (unlike the set of homology classes of cycles). It however forms a set on which H1(X) acts freely and transitively.
+Note 1 (Some remarks on the distinction between homotopy an homology [18]). The “ﬁrst homotopy group” (denoted π1(X)) as well as the “ﬁrst homology groups” (denoted H1(X)) give classiﬁcations of closed loops in an arbitrary topological space, X, and both have higher dimensional generalizations (πn(X) and Hn(X)). However, the main distinction between homotopy and homology are that homotopy groups, in general, are non-abelian (noncommutative) groups. Homotopy yields a classiﬁcation with a ﬁner resolution. A homology group, on the other hand, is always an abelian (commutative) group and yields a coarser classiﬁcation of the closed loops. As a result of this, homology groups can be given a vector space-like structure
+
+O1
+
+γ1
+
+A
+
+O3
+
+O2 γ2
+
+τ1 O1
+A
+τ2 qs
+O3
+
+qg -τ2
+O2 τ3
+
+(a) γ1 is the boundary of A. Thus γ1 ∈ B1(X) ⊂ Z1(X), and its homology class, [γ1] = 0 ∈ H1(X). But γ2 cannot be expressed as a boundary. So, γ2 ∈ Z1(X), γ2 ∈/ B1(X), and hence [γ2] = 0 (nontrivial homology class).
+
+(b) (τ1 −τ2) is the boundary of A. Thus, [τ1 −τ2] = 0 ∈ H1(X). We say τ1 is homologous to τ2 or that they belong to the same homology
+class. But (τ1 −τ3) ∈/ B1(X). Thus τ3 belongs to a different homology class.
+
+Fig. 2: Homology classes of cycles and trajectories.
+
+(R-modules, to be more precise) unlike homotopy groups, and lend themselves to computation using standard tools in linear algebra. Unlike homotopy, there are multiple closely related homology theories (e.g. simplicial homology, singular homology, De Rham cohomology), all or any of which can be used for efﬁcient computations of homology. Homotopy and homology are used to classify trajectories connecting ﬁxed points in analogous manner [2] – both form spaces on which respectively the homotopy and homology groups act freely and transitively. However, as mentioned, in many contexts homotopy is signiﬁcantly more difﬁcult computationally, and being non-abelian does not give some of the nice properties that homology gives. It’s the very reason why “persistent homology”, and not “persistent homoopy” has been vastly studied and could be developed as a fundamental tool in computational topology [12], [29], [15], [8]. The fact that the distinction between homotopy and homology is mainly in the resolution of the classiﬁcation can be seen from the Hurewicz theorem – abelianization of the ﬁrst homotopy group gives us the ﬁrst homology group (i.e. H1(X) π1(X)/[π1(X), π1(X)], where [π1(X), π1(X)] is the commutator subgroup of π1(X)). As a consequence, all closed loops that belong to the same homotopy class also belongs to the same homology class, but the converse is not necessarily true. Furthermore, the Z2 coefﬁcients which we will use in this paper, is typically used in the context of homology, and not homotopy. [2] provides an intuitive and simple explanation with examples of this distinction, and shows how the concept of homology can be leveraged for path planning. An interested reader may refer to [18] for a more formal/algebraic description.
+Z2 coefﬁcients: The standard deﬁnition of homology groups is with coefﬁcients in Z: H1(X) is just a shorthand for H1(X; Z), which explicitly mentions the coefﬁcient group Z. Such coefﬁcients detect winding about an obstacle with orientation (cf. “winding numbers”). For example, in Figure 3, since there is a single obstacle in the plane, the homology group H1(X) is isomorphic to Z. The homology classes of the cycles shown are then [γ1] = 1 ∈ H1(X), [γ2] = 2 ∈ H1(X), [γ3] = 3 ∈ H1(X) — the number in each case being the corresponding winding number. Other coefﬁcients are possible and are introduced at the chain level [18]. For example, with coefﬁcients in Z2 = Z/2Z, the homology group, denoted H1(X; Z2), in Figure 3 is isomorphic to Z2, with a loss of resolution: [γ1]Z2 = [γ3]Z2 = 1 ∈ H(X; Z2) and [γ2]Z2 = 0 ∈ H(X; Z2) (since the quotient map Z → Z2 records even/odd parity). In this case, the homology class of a cycle that winds around the obstacle twice is in the trivial class, while a cycle that winds around thrice will be in the same class as winding once, and no distinction is made between clockwise and counterclockwise windings. We exploit
+
+3
+
+this coefﬁcient change in the context of robot path planning in
+
+Section IV-A.
+
+γ3
+
+γ2
+
+B. A Homology Invariant
+
+As described in [2], [3] homology invariants of cycles (with coefﬁ-
+
+cients in R) in a topological space X can be constructed as integrals
+
+of closed differential 1-forms that generate the de Rham cohomology group, Hd1R(X). In particular, in X = (R2 − O) (where O is the set of obstacles consisting of n connected components), we can choose
+
+the vector of differential 1-forms, ω = [ dθ1, dθ2, · · · , dθn]T
+
+where,
+
+dθj :=
+
+(x−xj ) dy−(y−yj ) dx (x−xj )2+(y−yj )2
+
+is
+
+the
+
+angle
+
+subtended
+
+by
+
+a
+
+differential element at (x, y) from the representative point (xj, yj)
+
+— one for each connected component of the obstacles (Figure 4(a)).
+
+(Note that one can write
+
+dθj
+
+=
+
+I
+
+m(
+
+dz z−zj
+
+)
+
+where
+
+z
+
+=
+
+x
+
++
+
+iy, zj
+
+=
+
+xj +iyj are complex representation of the coordinates – a formulation
+
+presented in [2].)
+
+We thus deﬁne the H-signature of a path τ (which may or may
+
+not be a cycle) as H(τ ) := τ ω. Then, if γ is a cycle in Z1(X), the ith element of H(γ) gives the winding number of γ about the ith
+
+obstacle. This computes a complete invariant for homology classes
+
+of cycles: H(γ1) = H(γ2) ⇐⇒ [γ1] = [γ2] ∈ H1(X), with
+
+H(γ) = 0 iff [γ] = 0 ∈ H1(X; R).
+
+Because we ﬁx a coefﬁcients of 1 on the paths in constructing
+
+chains and cycles, and the way we construct ω (multiplying the vector
+
+of
+
+dθi
+
+by
+
+1 2π
+
+),
+
+H(γ)
+
+takes
+
+values
+
+in
+
+Zn
+
+for
+
+every
+
+cycle
+
+γ
+
+(i.e.
+
+the
+
+elements of H(γ) have integer values for cycles γ, each computing
+
+the winding number about a connected component of an obstacle). Thus, in Figure 4(a), H(γ) = [0, 1]T and H(γ ) = [0, 2]T .
+
+C. H-augmented Graph
+The idea behind construction of a graph, G, for use in search algorithms such as Dijkstra’s or A* [10], [20], for ﬁnding optimal trajectories for robots, is to sample points from the free space, X, call them vertices, and establish edges between neighboring vertices (Figure 4(b)). Paths in the graph are then curves in X on which the differential 1-form, ω, can be integrated, and H-signature can be
+
+γ3
+O
+
+γ2
+
+γ1
+
+qs
+
+Fig. 3: A space with a single obstacle and cycles that loop around it multiple
+
+times. [γ1] = [γ3] = [γ2] ∈ H1(X) (homology group with coefﬁcients in
+
+Z), but [γ1]Z2 = [γ3]Z2 = [γ2]Z2 ∈ H1(X; Z2).
+
+dx dy
+dθ2 dθ1
+(x1, y1)
+
+(x2, y2) γ'
+γ
+
+(a) Homology invariants can
+
+be computed by integrating
+
+1 2π
+
+[
+
+dθ1,
+
+dθ2, · · ·
+
+,
+
+dθn]T
+
+over
+
+cycles.
+
+Fig. 4
+
+(b) Graph formed by uniform discretization of conﬁguration space and connecting each vertex with its neighbors. Dark gray indicate obstacles.
+
+γ1 (a)
+
+γ1 γ2
+
+γ3
+
+(b)
+
+β1
+
+γ2
+
+γ1
+
+ε
+
+Farβiog1u. n5d:
+
+dCγa3htaanpgoeinitns
+
+topology of the union of -balls (yellow disks) (dark dots) as is increased. (a) and (b) show the
+
+centered union of
+
+balls wγ1ith different values of . The barcode diagram for H1 is shown belowε .
+
+computed. By convention we assume a coefﬁcient of 1 on every edge (1-simplices) on any path in the graph.
+The H-augmented graph [2], [3] essentially augments the information of the H-signature of paths leading up to the vertices from a ﬁxed base-point (the start point, qs, for all practical purposes), so that the homology classes of paths can be ‘tracked’ during the execution of the search algorithm. More precisely, the H-augmented graph, GH, has its vertex set as points sampled from a covering space [18] of X (we will call this covering space XH), for which the covering map is p : (q, h) → q for every point q ∈ X and h the H-signature of some curve in X joining qs to q (see Figure 7(a-b)). Note that for a given q, the set of H-signatures of paths connecting qs to q (values that h can assume) is countable (one for each homology class), and that p indeed is a covering map.
+Since search algorithms like A* and Dijkstras can ﬁnd only unique paths connecting two vertices in a graph, paths in different homology classes connecting two given vertices, qs and qg cannot be found by running the algorithms in G. However these paths are lifted to different paths with different end points in GH (Figure 7(b)). Thus the algorithm needs to ﬁnd paths to different goal vertices, (qg, h), (qg, h + n1), (qg, h + n2), · · · (where ni ∈ Zn), each of which project to paths in G connecting qs and qg, but in different homology classes (say τ1 and τ2 in Figure 7(b)).
+
+III. PERSISTENT HOMOLOGY
+Persistent homology was pioneered for the topological analysis of
+point-cloud data [8], [12]. Given a collection of data points in a high
+dimensional space, one wants to infer an underlying subspace on (or
+near) which the data points lie, as well as its qualitative features.
+One can imagine growing balls of radius around each data point,
+and tracking the unions of all those balls as a 1-parameter family
+of spaces. Of course, the choice of the radius will dictate the
+topology (cf., Figure 5(a)). Persistent homology considers the rank of the homology (H1 in our setting) as a function of . This rank is called the Betti number β1.
+We use a similar idea for computing persistent features of the free
+space for robot path planning, when we are given an occupancy probability map P : W → [0, 1]. As we vary the probability threshold, , in computing U , homology classes will appear and disappear. Consider different homology classes in H1(U α) (represented by cycles, for example, γ1α, γ2α, as shown in Figure 6(a)). For a β > α we have the inclusion map iβα : U α → U β. Thus upon passing through the inclusion map, the cycles in U α (γ1α and γ2α) are valid cycles in U β (dashed curves in Figure 6(b)). However, as can be observed in the example of Figure 6, γ1α, after passing through the inclusion map, becomes trivial (a boundary) in U β. Persistent homology groups are
+deﬁned to capture this information:
+Deﬁnition 1 (Persistent Homology [13], [29]). The (β−α)-persistent ﬁrst homology group of U α is deﬁned to be the set of homology
+
+4
+
+γ1β
+
+γ 2α γ1α
+
+iαβ(γ1α)
+
+iαβ(γ2α)
+
+γ2β
+
+c(ay)clγes1αinanUdαγ2α
+
+are
+
+two
+
+non-trivial (b) γ1α
+
+In U β (⊃ U α) the cycle becomes trivial, whereas γ2α
+
+‘splits’ such that its homology class,
+
+[iβα(γ2α)] = [γ1β ] + [γ2β ] ∈ H1(U β ).
+
+Fig. 6: Illustration of how homology classes in U α can either become trivial
+
+or ‘split’ upon inclusion in U β for α < β.
+
+classes in H1(U α) that survive or persist into U β. Formally it is deﬁned as H1α,β−α = Z1(U α)/ B1(U β) ∩ Z1(U α) — that is, we consider all cycles in U α and then quotient out the ones that are
+trivial (i.e., boundaries) in U β (after passing through inclusion map).
+
+Thus, in the example of Figure 6, [γ1α], [γ2α] ∈ H1(U α) are nonzero homology classes in U α. But in the (β−α)-persistent homology, [γ1α]α,β−α = 0 ∈ H1α,β−α and [γ2α]α,β−α ∈ H1α,β−α is non-zero — implying that the cycle γ1α does not ‘survive’ into U β, but γ2α does.
+Persistent homology is typically visualized in form of a diagram
+
+known as barcode, representing changes in Betti number, β1 (bottom of Figure 5) – each horizontal bar represents a homology generator.
+
+The longest surviving (over the longest range of ) generators indicate
+
+the most persistent topological feature of the space underlying the
+
+dataset. See [8], [12] for details. In its usual presentation, at a
+
+particular value of (say α), each bar above corresponds to a generator of H1(U α). In our case, however, since we are interested
+in ﬁnding the longest surviving homology classes of trajectories, each
+
+bar will correspond to a homology class.
+
+IV. THEORETICAL AND ALGORITHMIC TOOLS
+
+A. H2-augmented Graph, GH2
+
+As described earlier, the merit of using Z2 coefﬁcients is that if a cycle winds around an obstacle w number of times, then it is mapped
+
+to the same homology class as a cycle that winds around the particular
+
+obstacle (w mod 2) times (assuming winding numbers about other
+
+obstacles are the same). This is useful in a search algorithm like A*
+
+or Dijkstra’s when we want to avoid computation of trajectories that
+
+“loop around” obstacles multiple times, since such trajectories are
+
+highly suboptimal and mostly irrelevant in most robotics application
+
+(an issue addressed in [2] only informally).
+
+In order to systematically attain this in graph search we need
+
+to alter the topology of the H-augmented graph to reﬂect the fact
+
+that two trajectories (starting at qs) leading up to q, and whose H-signatures are h + 2u and h + 2w (for some u, w ∈ Zn)
+
+have the same goal vertex in the augmented graph (see Figure 7(b-
+
+c)). Thus the modiﬁcation we need to make to the H-augmented
+
+graph is that we set (q, h) ≡ (q, h ) (i.e. identify the vertices as
+
+same) whenever h − h is a vector of even integers (i.e., we glue
+
+points in the covering space XH which are at “alternate levels”, and thus obtain a new covering space XH2). We call this the H2augmented graph, and the underlying covering space XH2 (the ‘2’ here indicate that the lifts of paths starting at qs have end points
+
+that are unique for every Z2-coefﬁcient homology class of the path). The H-signatures, mod 2, are called the H2-signatures, and for a
+
+trajectory τ it is basically equal to H2(τ ) = (H(τ ) mod 2). (Note: x
+
+mod 2 = x − 2
+
+x 2
+
+,
+
+∀x ∈ R, where
+
+·
+
+is the ﬂoor). The following
+
+proposition formally justiﬁes the claim that this construction correctly
+
+computes the Z2-coefﬁcient homology invariants:
+
+Proposition 1. Suppose γ1 and γ2 are closed loops with homology classes [γ1], [γ2] ∈ H1(X; Z). (These classes, as described in Section II-B, can be explicitly represented as the H-signatures of γ1 and γ2 respectively.) Suppose [γ1]Z2 , [γ2]Z2 ∈ H1(X; Z2) are the Z2-coefﬁcient homology classes of the same closed loops. Then [γ1]Z2 = [γ2]Z2 if and only if ([γ1]−[γ2]) mod 2 = 0 (equivalently, (H(γ1) − H(γ2)) mod 2 = 0, which, using the new notation, is equivalent to H2(γ1) = H2(γ2)).
+Proof. First recall that H1(X; Z) Zn is a Z-module and [γ1] and [γ2] are elements in it. Thus, by deﬁnition, [γ1] mod 2, [γ2] mod 2, and ([γ1]−[γ2]) mod 2 are elements of H1(X; Z)/(2Z H1(X; Z)) (generally speaking, if M is a R-module, and I ⊆ R is an ideal, then IM = {αm | m ∈ M, α ∈ I} is a sub-module, and M/IM = {m + IM | m ∈ M } is the quotient module).
+A fundamental theorem [19] gives us the following isomorphism: H1(X; Z)/(2Z H1(X; Z)) H1(X; Z) ⊗ Z2 (generally, M/IM M ⊗(R/I)). Furthermore, since the topological spaces under consideration (subsets of R2) are torsion free, by the Universal Coefﬁcient Theorem [18] we have H1(X; Z) ⊗ Z2 H1(X; Z2). Thus we have the isomorphism H1(X; Z)/(2Z H1(X; Z)) −→ρ H1(X; Z2). It is
+easy to check that this isomorphism can be explicitly expressed in terms of cycles, γ, as ρ : ([γ] mod 2) → [γ]Z2 . Thus it follows that only 0 ∈ H1(X; Z)/(2Z H1(X; Z)) maps to 0 ∈ H1(X; Z2) under the map ρ, thus proving our claim.
+The explicit construction of H2-augmented graph from G, like that of H-augmented graph [2], is described as follows: We assume that we are given a set of points sampled from the original free space, X, which constitute the vertex set, VG. A set of unordered pairs of vertices that are ‘neighbors’ to each other constitute the edge set, EG. This deﬁnes a discrete graph representation of the free space X (Figure 4(b)), and we write it as G = (VG, EG). We furthermore assume that the chosen base-point, qs, is in VG. From such a graph we can describe a H2-augmented graph, GH2 = (VGH2 , EGH2 ) as follows:
+1) General description: Vertices in VGH2 are pairs of the form (q, h), where q ∈ VG and h ∈ ⊕ni=1R/2Z (note that unlike the Haugmented graph, h does not take value in Rn).
+2) Base vertex: (qs, 0) is a vertex in VGH2 . 3) Recursive construction: For a vertex v =(q, h)∈VGH2 and edge
+[q, q ]∈EG, there is a vertex v = q , (h + H([q, q ])) mod 2 ∈ VGH2 and an edge [v, v ] ∈ EGH2 . [By ‘ mod 2’ of a vector we mean the element-wise modulo operation.]
+The cost of edges in the H2-augmented graph are chosen to be the same as their projected counterparts on to G. That is, CGH2 ([(q, h), (q , h )]) = CG([q, q ]) (where CG : EG → R+ is the cost function for graph G).
+The consequence of constructing the H2-augmented graph are the following: • H2-augmented graph, unlike the H-augmented graph, is ﬁnite and
+bounded if G is ﬁnite. • The paths obtained by searching in the H2-augmented graph using
+an optimal search algorithm like A* or Dijkstra’s will return only a ﬁnite number of paths – one for each homology class (the optimal one in the class) with coefﬁcients in Z2. • Optimal path connecting (qs, 0) to (qg, h mod 2) in GH2, when projected back to G, give optimal path in G restricted to homology class corresponding to H2-signature (h mod 2).
+U -speciﬁc notations: It is obvious that the function H, and hence H2, depend on the particular space, X, and hence the choice of the representative points (xi, yi) in the obstacle set, O = W − X. When we compute the H2-signature for a path in U , in order to explicitly
+
+5
+
+qg
+
+τ2
+
+τ3
+
+τ1
+
+(qg, h+1) . . .
+
+Identify
+
+. . .
+
+/glue
+
+qs
+
+(qg, h)
+Identify
+
+/glue
+
+. . . Identify
+/glue
+(qg, h-1)
+. . .
+
+(qg, (h+1) mod 2)
+Identify /glue
+. . .
+(qs, 0)
+
+Identify /glue
+. . .
+
+(qg, h mod 2)
+
+(qs, 0)
+
+(a)
+
+(b)
+
+(c)
+
+Fig. 7: Vertex sets (blue dots) of G, GH and GH2, and the spaces that they live on: X, XH and XH2 (light gray surfaces): (a) The vertices of graph G
+
+formed by cylindrically-uniform sampling of points in a disk-shaped region of a plane, X, (light gray) with a single disk-shaped obstacle (black). Also shown
+
+3 paths. (b) The vertex set of the corresponding H-augmented graph, GH, sampled from XH. Vertices in GH are of the form (q, h) for q ∈ VG and h the
+
+H-signatures corresponding to homology classes of paths connecting qs to q. Lifts of corresponding paths are shown. (c) The vertex set of the H2-augmented
+
+graph, GH2, sampled from (note that the image shows
+
+XH2. This graph is obtained by identifying or gluing every vertex (q, h) an immersion of GH2 in R3). Lifts of corresponding paths are shown.
+
+∈
+
+VGH
+
+with
+
+vertices
+
+of
+
+the
+
+form
+
+(q, h + 2u)
+
+∀u
+
+∈
+
+Z
+
+indicate that the space under consideration is U , we will write H2 as the function that computes the H2-signature of trajectories in U (with representative points on O := W − U ), and call it H2 signature. Likewise, we write GH2 = (VGH2 , EGH2 ) to denote the H2-augmented graph obtained from discretization of U .
+B. Algorithm for Generating the Barcode
+As discussed earlier, in the standard representation of a barcode diagram, at a particular value of each bar corresponds to a generator (representative cycles of elements of a generating set) of the homology group of U . However, in our presentation, each bar will correspond to a homology class of trajectories, thus the number of bars will be equal to the number of homology classes (with Z2 coefﬁcients) in U α. Thus in Figure 9, at = 0.2, we observe that there are 4 trajectories in different homology classes. In the barcode diagram shown below it, at the mark of = 0.2, one can observe 4 bars corresponding to these classes. Likewise for = 0.55 and
+= 0.9. The colors of the bars in the barcode diagram correspond to the colors of the trajectories in the ﬁgures above.
+1) Computations at each : In practice we start at = 1.0 and decrease the value of at regular intervals of δ (the reason for not going the other way starting from 0.0 will become clear later), and for every value of we perform the following operations (using OpenCV [6] and YAGSBPL [1] libraries):
+i. Compute U (as a binary image, which is naturally represented as a graph – see Figure 4(b)), and thus have a representation for G ,
+ii. Identify connected components of the obstacles (that are not connected to the boundary of the environment and is not enclosed in a disconnected patch of the free space isolated from qs and qg) — say, n counts of them — and place a representative point inside each and call them p1, p2, · · · , pn , (for computing a representative point inside an obstacle we perform a scan along a single line parallel to the X axis passing through the mid-height of the obstacle, and choose a point on the line that lies inside the obstacle),
+iii. Starting from (qs, 0 mod 2), expand all vertices in the H2augmented graph, GH2, using an optimal search algorithm (this uses the underlying graph, G , which is obtained as a uniform square 8-connected discretization as in Figure 4(b)), and store paths to vertices of the form (qg, ∗) (where ‘∗’ are H2-signatures of the respective found paths), and we do this until every vertex in GH2 has been expanded.
+
+Thus, at the end of each search, we have a set of m trajectories and corresponding H2-signatures: {τi , hi }i=1,2,··· ,m (with hi ∈ (R/2Z)n ). This set contains all the homology classes of trajectories in U connecting the given points.
+This algorithm is straightforward. The more challenging part is to associate this data from to the data obtained for − δ.
+2) Relating Data Between and −δ: We ﬁrst make a few simple observations about the change in topology as we go from U −δ to U (i.e., increase the parameter by a value of δ) – see Figure 8:
+0. Obstacles can shrink in size, without changing topology of the free space or the obstacles, and hence not changing the number of homology classes of trajectories,
+1. Obstacles can disappear, resulting in some of the homology classes of trajectories to disappear as well (this is illustrated in Figure 8(b) and can be observed in Figure 9 in the transition from U 0.85 to U 0.86).
+2. Obstacles can split, resulting in potential creation of new homology classes of trajectories (this is illustrated in Figure 8(a) and can be observed in Figure 9 in transition from U 0.5 to U 0.51). The splitting can happen in a part of a single obstacle as well (or multiple obstacles simultaneously), due to which a previously disconnected region of the free space (and features contained inside it) can get connected to the free space containing qs and qg (illustrated in Figure 8(c)(ii)).
+3. A disconnected component of the free region (that is isolated from the rest of the free space where start, goal and trajectories reside) can appear inside an obstacle (illustrated in Figure 8(c)(i)).
+The justiﬁcation behind the fact that only these three types of events (‘1’, ‘2’ and ‘3’) can create changes in global topology comes from Morse theory [21], with points 1, 2, and 3 corresponding to critical points with Morse index 2, 1, and 0 respectively. The assertions about the relation between the topology of the obstacles and that of the free space follow from Alexander duality [18], [3], as is obvious.
+Suppose upon performing search in GH2 we ﬁnd m counts of trajectory and H2-signature pairs, {τk, hk}k=1,2,··· ,m . Likewise, suppose searching in GH−2δ gives us m −δ counts of trajectories and their H2-signatures, {τj −δ, hj−δ}j=1,2,··· ,m −δ . The main objective of the following algorithm (algorithm ComputeCorrespondences) is to relate these two sets of data. We achieve this in two stages:
+Stage I: Since U −δ ⊂ U , a trajectory τj −δ in U −δ is a valid trajectory in U as well (formally, via the inclusion map i −δ, which we will assume implicitly) – see Figure 8(a). This induces a well-deﬁned map [18] between the homology classes
+
+6
+
+τ1ε-δ
+start
+
+p1ε-δ τ2ε-δ
+
+goal
+
+goal
+
+τ2ε
+
+p1ε
+
+τ1ε
+
+start
+
+τ4ε
+
+p2ε
+
+τ3ε
+
+(a) An obstacle splits into multiple obstacles. Note the unambiguous correspondences: τ1−δ → τ2 and τ2−δ → τ3 .
+
+goal
+
+start
+
+p1ε-δ
+
+τ2ε-δ τ1ε-δ
+
+goal
+
+τ4ε-δ τ3ε-δ
+
+p2ε-δ
+
+start
+
+goal
+τ2ε p1ε τ1ε
+
+(b) An obstacle disappears. Note the ambiguity in correspondences simply by topological consideration: τ1−δ, τ2−δ → τ2 and τ3−δ, τ4−δ → τ1 .
+
+goal
+
+goal
+
+start
+
+start
+
+start
+
+(i)
+
+(ii)
+
+(c) A new disconnected region of the free space is created, which eventually gets linked to the free region.
+
+Fig. 8: Change in topology (as is increased).
+
+of the trajectories: ι −δ : H1(U −δ; Z2) → H1(U ; Z2). So the obvious ﬁrst step in computing the correspondences (Lines 4-
+12 of algorithm ComputeCorrespondences) is to compute the H2signatures of τj −δ, ∀j ∈ {1, 2, · · · , m −δ} when they are viewed as trajectories in U (i.e. compute H2 (τj −δ), ∀j = 1, 2, · · · , m −δ), and compare them with the H2-signatures {hk}k=1,2,··· ,m (which, by computation, is an exhaustive set of H2-signatures of trajectories
+in U connecting the given points). Thus we establish a map CI : {1, 2, · · · , m −δ} → {1, 2, · · · , m } deﬁned as j → k iff H2 (τj −δ) = hk. Thus, corresponding to each homology class in U −δ we ﬁnd a homology classes in U .
+Stage II: However the relationship obtained using the above process may map multiple different elements in {1, 2, · · · , m −δ} to
+a same element in {1, 2, · · · , m } (this happens when, for example,
+an obstacle vanishes while going from − δ to . See Figure 8(b)).
+We thus need to resolve this conﬂict in order to match the classes in H1(U −δ) with those in H1(U ) unambiguously.
+Note: In computing persistent homology for cycles in a ﬁltered simplicial complex, the standard algorithms [13], [29] choose a preferred basis (as a set of cycles) that generate the homology group. This preferred basis is such that if two or more different elements from the basis chosen for H1(U −δ) maps to a single element of H1(U ) under the inclusion map (the conﬂict situation described above), then it is always the element 0 ∈ H1(U ) that they map to. We ﬁrst notice that this choice is intrinsically related to a metric (for example, in Figure 5(a), any choice of two cycles out of γ1, γ2 and γ3 will be a valid basis for generating the ﬁrst homology group of the space. The space is typologically a sphere with 3 punctures, as shown in the the inset ﬁgure, and no choice of a pair from {γ1, γ2, γ3} can be given preference over the others as far as topology is concerned). In particular, the choice of the basis depends on the order in which simplices are inserted into the complex. The consequence is that cycles in the preferred basis tend to be ones encircling smaller holes (which get ﬁlled ﬁrst). In our case, where we are concerned with ﬁnding persistent homology classes of trajectories, we make the following observations:
+i. We desire to compute the persistence of all individual homology classes of trajectories (and not just the Betti numbers, as done in standard persistence computation for cycles). Thus choosing a basis for homology group is not sufﬁcient – we wish to consider all elements in the set of homology classes (ﬁnitely many of them when coefﬁcients are in Z2).
+ii. There is no preferred ‘0’ element among the homology classes
+
+Algorithm 1: Pseudocode for ComputeCorrespondences.
+
+CII = ComputeCorrespondences {τj −δ }j=1,2,··· ,m −δ , {τk , hk}k=1,2,··· ,m , H2 :
+Inputs: i. Trajectories at − δ,
+ii. Trajectories and their H2 -signatures obtained in GH2, and, iii. The function H2 for computing H2-signatures in U .
+
+Output: Correspondences between the homology classes of trajectories at
+− δ and those obtained at . Expressed as CII : {1, 2, · · · , m −δ} → {1, 2, · · · , m } ∪ 0.
+1. |Compute hi = H2 (τi −δ), ∀i = 1, 2, · · · , m −δ. 2. |Initiate CI := array of length m −δ, CII := array of length m −δ. 3. |Initiate c := array of length m , c(i) = 0, ∀i ∈ {1, 2, · · · , m }.
+
+| // First stage in computing correspondences. CI can map multiple
+| // elements in its domain to same element in {1, 2, · · · , m }. 4. |for j = 1, 2, · · · , m −δ
+
+5. |for k = 1, 2, · · · , m
+
+6.
+
+|if hj == hk
+
+7.
+
+|CI (j) := k
+
+8.
+
+|c(k) + +
+
+9.
+
+|break for // Break inner for loop, since there can’t be
+
+| 10. |end if
+
+// another k such that hk = hk = hj .
+
+11. |end for
+
+12. |end for
+
+| // Second stage in computing correspondences. The only
+
+| // element in its codomain that C can map to multiple times is ‘0’.
+
+13. |for k = 1, 2, · · · , m
+
+14. |if c(k) > 0
+
+15.
+
+|Let J := {j | CI (j) = k} // All classes in U −δ that map to
+
+|
+
+// the kth class in U under inclusion i −δ
+
+16.
+
+|j∗ := argminj∈J dHf (τj −δ, τk)
+
+17.
+
+|Set CII (j∗) := k
+
+18.
+
+|Set CII (j) := 0, ∀j = j∗, j ∈ J
+
+19. |end if
+
+20. |end for
+
+21. |return CII
+
+of trajectories. iii. It is most natural to use a metric for measuring distance between
+the paths for directly resolving the aforesaid conﬂict.
+Thus, when the aforesaid relationship, CI , maps, say, j1, j2, · · · ∈ {1, 2, · · · , m −δ} to the same element, say, k0 ∈ {1, 2, · · · , m }, we resolve the conﬂict by comparing the distances between the trajectories (Lines 13-20 of algorithm ComputeCorrespondences).
+
+7
+
+goal
+
+goal
+
+goal
+
+start
+(a) U 0.2.
+goal
+
+start
+(b) U 0.7.
+goal
+
+start
+(c) U 0.95.
+
+goal
+
+goal
+
+start
+(d) U 0.5.
+
+start
+(e) U 0.51.
+
+start
+(f) U 0.85.
+
+start
+(g) U 0.86.
+
+Second-most persistent classes
+
+Most persistent classes
+
+0.2
+
+0.5 0.51
+
+0.85
+
+0.95 ε
+
+0.7 0.86
+
+(h) Barcode diagram. Fig. 9: (a), (d), (e), (b), (f), (g), (c): U in increasing order of epsilon, and optimal trajectories in different homology classes. (h): Barcode diagram for homology classes of trajectories. Note that the colors of the bars at a particular value of correspond to the colors of the trajectories in the corresponding U . In generating these sets of barcodes we used δ = 0.01.
+
+Out of τj1−δ, τj2−δ, · · · , we choose the one that is closest to τk0 for establishing the correspondence, and all others are marked as
+dead (mapped to 0 in algorithm ComputeCorrespondences). Thus, in Figure 8(b), although the classes of both τ1−δ and τ2−δ would map to the class of τ2 under the inclusion map (Stage I), since τ1−δ is closer to τ2 the class of τ1−δ maps to the class of τ2 , while the class of τ2−δ is simply declared dead in U .
+For comparing the distance between trajectories we use the Haus-
+dorff metric [16] which can be used to measure the distance between arbitrary sets A and B in a metric space:
+
+dHf (A, B) = max sup inf dE (a, b), sup inf dE (a, b)
+
+a∈A b∈B
+
+b∈B a∈A
+
+where dE is the Euclidean distance on the workspace W .
+
+Thus, ComputeCorrespondences computes the correspondences between the m −δ counts of homology classes of trajectories in U −δ
+
+and m counts of homology classes of trajectories in U . This lets
+
+us construct the barcode diagram incrementally.
+
+C. Heuristic Function taking Advantage of Previous Searches As noted earlier, at every we compute all the Z2-homology
+classes of trajectories by expanding all the vertices in GH2. However, if we know the number of disconnected components of obstacles
+present in the active workspace (obstacles which are not connected to the boundary of W and are not enclosed in a disconnected component of the free space isolated from qs and qg), say n , then we can predict that the number of homology classes of trajectories will be 2n . This can be seen as follows: Since there are n representative points, there are n components in a H2-signature. Suppose h = [(h1 mod 2), (h2 mod 2), · · · , (hn mod 2)]T is the H2signatures of one of the trajectories connecting qs to qg. Then the set of possible H2-signatures of trajectories connecting the same points will be [((h1 + u1) mod 2), ((h2 + u2) mod 2), · · · , ((hn + un ) mod 2)]T , for each ui ∈ {0, 1}. This is a total of 2n classes.
+
+With this knowledge we can stop the graph search once all the 2n classes have been found during a single search, without having to expand all the vertices in the H2-augmented graph. Thus it is useful to use A* search algorithm with an admissible heuristic function to speed the search (which would have been irrelevant if all the vertices in the graph had to be expanded). In particular, if we perform the searches in decreasing order of , then for the search in GH−2δ it is possible to exploit the search result obtained at GH2 to design an admissible heuristic function due to the following observation:
+The length of the shortest path connecting (qs, 0) to a vertex (q, h) ∈ VG−Hδ2 in GH−2δ is greater than or equal to the length of the shortest path connecting qs to q ∈ VG−δ in G −δ, which in turn is greater than or equal to the length of the shortest path connecting qs to q ∈ VG in G (since G −δ is a subgraph of G due to U −δ ⊂ U ). Also, note that the length of the shortest path connecting qs to q ∈ VG is simply the minimum of the “g-scores” of vertices of the form (q, ∗) ∈ VGH2 when searching in GH2 using A* algorithm starting from (qs, 0). Let’s call this value h (qs, q). Thus h (qs, q) can be used as the heuristic for vertex (q, h) ∈ VG−Hδ2 if the search is started from qg (rather than qs) when searching in GH−2δ using A* algorithm (since heuristics function requires to return an underestimate of the least cost to the target vertex). Thus in the searches we alternate between starting the search from qs and starting it from qg. In the later cases the orientation of the trajectories obtained from the search and the signs of the H2-signatures of the trajectories need to be ﬂipped before calling ComputeCorrespondences.
+D. Noisy Probability Distributions
+As described in the previous section, the number of Z2-coefﬁcient homology classes grows exponentially with the number of representative points. If the probability distribution, P , is constructed
+
+8
+
+(a) U 0.9.
+
+(b) U 0.8.
+
+(c) U 0.72.
+
+(d) U 0.7.
+
+(e) U 0.6.
+
+(f) U 0.4.
+
+(g)
+
+(h)
+
+(i)
+
+(j)
+
+(k)
+
+(l)
+
+goal
+
+start
+
+(m) Probability map.
+
+(n) Final complete barcode. Note the (o) Overlay of trajectories corresponding to the most
+
+longest bar (5th from the bottom).
+
+persistent class (longest bar) obtained from the barcode.
+
+Fig. 10: (a)-(f): U for different values of in decreasing order. (g)-(l): The corresponding barcode diagram in the process of being constructed as is
+
+decreased. The ﬁnal barcode is in (n). The decrement step in the value of used was δ = 0.01. Probability map is shown in (m). The trajectories in the most
+
+persistent homology class shown in (o) clearly indicates the most reliable set of trajectories to follow.
+
+from the readings of a noisy sensor, an -thresholded space, U may contain many small irrelevant obstacles created only due to the presence of noise in the probability map. Placing a representative point on each of those only makes the computation complexity grow exponentially at certain small ranges of , where a large number of obstacles and homology classes may pop into existence and die shortly thereafter. This computation is mostly redundant because the short-lived homology classes do not contribute towards our main subject of interest – the most persistent homology classes. In order to handle this issue we use two techniques. In the following sub-sections we describe them and justify their computationally correctness.
+1) Ignoring Obstacles Smaller than a Threshold Size: When computing trajectories in U one can choose not to put representative points on components of obstacles that are smaller than a certain size (say, diameter smaller than a certain value) – Osmall ⊆ O . Subsequent discretization and search in the H2-augmented graph will only return feasible trajectories that have different H2-signatures purely because of the presence of obstacles that are not small (Figure 11). Topologically, the operation performed on U for computing the H2-signatures is that of taking a small tubular neighborhood of every connected component of Osmall, and identifying each to a point. In the resulting quotient spaces [22] (which we will informally refer to as U / ∼N , (Osmall) or simply U / ∼) the small obstacles are essentially non-existent when making distinction between the topological classes of trajectories.
+The size-based choice of the small obstacles guarantee that every obstacle that is small at a particular value of will remain small at an < . This deﬁnes an inclusion map iβα : U α/ ∼N (Osαmall) → U β / ∼N (Osβmall), which indices a well-deﬁned map between the homology classes: ιβα : H1(U α/ ∼N (Osαmall) ; Z2) → H1(U β / ∼N (Osβmall); Z2) (just as the inclusion map iβα induced the map ιβα between the homology classes of the unquotiented spaces). This observation justiﬁes the comparison of the homology classes of trajectories obtained in U α with those obtained
+
+in U β using the algorithm ComputeCorrespondences, even when we choose not to place representative points on the small obstacles.
+
+τ1α goal
+
+τ2α
+start
+
+τ3α
+
+Oα small
+
+τ4α
+Uα
+
+goal
+τ2β
+
+τ1β
+start
+
+Oβ small
+Uβ
+
+goal
+
+τ2γ τ1γ
+
+start
+
+Oγ small
+
+Uγ
+
+Uα/~
+
+Uβ/~
+
+Uγ/~
+
+Fig. 11: Ignoring small obstacles (α < β < γ). Top row: The com-
+putation of trajectories in different Z2-coefﬁcient homology classes with small obstacles not being used in making distinction between the homol-
+ogy classes. Bottom row: The corresponding abstract topological spaces in
+which each connected component of the neighborhoods of small obstacles
+are identiﬁed to points. Note how the inclusion maps are well-deﬁned: U α/ ∼ → U β / ∼ → U γ / ∼. This lets us establish well-deﬁned correspondence between the Z2-coefﬁcient homology classes: τ1α, τ2α → τ1β ; τ3α, τ4α → τ2β and τ1β → τ1γ ; τ2β → τ2γ .
+
+2) Adaptively Change step: As described in the previous sections, in computing the bar diagram we start at a value of 1.0 for , and decrease it at each iteration by an amount δ, and establish correspondences between the classes obtained at the consecutive values of . However, given an upper bound, nmax, on the number of obstacles that we can computationally deal with, we can choose to skip a value of if the number of obstacles at that value is larger than that bound. For example, say we compute the homology classes in U . Following that, suppose at the beginning of computation for U −δ we ﬁnd that
+
+9
+
+the number of non-small obstacles, n −δ > nmax. We can then skip the search in GH2−δ, and instead move on to U −2δ. If the number of non-small obstacles in there is within the bounds, we compute the homology classes in U −2δ and compare them with ones obtained at
+to establish correspondence (using the ComputeCorrespondences algorithm). In general we can establish correspondence between U and U −sδ by skipping (s − 1) intermediate steps.
+However, since this may result in comparison of homology classes between environments with large (metric) differences, we perform an additional check on the Hausdorff distance between a pair of corresponding trajectories determined by Line 16 of ComputeCorrespondences algorithm — we establish correspondence (i.e. set CII (j∗) := k as in Line 17) only if dHf (τj∗−sδ, τk) < dthresh. Otherwise we set CII (j∗) := 0 — i.e. the j∗th class in U −sδ is marked as dead.
+V. RESULTS We implemented the above algorithm in C++ programming language. All computations were performed on a dual core machine with processor clock speed of 2.6GHz and 4MB memory. Figure 9 shows the results obtained for the probability map shown in Figure 1(a). The optimal trajectories generated at different value of , along with the entire barcode diagram are shown in ﬁgures Figure 9(a),(d),(e),(b),(f),(g),(c) (in order of the value of ). At each the graphs G are created out of 400 × 320 uniform square discretization of the workspace. The entire computation (including thresholding, ﬁnding representative points and trajectory computations at all the 100 values of , as well as the generation of the barcode diagram, along with all the graphics output) took about 246s. Figure 10 shows results in another probability map. In this case the workspace was 200 × 181 discretized and δ = 0.01 was chosen. The total computation time was about 67s. The accompanying video shows the barcode in the process of being built as trajectories in different homology classes are obtained in decreasing order of . Figure 12 shows a 400 × 320 discretized environment with two “blobs” of high probability of occupancy joined by a “bridge” of very low probability of occupancy. Note that the most persistent class (the bottom-most bar in the barcode diagram) dies at a low value of threshold due to the presence of the bridge, and two other classes survive at even lower values of . Note how the most persistent class does not survive at the lowest value of . Figure 13 shows an example of an indoor environment where the probability map (of size 188 × 142 discretization units) contains signiﬁcant amount of noise. Setting the small obstacle criteria at 5% of the maximum map dimension, nmax = 7 and dthresh at 20% of the maximum map dimension, we computed the shown bar diagram in about 129s (including all steps as well as generation of the plots). The overlay of the trajectories in the most persistent classes are also shown. Note how, due to the noise, U 0.10 does not allow any feasible trajectory, and as increases, a large number of spurious classes show up due to the noise.
+VI. CONCLUSION AND FUTURE DIRECTION In this paper we propose an approach to path planning in uncertain environments that is fundamentally different from existing approaches. We formulate the problem in terms of ﬁnding optimal trajectories in different Z2-coefﬁcient homology classes, and compute the persistent homology classes of trajectories from a given occupancy probability map. Paths belonging to more persistent homology classes are more robust to uncertainty in the sense that they are less likely to require changes in homology classes. Our paper is the ﬁrst to formulate path planning under uncertainty using a topological framework invoking the powerful tools of persistent homology.
+
+A natural question is if this framework can be extended to integrate
+models of sensing and allowing us to go beyond simplistic static
+probability-based representations of occupancy. In this paper we restricted ourselves to the requirement that U α ⊂ U β whenever α < β so that we have the inclusion map iβα : U α → U β. However, if such a relationship is not available between a sequence of spaces, one can always consider the inclusion maps U α → U α∪U β ← U β, and thus relate the homology classes between U α and U β via the homology classes in U α ∪ U β. This principle will compute a zig-
+zag persistence [7] for the sequence of spaces and can be used to
+pursue online re-planning as updates to the probability map become
+available from sensor data. Reﬁnement of the proposed algorithm and
+its implementatuion for improved efﬁciency is also within the scope
+of future work.
+
+REFERENCES
+
+[1] Subhrajit Bhattacharya.
+
+A template-based c++ library
+
+for large-scale graph search and planning, 2011.
+
+See
+
+http://subhrajit.net/index.php?WPage=yagsbpl.
+
+[2] Subhrajit Bhattacharya, Maxim Likhachev, and Vijay Kumar. Topologi-
+
+cal constraints in search-based robot path planning. Autonomous Robots,
+
+pages 1–18, June 2012. DOI: 10.1007/s10514-012-9304-1.
+
+[3] Subhrajit Bhattacharya, David Lipsky, Robert Ghrist, and Vijay Kumar.
+
+Invariants for homology classes with application to optimal search and
+
+planning problem in robotics. Annals of Mathematics and Artiﬁcial Intel-
+
+ligence (AMAI), 67(3-4):251–281, March 2013. DOI: 10.1007/s10472-
+
+013-9357-7.
+
+[4] Subhrajit Bhattacharya, Nathan Michael, and Vijay Kumar. Distributed
+
+coverage and exploration in unknown non-convex environments. In Pro-
+
+ceedings of 10th International Symposium on Distributed Autonomous
+
+Robotics Systems. Springer, 1-3 Nov 2010.
+
+[5] R. Bott and L.W. Tu. Differential Forms in Algebraic Topology. Graduate
+
+texts in mathematics. Springer-Verlag, 1982.
+
+[6] Gary Bradski and Adrian Kaehler. Learning OpenCV: Computer Vision
+
+with the OpenCV Library. O’Reilly, Cambridge, MA, 2008.
+
+[7] G. Carlsson and V. de Silva. Zigzag Persistence. ArXiv e-prints, nov
+
+2008.
+
+[8] Gunnar Carlsson. Topology and data. Bull. Amer. Math. Soc., 46:255–
+
+308, 2009.
+
+[9] Benjamin Cohen, Sachin Chitta, and Maxim Likhachev. Search-based
+
+planning for dual-arm manipulation with upright orientation constraints.
+
+In Proceedings of the IEEE International Conference on Robotics and
+
+Automation (ICRA), 2012.
+
+[10] T. H. Cormen, C. E. Leiserson, R. L. Rivest, and C. Stein. Introduction
+
+to algorithms. MIT Press, 2nd edition, 2001.
+
+[11] Edsger W. Dijkstra. A note on two problems in connexion with graphs.
+
+Numerische Mathematik, 1:269–271, 1959.
+
+[12] Herbert Edelsbrunner and John L. Harer. Computational Topology.
+
+American Mathematical Society, 2009.
+
+[13] Herbert Edelsbrunner, David Letscher, and Afra Zomorodian. Topo-
+
+logical persistence and simpliﬁcation. Discrete and Computational
+
+Geometry, 28(4):511–533, November 2002.
+
+[14] D. Fox, J. Ko, K. Konolige, B. Limketkai, D. Schultz, and B. Stewart.
+
+Distributed multirobot exploration and mapping. Proc. of the IEEE,
+
+94(7):1325–1339, July 2006.
+
+[15] Robert Ghrist. Barcodes: The persistent topology of data. Bull. Amer.
+
+Math. Soc., 45:61–75, 2008.
+
+[16] M. Gromov, J. Lafontaine, and P. Pansu. Metric structures for Rieman-
+
+nian and non-Riemannian spaces. Progress in mathematics. Birkha¨user,
+
+1999.
+
+[17] P. E. Hart, N. J. Nilsson, and B. Raphael. A formal basis for the heuristic
+
+determination of minimum cost paths. IEEE Transactions on Systems,
+
+Science, and Cybernetics, SSC-4(2):100–107, 1968.
+
+[18] Allen Hatcher. Algebraic Topology. Cambridge Univ. Press, 2001.
+
+[19] M. Hazewinkel, N. Gubareni, and V.V. Kirichenko. Algebras, Rings and
+
+Modules. Number pt. 1 in Algebras, Rings and Modules. Springer, 2004.
+
+[20] S. M. LaValle. Planning Algorithms. Cambridge University Press,
+
+Cambridge, U.K., 2006. Available at http://planning.cs.uiuc.edu/.
+
+[21] J.W. Milnor. Morse Theory. Annals of mathematics studies. Princeton
+
+University Press, 1963.
+
+[22] James Munkres. Topology. Prentice Hall, 1999.
+
+[23] C. Stachniss. Exploration and Mapping with Mobile Robots. PhD thesis,
+
+University of Freiburg, Freiburg, Germany, April 2006.
+
+10
+
+(a) Probability map.
+
+(b) U 0.01.
+
+(c) U 0.1.
+
+(d) U 0.42.
+
+(e) U 0.75.
+
+(f) Barcode diagram. Fig. 12: An example in which the most persistent class (the bottom-most bar in the barcode diagram) dies at a low value of due to the presence of the bridge, although two other classes survive.
+
+start
+
+goal
+
+Probability map.
+
+U0.10
+
+U0.20
+
+U0.27
+
+U0.40
+
+U0.46
+
+U0.60
+
+U0.84
+
+Barcode diagram.
+
+Overlay of trajectories corresponding to two longest (most persistent) bars in the
+barcode diagram.
+
+Fig. 13: An example with a noisy probability map. Observe the large number of short-lived classes created due to noise.
+
+[24] C. Stachniss. Robotic Mapping and Exploration. Springer Tracts in Advanced Robotics. Springer, 2009.
+[25] A. Stentz. The focussed D* algorithm for real-time replanning. In Proceedings of the International Joint Conference on Artiﬁcial Intelligence (IJCAI), pages 1652–1659, 1995.
+[26] P. Svestka and M. H. Overmars. Probabilistic path planning. Technical Report UU-CS-1995-22, Department of Information and Computing Sciences, Utrecht University, 1995.
+[27] Sebastian Thrun, Wolfram Burgard, and Dieter Fox. Probabilistic Robotics (Intelligent Robotics and Autonomous Agents). The MIT Press, 2005.
+[28] Paul Vernaza, Maxim Likhachev, Subhrajit Bhattacharya, Sachin Chitta, Aleksandr Kushleyev, and Daniel D. Lee. Search-based planning for a legged robot over rough terrain. In Proceedings of IEEE International Conference on Robotics and Automation (ICRA), pages 2380–2387, 1217 May 2009.
+[29] Afra Zomorodian and Gunnar Carlsson. Computing persistent homology. Discrete Comput. Geom, 33(2):249–274, February 2005.
+

@@ -1,0 +1,403 @@
+2020 IEEE International Conference on Robotics and Automation (ICRA) 31 May - 31 August, 2020. Paris, France
+
+Multi-Robot Path Deconﬂiction through Prioritization by Path Prospects
+Wenying Wu∗, Subhrajit Bhattacharya†, Amanda Prorok∗
+
+Abstract— This work deals with the problem of planning conﬂict-free paths for mobile robots in cluttered environments. Since centralized, coupled planning algorithms are computationally intractable for large numbers of robots, we consider decoupled planning, in which robots plan their paths sequentially in order of priority. Choosing how to prioritize the robots is a key consideration. State-of-the-art prioritization heuristics, however, do not model the coupling between a robot’s mobility and its environment. This is particularly relevant when prioritizing between robots with different degrees of mobility. In this paper, we propose a prioritization rule that can be computed online by each robot independently, and that provides consistent, conﬂict-free path plans. Our innovation is to formalize a robot’s path prospects to reach its goal from its current location. To this end, we consider the number of homology classes of trajectories, which capture distinct prospects of paths for each robot. This measure is used as a prioritization rule, whenever any robots enter negotiation to deconﬂict path plans. We perform simulations with heterogeneous robot teams and compare our method to ﬁve benchmarks. Our method achieves the highest success rate, and strikes a good balance between makespan and ﬂowtime objectives.
+I. INTRODUCTION
+Technological advances are enabling the large-scale deployment of robots to solve various types of problems in logistics and transport [9, 12, 14]. The commonality of many of these applications is that they require methods that assign and guide individual robots to goal locations on collision-free paths. The challenge of providing fast, optimal and complete solutions to this problem is very current, as we continue to complexify the problem domain by considering increasingly large and heterogeneous robot teams in navigation-constrained, cluttered environments. In light of these developments, our work focuses on the coupling between a robot’s mobility traits and the built environment. In particular, we posit that a robot’s ability to reach its goal can be measured, and that by integrating this measure in planning routines, better joint path plans can be found.
+Approaches to multi-robot path planning can generally be described as either centralized (assuming the existence of a central component that knows the state of the whole robot system) or decentralized (where no single component has the full picture, but cooperation must still be achieved). Centralized methods can be further categorized according to whether they are coupled or decoupled. Coupled approaches operate in the joint conﬁguration space of all the robots, allowing for completeness (e.g., see [13, 22]). However, solving for optimality is NP-hard [23], and although signiﬁcant progress has been made towards alleviating the computational load,
+*Wenying Wu and Amanda Prorok are with the University of Cambridge, UK: {ww329|asp45}@cam.ac.uk. †Subhrajit Bhattacharya is with Lehigh University, USA: sub216@lehigh.edu
+
+1
+
+2
+
+wait 2, then move
+
+2
+
+1
+
+Makespan: 8.8 Flowtime: 16.6
+
+Makespan: 8.6 Flowtime: 15.4
+
+Fig. 1: An example problem where considering path diversity is important for the prioritization. The red robot has two possible paths, whereas the larger blue robot only has one. On the left, the red robot has ﬁrst priority. It takes the shorter of its two paths, however this forces the blue robot to wait in place until it can follow. On the right, the blue robot, with lower path diversity, has ﬁrst priority. The red robot is able to take its alternative path to avoid it, giving a faster overall solution.
+
+e.g., [11, 18, 22], these approaches still scale poorly in environments with a high number of path conﬂicts. On the other hand, decoupled approaches plan for each robot separately, and solve conﬂicts between paths as they arise, to ensure that collisions with other robots are avoided. Approaches to decoupled planning include sequential programming [6], vehicle prioritization [20] and velocity tuning [15]. These methods offer improved scalability, but often at the cost of completeness and optimality [2].
+Prioritized planning, ﬁrst proposed in [10] as a centralized strategy, is a very efﬁcient method because it allows robots to plan sequentially in space-time in order of priority, eschewing the combinatorial complexities of coupled approaches. In this approach, each robot plans a minimum-cost path to its goal that avoids the computed trajectories of any higher-priority robots. Clearly, the chosen priority order will affect the solution found. It is generally desirable to optimize metrics such as makespan (the time at which the last robot in the team arrives), ﬂowtime (the sum of all robots’ travel times), or success rate (completion); targeting the optimization of either one of these objectives (but commonly not all simultaneously), researchers have proposed heuristics for choosing a planning order [2, 16, 20, 21].
+The original prioritized planning idea in [10] used a ﬁxed total priority ordering, and has been adapted in various papers to work in a decentralized manner (e.g., [5, 21]). However, choosing how to prioritize the team of robots still remains a key consideration. Moreover, as the operational conditions of the robots vary throughout time, and environments are in general not static, it is crucial to consider online (dynamic) priority schemes. Although several dynamic priority schemes have been considered thus far (e.g., [1, 7, 8, 17, 20]), none
+
+978-1-7281-7395-5/20/$31.00 ©2020 IEEE
+
+9809
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+of these schemes account for the coupling between robot mobility and the environment, and hence, may fail to ﬁnd better solutions. Such a scenario is exempliﬁed in Fig. 1, which shows how considering a robot’s path diversity leads to a reduction of both ﬂowtime and makespan.
+In this work, we focus on how the coupling between the built environment and a robot’s mobility traits determines its path options to reach its goal. In speciﬁc, we propose a decentralized planning method that makes use of a novel prioritization rule based on an estimate of the robot’s path prospects. The key idea that underpins this method is that individual robots have distinct path prospects within the same environment, due to unique conditions arising from kinematic, dynamic, or environmental constraints. The purpose of this work is to provide a formal introduction to the concept of path prospects, and a demonstration of its utility in path planning for (potentially heterogeneous) multi-robot teams.
+Contributions. In this work, we propose a novel prioritization heuristic that is based on the number of path prospects that represent a robot’s distinct path options to reach its goal. This prioritization rule that has two key components: (1) a method that computes the distinct number of path options a robot has to reach its goal, based on theory from algebraic topology, and (2), a method that deﬁnes the area of relevance, within which these path options are computed. We show how our prioritization rule is embedded in a decentralized, online planning algorithm to de-conﬂict robot trajectories between robots with potentially different mobility capabilities. We prove that this dynamic planning algorithm provides a partial ordering over the robot set, and hence, is cycle-free. Our results demonstrate that the planned solutions provide competitive makespan and ﬂowtime performance, at very high success rates.
+II. PROBLEM DESCRIPTION
+We consider a D−dimensional workspace W ⊆ RD and a set of B static obstacles O = {o1, . . . , oB} with oi ⊂ W. A team of N robots R = {r1, . . . , rN } navigate in this workspace. The robot team may be heterogeneous in size; the effective space occupied by robot rn is ρn.
+Graph representation. Each robot travels along the edges of a directed graph Gn = Vn, En , which allows only feasible motion. This graph can be arbitrarily dense, and can represent motion with high granularity (as such it can accommodate a wide range of motion); furthermore, it does not need to be fully represented in memory, but instead, can be generated online (e.g., by sampling motion primitives). In particular, a robot rn that travels along edges in Gn cannot collide with any obstacles in O. The set Vn is deﬁned by vertices vi = xi, ti with xi ∈ W and ti ∈ R+. The set En is deﬁned by directed edges eij : R+ → RD, between vertex vi and vj, such that eij(ti) = xi, eij(tj) = xj, and ti ≤ tj. In other words, the graph Gn exists in a (D+1)-dimensional space, where the last dimension represents time.
+Labeled assignment. Robot rn is assigned a start location sn ∈ W (corresponding to vertex vi with xi = sn and ti = 0). Similarly, robot rn is assigned a goal location gn ∈ W (corresponding to a set of vertices vi with xi = gn
+
+and ti ∈ R+). A labeled assignment A is a set of tuples { s1, g1 , . . . , sN , gN }, for all robots in R.
+Conﬂict-free trajectories. A robot rn has a trajectory πn : R+ → W that represents a sequence of edges traversed in Gn such that two consecutive edges share a common vertex. A trajectory πn is said to be satisfying if πn(0) = sn and there exists a time tfn such that πn(tfn) = gn. A robot rn navigating along this path deﬁnes a volume V (πn, ρn) that depends on its size. To coordinate the navigation in W, two robots rn and rm can share their path plans with each other if they are within communication range, i.e., if their positions are separated by a quantity less than c. We denote by Nn the set of all robots within communication range of rn (including rn). We make use of a function TRIM(Gn, ρn, V (πm, ρm)) that removes all unfeasible paths in Gn that would collide with the volume deﬁned by robot rm. Any path in the graph returned by TRIM is ensured to be conﬂict-free with the path πm of robot rm.
+In order to facilitate the deﬁnition of a given robot’s
+conﬁguration space, we deﬁne the notion of an effective obstacle, which is a set of original obstacles in O, such that no trajectories in a given graph passes between them (see Figure 6). Speciﬁcally, a robot rn has a set of effective obstacles O˜n = {o˜1, . . . , o˜B˜ }, B˜ ≤ B, with o˜i ⊆ O and ∪io˜i = O and ∩io˜i = ∅.
+Figure 2 shows a labeled assignment for two robots
+that must plan minimum-cost trajectories from their start
+positions to their goal positions. Figure 3 demonstrates how robot r2 circumnavigates the path plan of robot r1, after execution of TRIM(G2, ρ2, V (π1, ρ1)).
+Assumptions. We assume that a robot is able to check
+for collisions between its own planned path and another
+robot’s. To facilitate this, we assume all their clocks are
+synchronized. Messaging delay and clock misalignment can
+be accommodated (e.g., through time-stamps), however, the
+deviations must be negligible with respect to robot dynamics
+(i.e., the speed at which the motion graph is traversed). We
+assume that robot detections are always mutual (when they
+come into communication range). Objective. Our goal is to ﬁnd a method that has a
+high success rate and that strikes a good balance between minimizing the mean ﬂowtime ( n tfn/N ) and minimizing the makespan (maxn tfn), such that each robot rn follows a satisfying trajectory πn which is conﬂict-free with all other robots’ paths. We note that, in general, makespan and
+ﬂowtime objectives demonstrate a pairwise Pareto optimal
+structure, and cannot be simultaneously optimized [23].
+III. DECENTRALIZED PLANNING
+Our decentralized path planning algorithm can be broken
+down into two components: coordination, where we consider
+how robots communicate and negotiate a priority ordering;
+and local planning, where we consider how an individual
+robot plans a trajectory to its goal given the plans of other
+robots within communication range. We make use of the
+following deﬁnitions.
+Deﬁnition 1 (Priority ordering). A priority ordering ≺ is such that a robot rn ∈ R with priority ξn is of higher priority than robot rm with priority ξm iff ξn ≺ ξm.
+
+9810
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+g1 y
+
+s1
+
+g2
+
+s2
+
+x
+Fig. 2: Planar workspace with two robots, r1 and r2, and their respective start and goal positions. Robot r2 has an effective size ρ2 that is twice that of robot r1. The minimum-cost paths would result in a collision.
+
+Algorithm 2: Re-plan trajectory
+
+Function: COMPUTENEWPLAN(Hn)
+
+1 G ← Gn
+
+2 for rm ∈ Hn do
+
+3
+
+RECEIVEPLANFROM(rm)
+
+4 G ← TRIM(G, ρn, V (πm, ρm))
+
+5 πn ← PLANPATHFROMCURRENTPOSITION(G, gn) 6 ξn ← COMPUTEPRIORITY(rn) 7 BROADCASTPLANIFCHANGED(πn) 8 BROADCASTPRIORITYIFCHANGED(ξn) 9 return πn
+
+g2 π1
+
+g1 V (π1, ρ1)
+
+t y x
+
+V (π2, ρ2)
+
+Fig. 3: On the left, we plot the space-time graph G1 with a minimum-cost
+trajectory π1 for robot r1. On the right, we see how trajectory π2 sweeps a volume V (π2, ρ2) that does not intersect with V (π1, ρ1).
+
+Deﬁnition 2 (Ordered robot set). Given a priority ordering ≺ on a set of robots R, the pair (R, ≺) is a strict partially ordered robot set.
+Deﬁnition 3 (Ordered robot neighborhood). Given a priority ordering ≺, for a given robot rn, Hn = {rm|ξm ≺ ξn and rm ∈ Nn} is the set of robots with higher priority, and Ln = {rm|ξm ≻ ξn and rm ∈ Nn} is the set of robots with lower priority. The neighborhood of robot rn deﬁned as
+
+Algorithm 1: Dynamic Prioritized Path Planning
+
+1 Hn ← ∅ // list of higher priority robots
+
+2 Ln ← ∅ // list of lower priority robots
+
+3 πn ← COMPUTENEWPLAN(Hn)
+
+4 while TRUE do
+
+5 if new robot rm (with priority ξm) in range c or received
+
+new priority ξm from rm then
+
+6
+
+ξn ← COMPUTEPRIORITY(rn)
+
+7
+
+Hn,old ← Hn and Ln,old ← Ln
+
+8
+
+Hn ← {ri|ξi ≺ ξn ∧ ri ∈ Hn,old ∪ Ln,old ∪ {rm}}
+
+9
+
+Ln ← {ri|ξi ≻ ξn ∧ ri ∈ Hn,old ∪ Ln,old ∪ {rm}}
+
+10
+
+if Hn,old = Hn then
+
+11
+
+πn ← COMPUTENEWPLAN(Hn)
+
+12 else if rm left range c then
+
+13
+
+Ln ← Ln \ rm
+
+14
+
+if rm ∈ Hn then
+
+15
+
+Hn ← Hn \ rm
+
+16
+
+πn ← COMPUTENEWPLAN(Hn)
+
+17 else if receive new plan πm from rm then
+
+18
+
+if rm ∈ Hm then
+
+19
+
+πn ← COMPUTENEWPLAN(Hn)
+
+Nn is strongly connected (by symmetry of communication). By deﬁnition, the robot neighborhood Nn is an ordered robot set (Nn, ≺).
+A. Coordination Strategy
+Our coordination strategy is detailed in Algorithm 1, and is based on two main elements, described as follows:
+Computation of an ordered robot neighborhood: Each robot is able to detect other robots when they come into the communication range c, and when they leave it. A robot rn has a priority score ξn, which it can compute locally by a function COMPUTEPRIORITY (see Section IV). Each robot rn maintains two lists of robots currently in its range: Hn contains the robots with higher priority whilst Ln contains the robots with lower priority. In a dynamic priority scheme, rn recomputes ξn whenever a new robot comes into range. It then broadcasts this updated priority value to ensure all robots within range (i.e., in its neighborhood) have a consistent plan.
+Re-planning: Re-planning is triggered for rn in three cases: (i) when a new robot comes into range that has a higher priority, (ii) when an updated plan is received from a higher priority robot, or (iii), when a robot rm broadcasts a new priority ξm. When rn re-plans, it calls a function COMPUTENEWPLAN that takes into account the planned trajectories of robots with higher priority (in Hn). The robot then communicates its new plan to robots in Ln.
+Proposition 1. Algorithm 1 is deadlock-free.
+Proof. Since each robot rn in R executes Alg. 1, the result is a collection of ordered robot neighborhoods Nn, ∀n. If two robot neighborhoods Nn and Nm share a common robot rj, then, by transitivity, there must be a partial ordering in Nn ∪ Nm, since Algorithm 1 ensures that robot rj can only have one priority score ξj that is broadcast. Hence, Algorithm 1 constructs an ordered robot set (R, ≺). Since partial orderings are acyclic, no planning deadlocks can arise.
+B. Local Planning
+Each robot handles the computation of its own minimumcost trajectory from its current location to its goal location gn (see function COMPUTENEWPLAN). The resulting trajectory avoids the static obstacles in the environment as well as the
+
+9811
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+planned paths of any higher-priority robots. In our implementation, all robots use the HCA* algorithm proposed in [19] which applies A* search to a space-time map, and uses a reservation table to record the trajectories of other robots to be avoided. This effectively implements the function TRIM. The complexity of TRIM is O(|πm|log|En|) assuming the usage of a fast spatial lookup structure, such as a quadtree. When the spatial lookup can be done in constant time, the complexity becomes O(|πm|). The complexity of PLANPATHFROMCURRENTPOSITION is O(|En| + |Vn| log|Vn|), or, when Vn ∝ En, O(|Vn| log|Vn|)). Hence, the complexity of Alg. 2 is O(|Nn| |πm| log|En| + |En| + |Vn| log|Vn|).
+This local planning approach is general, in that any path planning algorithm that is able to avoid dynamic obstacles with known trajectories can be used; indeed, it is even possible for different robots to use different algorithms, so long as an implementation of the function TRIM, which reconciles heterogeneous space-time graphs, can be embedded into the planning function.
+IV. PRIORITIZATION BASED ON PATH PROSPECTS
+During navigation, when robots come within communication range, they enter negotiations to deconﬂict their path plans. To facilitate this negotiation, we implement a rule that prioritizes robots with fewer path options. Our prioritization rule has two key components: (1) a method that estimates the number of options a robot has to reach its goal, and (2), a method that deﬁnes the area within which these path options are computed. The following paragraphs detail our approach.
+A. Homology Classes of Trajectories
+To develop a method for (1) above, we build on theory from algebraic topology. For a particular robot, we consider the trajectories in different homology classes as the path prospects for the robot. Homology classes (of trajectories) in an environment represent topologically distinct classes of trajectories (Figure 5). For example, each homology class can be thought to be capturing the width of a passage or separation between two obstacles, and depending on the size/kinematic capabilities of a robot, that passage (and hence the corresponding homology class) may or may not be available to the robot. This gives an effective means of designing a prioritization heuristic without having to consider the set of all possible paths in the discrete domain that the robots can physically take to reach their respective goals.
+Two trajectories connecting the same start and goal points on a planar domain are said to be in the same homology class if the closed loop formed by the two trajectories are null homologous, i.e., it forms the oriented boundary of a twodimensional obstacle-free region [4]. The homology class of a loop, in turn, can be quantiﬁed by winding numbers around the connected components of effective obstacles, with the null homologous class having zero winding number around every obstacle. Thus, in a planar domain with z connected components of effective obstacles, the homology invariant of a loop is given by a vector of integers, [h1, h2, · · · , hz] ∈ Zz, where hi is the winding number around the ith obstacle.
+However, there are inﬁnitely many homology classes since a trajectory can loop/wind around the same obstacle multiple
+
+goal
+start
+Fig. 4: Homology classes of trajectories. τ2 and τ2′ are in different classes in regular homology, but map to the same class in Z2-coefﬁcient homology.
+times, and for every different number of windings the class assigned to the loop is different. In order to prevent the separate counting of the multi-looping homology classes, one can compute the homology invariants in the “mod 2” coefﬁcient [3], Z2 = Z/2Z = {0, 1}. Simply put, the homology invariant in the Z2 coefﬁcients become [h1, h2, · · · , hz] mod 2 ∈ Zz2. Doing so identiﬁes all the even winding numbers to 0 and all the odd winding numbers to 1, thus preventing the creation of separate homology classes for loops that wind around obstacles multiple times (Figure 4). Zz2 is a ﬁnite set, and in fact has 2z elements. Thus, the number of Z2 coefﬁcient homology classes in a planar domain with z connected components of effective obstacles is 2z, which we use in the construction of heuristics in the path prospect algorithm.
+B. Path Prospect Algorithm
+We use the number of Z2 coefﬁcient homology classes in an area with z effective obstacles to return an estimate of a robot rn’s path prospects Pn(t) at time t in that area. Next, we develop a method for computing a relevant area (and its associated vertices), to deﬁne the component (2), above.
+A robot rn’s path prospects Pn(t) are an indicator of the number of distinct paths to goal gi from its current location at time t. This can be estimated by counting the effective obstacles O˜n which rn will likely come across as it moves towards its goal gn from its current position. Speciﬁcally, we do not wish to count any effective obstacles that lie behind the robot, given gn and its current location. To achieve this, we deﬁne a set of forwards vertices Fn(t) ⊆ Vn and count only the effective obstacles whose areas intersect the area in W containing all vertices in Fn(t) and the edges that link them.
+To deﬁne Fn(t), we use the notion of true distance as proposed in [19]. The true distance of a vertex v ∈ Vn is the length of the shortest satisfying path in Gn from v to gn. We deﬁne Fn(t) ⊆ Vn to be the set of vertices that are reachable from rn’s location at time t by only transitioning from a vertex vi to a vertex vj, if vj can still lead to paths that are shorter than the estimated longest true distance of the robot team. Note that the longest true distance can be estimated locally by broadcasting TRUEDISTANCE(sn, gn) (this value is time-invariant) along with priority ξn in Algorithm 1. Upon receiving such a message, each robot can update its estimate by taking the maximum between the current estimate and the value of the message. The set of forwards vertices can
+
+9812
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+goal
+
+goal
+
+current start
+
+(a) At t = 0, Pn(0) = 23.
+
+(b) At t = 17, Pn(17) = 21.
+
+Fig. 5: Illustration of path prospects for a robot navigating to its goal,
+
+computed for two different moments in time. In (a), only 4 representative
+
+paths out of 8 are shown, for clarity.
+
+goal
+
+goal
+
+current
+
+current
+
+(a) Pn(t) = 22.
+
+(b) Pm(t) = 21.
+
+Fig. 6: Example where two robots with different sizes have different path
+
+prospects. In (b), the two central obstacles merge into a single effective
+
+obstacle. The lighter borders around each obstacle depict their inﬂation by
+
+the robots radius ρn, which is one method for computing effective obstacles.
+
+Algorithm 3: Path Prospects
+
+Input : current position of rn: vn, goal location gn, untrimmed graph Gn, effective obstacles O˜n,
+
+estimated longest path length T
+
+Output: path prospects Pn(t)
+
+1 Fn(t) ← GETFORWARDSVERTICES(vn, gn, Gn, T )
+
+2 A ← COMPUTEAREA(Fn(t), En)
+
+3 κ←0
+
+4 for o ∈ O˜n do
+
+5 if o ∩ A = o then
+
+6
+
+κ ← κ + 1 // count this obstacle
+
+7 return 2κ
+
+Algorithm 4: Compute Set of Forwards Vertices
+
+Function: GETFORWARDSVERTICES(v, g, G, T )
+
+1 visited ← ∅
+
+2 priority queue ← {v} // prioritizes by smallest t
+
+3 while priority queue = ∅ do
+
+4 q ← POPSMALLEST(priority queue) with q = xq, tq
+
+5 if xq ∈/ visited then
+
+6
+
+neighbours ← FINDNEIGHBOURS(G, q)
+
+7
+
+for n ∈ neighbours with n = xn, tn do
+
+8
+
+if tn + TRUEDISTANCE(n, g) ≤ T then
+
+9
+
+APPEND(priority queue,n)
+
+10
+
+visited ← visited ∪{xq}
+
+11 return visited
+
+be computed using a variant of Dijkstra’s algorithm (see Algorithm 4), with a complexity of (|En| + |Vn|log|Vn|).
+Figure 5 illustrates the path prospects for a robot navigating towards its goal, at two consecutive moments in time.
+
+C. Prioritization Heuristic
+
+We use the path prospect algorithm (Algorithm 3) to
+prioritize robots with conﬂicting paths. For robots rn and rm, we deﬁne the ordering ≺ such that
+
+Pn(t) < Pm(t) ⇔ ξn ≺ ξm.
+
+(1)
+
+Priority orderings are negotiated through Algorithm 1. By prioritizing robots that have fewer path prospects, we force those robots that have more options to deviate from their preferred (best) plans, and to give way to the robots that have fewer options. Figure 6 illustrates how different robot sizes affect the available path prospects (and hence the priority ordering).
+
+V. EVALUATION
+We implement our method in grid-worlds. This allows us to easily create valid graphs Gn for all robots, implement the corresponding TRIM function, and create a set of effective obstacles O˜n for any robot rn by inﬂating original obstacles in O by ρn. We note that this dilation can be done more generally by applying Minkowski addition.
+We evaluate the performance of our method in two experiments. The ﬁrst experiment (S1) tests the performance of our method in a large environment with a large number of robots. We produce a map of size 150×150 and use
+
+a team of 100 robots of size ranging from 1 to 4, in equal proportion, with a communication range of 50. We generate 500 problems and record the performance of all seven algorithms. The second experiment (S2) tests the methods across different types of environment. We generate six different cluttered grid-worlds, depicted in Figure 7, of size 75×75. We use a team of 10 robots of ﬁve different sizes, with two robots per size, and sizes ranging from 1 to 5. For each base environment, we generate 500 problems (random assignments), and record the performance of the solutions provided by our algorithm (with two alternative tie-break options to guarantee strict orderings), as well as by ﬁve additional benchmark algorithms (described below). We solve each problem across communication ranges c that vary between 30 and 50.
+A. Benchmarks
+In order to test the efﬁcacy of our prioritization method, we perform an ablation analysis. The aim of this ablation study is to identify the efﬁcacy of our proposed path prospects heuristic by isolating its two key components: (i) the spatial area within which it is applied, and (ii) the consideration of the robot-environment coupling. To this end, we implement seven variant schemes for online decentralized prioritization; we focus our experimental analysis to comparable methods that scale at most linearly with the number of neighboring robots. Four of these schemes incorporate state-of-the art heuristics, two of the schemes represent our proposed method, and the ﬁnal scheme incorporates a random rule:
+
+9813
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+(a) Maze-1
+
+(b) Maze-2
+
+(c) Crossing
+
+Random (R) Naive Surroundings (NS) Forwards Looking (FL) Longest First (LF) Coupled Surroundings (CS) Path Prospects (PP-R) Path Prospects (PP-LF)
+
+(d) Clutter
+
+(e) Corridor
+
+(f) Tunnel
+
+Fig. 7: Examples of path solutions (blue lines) for the six maps used in our problem sets. In each problem, 10 robots (blue squares) of ﬁve different sizes are assigned random start and goal positions.
+
+(1) Naive Surroundings (NS): This prioritization heuristic follows the idea in [7], whereby robots with the most cluttered surrounding workspace are prioritized. Our implementation of this method counts the number of original obstacles in O within a range z = 30 (which corresponds to the best performing range found via grid-search). This variant does not consider the coupling between robot mobility and the environment, and we term it naive. We break ties by prioritizing robots with longest remaining paths. (2) Coupled Surroundings (CS): This prioritization heuristic also follows [7], yet we adapt it to consider the coupling between robot mobility and the environment, whereby effective obstacles in O˜ are counted (instead of original obstacles). When robot priorities are equal, we tie-break by giving a higher priority to the robot that has the longest remaining path. (3) Longest First (LF): This method prioritizes the robot that has the longest remaining path to its goal, which corresponds to the heuristic used in [20]. When robot priorities are equal, we tie-break by giving a random priority order. (4) Forwards Looking (FL): We consider a naive approach that disregards the coupling of robot mobility and the environment. It is naive in that it uses original obstacles in O instead of obstacles in O˜ to compute the number of path options. The number of path options is considered in the area that contains paths with a cost less than the cost of the currently longest path known, as speciﬁed by Alg. 4. We tie-break this method by prioritizing robots with the longest remaining paths. (5) Path Prospects (PP-R): This method implements our path prospect algorithm. We tiebreak randomly. (6) Path Prospects (PP-LF): This method implements our path prospect algorithm. We tie-break with longest-ﬁrst. (7) Random (R): Finally, we also implement a prioritization rule that randomly assigns the priority order.
+B. Results
+We evaluate the seven algorithm variants by computing two performance metrics: we consider the percent increase in makespan and ﬂowtime, over the ideal makespan and ﬂowtime, respectively, that assumes a collision-free world without robot interactions.
+Figure 8 shows results for the large map used in experiment S1. Our two proposed methods PP-R and PP-
+
+Fig. 8: Experiment S1 obtained on a large map of size 150×150 with 100 robots. Percentage increase over the ideal ﬂowtime and ideal makespan, for the seven variant prioritization heuristics. We show a 95% conﬁdence interval. Blue nodes correspond to path prospect heuristics, red nodes represent the alternate benchmarks.
+LF lie on the empirical Pareto front (i.e., lowest values over both dimensions). Numerical results for experiment S2 show that our two proposed methods PP-R and PP-LF lie on the empirical Pareto front (i.e., lowest values over both dimensions) across different environments. Compared to LF, our method provides a valuable trade-off when ﬂowtime is important. When comparing PP-R and LF to CS, CS incurs a loss of performance in makespan or ﬂowtime performance, or both. This indicates that the area within which path options are considered is important. Overall, our two methods consistently outperform the naive variant, FL, which uses the same area for computing path prospects (i.e., forwards vertices), but disregards the robots’ mobility within this area. This demonstrates the importance of considering the coupling between the robot and its environment.
+We also compute the success rates for the seven algorithms, averaged over all environments. The highest success rates are achieved by our two methods, PP-R at 95.7% and PP-LF at 94.1%, with all other methods in the range 82%93%.
+VI. CONCLUSION
+We presented a method for online prioritized path planning for teams of robots. Our decentralized, decoupled planning algorithm provides a deadlock-free means of negotiating path plans among robots, and uses a prioritization heuristic that is based on Z2 coefﬁcient homology classes, which quantiﬁes a robot’s number of available path options. The usage of algebraic topology gives an effective means of designing the prioritization heuristic without having to consider the set of all possible paths in the discrete domain that the robots can physically take to reach their respective goals. We compared our method to ﬁve alternate heuristics to show that it provides an interesting alternative to other prioritized, scalable methods by operating on a different point of the Pareto front; in most environments test, our method provides the only point on the Pareto front.
+VII. ACKNOWLEDGEMENT
+We gratefully acknowledge the support of ARL grant DCIST CRA W911NF-17-2-0181. This work incorporates results from the research project Co-Evolving Built Environments and Mobile Autonomy for Future Transport and Mobility funded by the Centre for Digital Built Britain, under InnovateUK grant number RG96233.
+
+9814
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+
+REFERENCES
+[1] K. Azarm and G. Schmidt. Conﬂict-free motion of multiple mobile robots based on decentralized motion planning and negotiation. In Robotics and Automation, 1997. Proceedings., 1997 IEEE International Conference on, volume 4, pages 3526–3533. IEEE, 1997.
+[2] M. Bennewitz, W. Burgard, and S. Thrun. Finding and optimizing solvable priority schemes for decoupled path planning techniques for teams of mobile robots. Robotics and autonomous systems, 41(23):89–99, 2002.
+[3] S. Bhattacharya, R. Ghrist, and V. Kumar. Persistent homology for path planning in uncertain environments. IEEE Transactions on Robotics (T-RO), 31(3):578–590, March 2015. DOI: 10.1109/TRO.2015.2412051.
+[4] S. Bhattacharya, M. Likhachev, and V. Kumar. Topological constraints in search-based robot path planning. Autonomous Robots, 33(3):273– 290, October 2012. DOI: 10.1007/s10514-012-9304-1.
+[5] M. Ca´p, P. Nova´k, M. Selecky`, J. Faigl, and J. Vokffnek. Asynchronous decentralized prioritized planning for coordination in multirobot system. In Intelligent Robots and Systems (IROS), 2013 IEEE/RSJ International Conference on, pages 3822–3829. IEEE, 2013.
+[6] Y. Chen, M. Cutler, and J. P. How. Decoupled multiagent path planning via incremental sequential convex programming. In Robotics and Automation (ICRA), 2015 IEEE International Conference on, pages 5954–5961. IEEE, 2015.
+[7] C. M. Clark, T. Bretl, and S. Rock. Applying kinodynamic randomized motion planning with a dynamic priority system to multi-robot space systems. In Aerospace Conference Proceedings, 2002. IEEE, volume 7, pages 7–7. IEEE, 2002.
+[8] A. A. Deshpande and K. R. Nataraj. A review: Priority based motion control of multiple robot systems. International Journal of Innovative Research in Science, Engineering and Technology, 2(1), 2013.
+[9] J. Enright and P. R. Wurman. Optimization and coordinated autonomy in mobile fulﬁllment systems. In Automated action planning for autonomous mobile robots, pages 33–38, 2011.
+[10] M. Erdmann and T. Lozano-Pe´rez. On multiple moving objects. Algorithmica, 2(1-4):477, 1987.
+[11] C. Ferner, G. Wagner, and H. Choset. ODrM* optimal multirobot path planning in low dimensional search spaces. In 2013 IEEE International Conference on Robotics and Automation, pages 3854– 3859. IEEE, 2013.
+[12] P. Grippa, D. A. Behrens, C. Bettstetter, and F. Wall. Job selection in a network of autonomous uavs for delivery of goods. Robotics: Science and Systems, 2017.
+[13] W. Ho¨nig, T. S. Kumar, L. Cohen, H. Ma, H. Xu, N. Ayanian, and S. Koenig. Multi-agent path ﬁnding with kinematic constraints. In Twenty-Sixth International Conference on Automated Planning and Scheduling, 2016.
+[14] N. Hyldmar, Y. He, and A. Prorok. A ﬂeet of miniature cars for experiments in cooperative driving. In IEEE International Conference on Robotics and Automation (ICRA), 2019.
+[15] K. Kant and S. W. Zucker. Toward efﬁcient trajectory planning: The path-velocity decomposition. The international journal of robotics research, 5(3):72–89, 1986.
+[16] K. Okumura, M. Machida, X. De´fago, and Y. Tamura. Priority inheritance with backtracking for iterative multi-agent path ﬁnding. IJCAI, 2019.
+[17] R. Regele and P. Levi. Cooperative multi-robot path planning by heuristic priority adjustment. In Intelligent Robots and Systems, 2006 IEEE/RSJ International Conference on, pages 5954–5959. IEEE, 2006.
+[18] G. Sharon, R. Stern, A. Felner, and N. R. Sturtevant. Conﬂict-based search for optimal multi-agent pathﬁnding. Artiﬁcial Intelligence, 219:40–66, 2015.
+[19] D. Silver. Cooperative pathﬁnding. In Artiﬁcial intelligence and interactive digital entertainment, volume 1, pages 117–122, 2005.
+[20] J. P. Van Den Berg and M. H. Overmars. Prioritized motion planning for multiple robots. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 430–435. IEEE, 2005.
+[21] P. Velagapudi, K. Sycara, and P. Scerri. Decentralized prioritized planning in large multirobot teams. In Intelligent Robots and Systems (IROS), 2010 IEEE/RSJ International Conference on, pages 4603– 4609. IEEE, 2010.
+[22] G. Wagner and H. Choset. M*: A complete multirobot path planning algorithm with performance bounds. In Intelligent Robots and Systems (IROS), 2011 IEEE/RSJ International Conference on, pages 3260– 3267. IEEE, 2011.
+[23] J. Yu and S. M. LaValle. Structure and intractability of optimal multirobot path planning on graphs. In AAAI, 2013.
+9815
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on September 14,2022 at 08:42:49 UTC from IEEE Xplore. Restrictions apply.
+

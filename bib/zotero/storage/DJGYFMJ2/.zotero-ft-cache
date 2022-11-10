@@ -1,0 +1,678 @@
+Stochastic Shortest Path: Minimax, Parameter-Free and Towards Horizon-Free Regret
+
+Jean Tarbouriech∗ Facebook AI Research & Inria Lille jean.tarbouriech@gmail.com
+
+Runlong Zhou∗ Tsinghua University zhourunlongvector@gmail.com
+
+Simon S. Du University of Washington & Facebook AI Research
+ssdu@cs.washington.edu
+
+Matteo Pirotta Facebook AI Research Paris
+pirotta@fb.com
+
+Michal Valko DeepMind Paris valkom@deepmind.com
+
+Alessandro Lazaric Facebook AI Research Paris
+lazaric@fb.com
+
+Abstract
+We study the problem of learning in the stochastic shortest path (SSP) setting, where an agent seeks to minimize the expected cost accumulated before reaching a goal state. We design a novel model-based algorithm EB-SSP that carefully skews the empirical transitions and perturbs the empirical costs with an exploration bonus to induce an optimistic SSP problem whose associated value iteration scheme is guaran√teed to converge. We prove that EB-SSP achieves the minimax regret rate O(B SAK), where K is the number of episodes, S is the number of states, A is the number of actions, and B bounds the expected cumulative cost of the optimal policy from any state, thus closing the gap with the lower bound. Interestingly, EB-SSP obtains this result while being parameter-free, i.e., it does not require any prior knowledge of B , nor of T , which bounds the expected time-to-goal of the optimal policy from any state. Furthermore, we illustrate various cases (e.g., positive costs, or general costs when an order-accurate estimate of T is available) where the regret only contains a logarithmic dependence on T , thus yielding the ﬁrst (nearly) horizon-free regret bound beyond the ﬁnite-horizon MDP setting.
+1 Introduction
+Stochastic shortest path (SSP) is a goal-oriented reinforcement learning (RL) setting where the agent aims to reach a predeﬁned goal state while minimizing its total expected cost [Bertsekas, 1995]. In particular, the interaction between the agent and the environment ends only when (and if) the goal state is reached, so the length of an episode is not predetermined (nor bounded) and it is inﬂuenced by the agent’s behavior. SSP includes both ﬁnite-horizon and discounted Markov Decision Processes (MDPs) as special cases. Moreover, many common RL problems can be cast under the SSP formulation, such as game playing (e.g., Atari games) or navigation (e.g., Mujoco mazes).
+We study the online learning problem in the SSP setting (online SSP in short), where both the transition dynamics and the cost function are initially unknown and the agent interacts with the environment through multiple episodes. The learning objective is to achieve a performance as close
+∗equal contribution
+35th Conference on Neural Information Processing Systems (NeurIPS 2021).
+
+as possible to the optimal policy π , that is, the agent should achieve low regret (i.e., the cumulative difference between the total cost accumulated across episodes by the agent and by the optimal policy). We identify three desirable properties for a learning algorithm in online SSP.
+• Desire√d property 1: Minimax. The information-theoretic lower bound on the regret is Ω(B SAK) [Rosenberg et al., 2020], where K is the number of episodes, S is the number of states, A is the number of actions, and B bounds the total expected cost of the optimal policy starting from any state (assuming for simplicity that B ≥ 1). √ An algorithm for online SSP is (nearly) minimax optimal if its regret is bounded by O(B SAK), up to logarithmic factors and lower-order terms.
+• Desired property 2: Parameter-free. Another relevant dimension is the amount of prior knowledge required by the algorithm. While the knowledge of S, A, and the cost (or reward) range [0, 1] is standard across regret-minimization settings (e.g., ﬁnite-horizon, discounted, average-reward), the complexity of learning in SSP problems may be linked to SSP-speciﬁc quantities such as B and T , which denotes the expected time-to-goal of the optimal policy from any state.
+An algorithm for online SSP is parameter-free if it relies neither on T nor B prior knowledge.
+• Desired property 3: Horizon-free. A core challenge in SSP is to trade off between minimizing costs and quickly reaching the goal state. This is accentuated when the instantaneous costs are small, i.e., when there is a mismatch between B and T . Indeed, while B ≤ T always holds since the cost range is [0, 1], the gap between the two may be arbitrarily large (see e.g., the simple example of App. A). The lower bound stipulates that the regret does depend on B , while the “time horizon” of the problem, i.e., T should a priori not impact the regret, even as a lower-order term.
+An algorithm for online SSP is (nearly) horizon-free if its regret depends only logarithmically on T .
+Our deﬁnition extends the property of so-called horizon-free bounds recently uncovered in ﬁnitehorizon MDPs with total reward bounded by 1 [Wang et al., 2020a, Zhang et al., 2021a,b]. These bounds depend only logarithmically on the horizon H, which is the number of time steps by which any policy terminates. Such notion of horizon would clearly be too strong in the more general class of SSP, where some (even most) policies may never reach the goal, thus having unbounded time horizon. A more adequate notion of horizon in SSP is T , which bounds the expected time of the optimal policy to terminate the episode starting from any state.
+Finally, while the previous properties focus on the learning aspects of the algorithm, another important consideration is computational efﬁciency. It is desirable that a learning algorithm has run-time complexity at most polynomial in K, S, A, B , and T . All existing algorithms for online SSP, including the one proposed in this paper, meet such requirement.
+Related Work. Table 1 reviews the existing work on online learning in SSP. The setting was ﬁrst studied by Tarbouriech et al. [2020a] who gave a parameter-free algorithm with a O(K3/2) regret guarantee. Rosenberg et al. [2√020] then improved this result by deriving t√he ﬁrst order-optimal algorithm with regret O(B3/2S AK) in the parameter-free case and O(B S AK) if B is known (to tune cost perturbation appropriately). Both approaches are model-optimistic,2 drawing inspiration from the ideas behind the UCRL2 algorithm [Jaksch et al., 2010] for average-reward MDPs.
+Concurrently to our work, Cohen et al. [2021] propose an algorithm for online SSP based on a blackbox reduction from SSP to ﬁnite-horizon MDPs. It successively tackles ﬁnite-horizon problems with horizon set to H = Ω(T ) and costs augmented by a terminal cost set to cH (s) = Ω(B I(s = g)), where g denotes the goal state. This ﬁnite-horizon construction guarantees that its optimal policy has a similar value function to the optimal policy in th√e original SSP instance up to a lower-order bias. Their algorithm comes with a regret bound of O(B SAKL + T 4S2AL5), with L = log(KT SAδ−1) (with probability at least 1 − δ). It achieves a nearly minimax-optimal rate, however it relies on both T and B prior knowledge to tune the horizon and terminal cost in the reduction, respectively.3
+2We refer the reader to Neu and Pike-Burke [2020] for details on the differences and interplay between model-optimistic and value-optimistic approaches.
+3As mentioned by Cohen et al. [2021, Remark 2], in the case of positive costs lower bounded by cmin > 0, their knowledge of T can be bypassed by replacing it with the upper bound T ≤ B /cmin. However, when generaliz√ing from the cmin case to general costs with a perturbation argument, their regret guarantee worsens from O( K + c−m4in) to O(K4/5), because of the poor additive dependence on c−m1in.
+2
+
+Algorithm
+
+Regret
+
+[Tarbouriech et al., 2020a] [Rosenberg et al., 2020]
+[Cohen et al., 2021] (concurrent work)
+This work
+Lower Bound
+
+OK (K2/3)
+
+O
+
+B
+
+√ S AK
+
++
+
+T
+
+3/2 S 2 A
+
+O
+
+B3/2S
+
+√ AK
+
++T
+
+B
+
+S2A
+
+√ O B SAK + T 4S2A
+
+√ O B SAK + B S2A
+
+√
+
+OB
+
+SAK + B
+
+S2A +
+
+T poly(K)
+
+√ O B SAK + B3S3A
+
+√
+
+OB
+
+SAK
+
++
+
+B3S3A
+
++
+
+T poly(K)
+
+√ Ω(B SAK)
+
+Minimax
+
+Parameters
+
+HorizonFree
+
+No
+
+None
+
+No
+
+No
+
+B
+
+No
+
+No
+
+None
+
+No
+
+Yes
+
+B ,T
+
+No
+
+Yes
+
+B ,T
+
+Yes
+
+Yes
+
+B
+
+No∗
+
+Yes
+
+T
+
+Yes
+
+Yes
+
+None
+
+No∗
+
+-
+
+-
+
+-
+
+Table 1: Regret comparisons of algorithms for online SSP (we assume for simplicity that B ≥ 1). The notation
+O omits logarithmic factors and OK only reports the de√pendence in K. Regret is the performance metric of Eq. 1. Minimax: Whether the regret matches the Ω(B SAK) lower bound [Rosenberg et al., 2020], up to logarithmic and lower-order terms. Parameters: The parameters that the algorithm requires as input: either both B and T , or one of them, or none (i.e., parameter-free). Horizon-Free: Whether the regret bound depends only logarithmically on T . ∗If K is known in advance, the additive term T /poly(K) has a denominator that is polynomial in K, so it becomes negligible for large values of K (if K is unknown, the additive term is T ). See Sect. 4 for the full statements of our bounds.
+
+Finally, all existing bounds contain lower-order dependencies either on T in the case of general costs, or on B /cmin in the case of positive costs lower bounded by cmin > 0 (note that T ≤ B /cmin, which is one of the reasons why cmin can show up in existing bounds). As such, no existing analysis satisﬁes horizon-free properties for online SSP.
+
+Contributions. We summarize our main contributions as follows (see also Table 1):
+
+• We propose EB-SSP (Exploration Bonus for SSP), a new algorithm for online SSP. It introduces a value-optimistic scheme to efﬁciently compute optimistic policies for SSP, by both perturbing the empirical costs with an exploration bonus and slightly biasing the empirical transitions towards reaching the goal from each state-action pair with positive probability. Under these biased transitions, all policies are in fact proper (i.e., they eventually reach the goal with probability 1 starting from any state). We decay the bias over time in a way that it only contributes to a lower-order regret term. See Sect. 3 for an overview of our algorithm and analysis. Note that EB-SSP is not based on a model-optimistic approach2 [Tarbouriech et al., 2020a, Rosenberg et al., 2020], and it does not rely on a reduction from SSP to ﬁnite-horizon [Cohen et al., 2021] (i.e., we operate at the level of the non-truncated SSP model);
+√ • EB-SSP is the ﬁrst algorithm to achieve the minimax regret rate of O(B SAK) while simulta-
+neously being parameter-free: it does not require to know nor estimate T , and it is able to bypass the knowledge of B at the cost of only logarithmic and lower-order contributions to the regret;
+
+• EB-SSP is the ﬁrst algorithm to achieve horizon-free regret for SSP in various cases: i) positive
+
+costs, ii) no almost-sure zero-cost cycles, and iii) the general cost case when an order-accurate
+
+estimate of T
+
+is available (i.e., a value T
+
+such
+
+that
+
+T υ
+
+≤T
+
+≤ λT ζ for some unknown constants
+
+υ, λ, ζ ≥ 1 is available). This property is especially relevant if T is much larger than B , which
+
+can occur in SSP models with very small instantaneous costs. Moreover, EB-SSP achieves its
+
+horizon-free guarantees while maintaining the minimax rate. For instance, under general costs when
+
+3
+
+√ relying on T and B , its regret is O(B SAK +B S2A).4 To the best of our knowledge, EB-SSP yields the ﬁrst set of (nearly) horizon-free bounds beyond the setting of ﬁnite-horizon MDPs.
+Additional Related Work. Planning in SSP: Early work by Bertsekas and Tsitsiklis [1991], followed by [e.g., Bertsekas, 1995, Bonet, 2007, Kolobov et al., 2011, Bertsekas and Yu, 2013, Guillot and Stauffer, 2020], examine the planning problem in SSP, i.e., how to compute an optimal policy when all parameters of the SSP model are known. Under mild assumptions, the optimal policy is deterministic and stationary and can be computed efﬁciently using standard planning techniques, e.g., value iteration, policy iteration or linear programming.
+Regret minimization in MDPs: The exploration-exploitation dilemma in tabular MDPs has been extensively studied in ﬁnite-horizon [e.g., Azar et al., 2017, Jin et al., 2018, Zanette and Brunskill, 2019, Efroni et al., 2019, Simchowitz and Jamieson, 2019, Zhang et al., 2020, Neu and Pike-Burke, 2020, Xu et al., 2021, Menard et al., 2021] and inﬁnite-horizon [e.g., Jaksch et al., 2010, Bartlett and Tewari, 2012, Fruit et al., 2018, Wang et al., 2020b, Qian et al., 2019, Wei et al., 2020].
+Other SSP-based settings: SSP with adversarial costs was investigated by Rosenberg and Mansour [2021], Chen et al. [2021], Chen and Luo [2021].5 Tarbouriech et al. [2021] study the sample complexity of SSP with a generative model, as a standard regret-to-PAC conversion may not hold in SSP (as opposed to ﬁnite-horizon). Exploration problems involving multiple goal states (i.e., multigoal SSP or goal-conditioned RL) were analyzed by Lim and Auer [2012], Tarbouriech et al. [2020b].
+
+2 Preliminaries
+
+An SSP problem is an MDP M := S, A, P, c, s0, g , where S is the ﬁnite state space with cardinality S, A is the ﬁnite action space with cardinality A, and s0 ∈ S is the initial state. We denote by g ∈/ S the goal state, and we set S := S ∪ {g} (thus S := S + 1). Taking action a in state s incurs
+a cost drawn i.i.d. from a distribution on [0, 1] with expectation c(s, a), and the next state s ∈ S is
+selected with probability P (s |s, a) (where s ∈S P (s |s, a) = 1). The goal state g is absorbing and zero-cost, i.e., P (g|g, a) = 1 and c(g, a) = 0 for any action a.
+
+For notational convenience, let Ps,a := P (·|s, a), Ps,a,s := P (s |s, a). For any two vectors X, Y
+
+of size S , we write their inner product as XY := s∈S X(s)Y (s), we denote by X2 the vector
+
+[X(1)2, X(2)2, . . . , X(S )2] , let
+
+X ∞ := maxs∈S |X(s)|,
+
+X
+
+=g ∞
+
+:=
+
+maxs∈S |X(s)|,
+
+and
+
+if X is a probability distribution on S , then V(X, Y ) := s∈S X(s)Y (s)2 − ( s∈S X(s)Y (s))2.
+
+A stationary and deterministic policy π : S → A is a mapping from state s to action π(s). A policy π is said to be proper if it reaches the goal with probability 1 when starting from any state in S (otherwise it is improper). We denote by Πproper the set of proper, stationary and deterministic policies. We make the following basic assumption which ensures that the SSP problem is well-posed.
+
+Assumption 1. There exists at least one proper policy, i.e., Πproper = ∅.
+
+The agent’s objective is to minimize its expected cumulative cost incurred until the goal is reached. The value function (also called cost-to-go) of a policy π and its associated Q-function are deﬁned as
+
+T
+
+T
+
+V π(s) := lim E ct(st, π(st)) s1 = s , Qπ(s, a) := lim E ct(st, π(st)) s1 = s, π(s1) = a ,
+
+T →∞
+
+T →∞
+
+t=1
+
+t=1
+
+where ct ∈ [0, 1] is the (instantaneous) cost incurred at time t at state-action pair (st, π(st)), and
+the expectation is w.r.t. the random sequence of states generated by executing π starting from state s ∈ S (and taking action a ∈ A in the second case). Note that V π may have unbounded components if π never reaches the goal. For a proper policy π, V π(s) and Qπ(s, a) are ﬁnite for any s, a. By deﬁnition of the goal, we set V π(g) = Qπ(g, a) = 0 for all policies π and actions a. Finally, we
+
+√ 4We conjecture the optimal problem-independent regret in SSP to be O(B SAK + B SA) (by analogy with the conjecture of Menard et al. [2021] for ﬁnite-horizon MDPs), which shows the tightness of our bound up to an S lower-order factor. 5A different line of work [e.g. Neu et al., 2010, 2012, Rosenberg and Mansour, 2019a,b, Jin et al., 2020, Jin and Luo, 2020] studies ﬁnite-horizon MDPs with adversarial costs (sometimes called online loop-free SSP), where an episode ends after a ﬁxed number of H steps (as opposed to lasting as long as the goal is reached).
+
+4
+
+denote by T π(s) the expected time that π takes to reach g starting at state s; in particular, if π is proper then T π(s) is ﬁnite for all s, yet if π is improper there must exist at least one s such that T π(s) = ∞.
+Equipped with Asm. 1 and an additional condition on improper policies deﬁned below, one can derive important properties on the optimal policy π that minimizes the value function component-wise.
+Lemma 2 (Bertsekas and Tsitsiklis, 1991;Yu and Bertsekas, 2013). Suppose that Asm. 1 holds and that for every improper policy π there exists at least one state s ∈ S such that V π (s) = +∞. Then the optimal policy π is stationary, deterministic, and proper. Moreover, V = V π is the unique solution of the optimality equations V = LV and V (s) < +∞ for any s ∈ S, where for any vector V ∈ RS the optimal Bellman operator L is deﬁned as LV (s) := mina∈A c(s, a) + Ps,aV . Also, the optimal Q-value, denoted by Q = Qπ , is related to the optimal value function as follows: Q (s, a) = c(s, a) + Ps,aV and V (s) = mina∈A Q (s, a), for all (s, a) ∈ S × A.
+Since we will target the best proper policy, we will handle the second requirement of Lem. 2 as follows [Bertsekas and Yu, 2013, Rosenberg et al., 2020]. First, the requirement is in particular veriﬁed if all instantaneous costs are strictly positive. To deal with the case of non-negative costs, we can introduce a small additive perturbation η ∈ (0, 1] to all costs to yield a new (strictly positive) cost function cη(s, a) = max{c(s, a), η}. In this cost-perturbed MDP, the conditions of Lem. 2 hold so we get an optimal policy πη that is stationary, deterministic and proper and has a ﬁnite value function Vη . Taking the limit as η → 0, we have that πη → π and Vη → V π , where π is the optimal proper policy in the original model that is also stationary and deterministic, and V π denotes its value function. This enables to circumvent the second condition of Lem. 2 and only require Asm. 1 to hold.
+
+Learning formulation. We consider the learning problem where the agent does not have any prior knowledge of the cost function c or transition function P . Each episode starts at the initial state s0 (the extension to any possibly unknown distribution of initial states is straightforward), and ends only when the goal state g is reached (note that this may never happen if the agent does not reach the goal). We evaluate the performance of the agent after K episodes by its regret, which is deﬁned as
+
+K Ik
+
+RK
+
+:=
+
+ckh
+
+k=1 h=1
+
+− K · min V π(s0),
+π∈Πproper
+
+(1)
+
+where Ik is the time needed to complete episode k and ckh is the cost incurred in the h-th step of episode k when visiting (skh, akh). If there exists k such that Ik is inﬁnite, then we deﬁne RK = ∞. Throughout we denote the optimal proper policy by π and V (s) := V π (s) = minπ∈Πproper V π(s)
+and Q (s, a) := Qπ (s, a) = minπ∈Πproper Qπ(s, a) for all (s, a). Let B > 0 bound the values
+of V , i.e., B := maxs∈S V (s). Note that Q (s, a) ≤ 1 + B . Also let T > 0 bound the expected time-to-goal of the optimal policy, i.e., T := maxs∈S T π (s). We see that B ≤ T < +∞.
+
+3 Main Algorithm
+
+We introduce our algorithm EB-SSP (Exploration Bonus for SSP) in Alg. 1. It takes as input the state-action space S × A and conﬁdence level δ ∈ (0, 1). For now it considers that an estimate B such that B ≥ max{B , 1} is available, and we later handle the case of unknown B (Sect. 4.2 and App. H). As explained in Sect. 2, the algorithm enforces the conditions of Lem. 2 to hold by adding a small cost perturbation η ∈ [0, 1] (cf. lines 3, 12 in Alg. 1) — either η = 0 if the agent is aware that all costs are already positive, otherwise a careful choice of η > 0 is provided in Sect. 4.
+Our algorithm builds on a value-optimistic approach by sequentially constructing optimistic lower bounds on the optimal Q-function and executing the policy that greedily minimizes them. Similar to the MVP algorithm of Zhang et al. [2021a] designed for ﬁnite-horizon RL, we adopt the doubling update framework (ﬁrst proposed by Jaksch et al. [2010]): whenever the number of visits of a state-action pair is doubled, the algorithm updates the empirical cost and transition probability of this state-action pair, and computes a new optimistic Q-estimate and optimistic greedy policy. Note that this slightly differs from MVP which waits for the end of its ﬁnite-horizon episode to update the policy. In SSP, however, having this delay may yield linear regret as the episode has the risk of never terminating under the current policy (e.g., if it is improper), which is why we perform the policy update instantaneously when the doubling condition is met.
+
+5
+
+Algorithm 1: Algorithm EB-SSP
+
+1 Input: S, s0 ∈ S, g ∈ S, A, δ.
+
+2 Input: an estimate B guaranteeing B ≥ max{B , 1} (see Sect. 4.2 and App. H if not available).
+
+3 Optional input: cost perturbation η ∈ [0, 1].
+
+√
+
+√
+
+4 Specify: Trigger set N ← {2j−1 : j = 1, 2, . . .}. Constants c1 = 6, c2 = 36, c3 = 2 2, c4 = 2 2.
+
+5 For (s, a, s ) ∈ S × A × S , set N (s, a) ← 0; n(s, a) ← 0; N (s, a, s ) ← 0; Ps,a,s ← 0; θ(s, a) ← 0; c(s, a) ← 0; Q(s, a) ← 0; V (s) ← 0.
+
+6 Set initial time step t ← 1 and trigger index j ← 0.
+
+7 for episode k = 1, 2, . . . do
+
+8 Set st ← s0
+
+9 while st = g do
+
+10
+
+Take action at = arg mina∈A Q(st, a), incur cost ct and observe next state st+1 ∼ P (·|st, at).
+
+11
+
+Set (s, a, s , c) ← (st, at, st+1, max{ct, η}) and t ← t + 1.
+
+12
+
+Set N (s, a) ← N (s, a) + 1, θ(s, a) ← θ(s, a) + c, N (s, a, s ) ← N (s, a, s ) + 1.
+
+13
+
+if N (s, a) ∈ N then
+
+14
+
+\\ Update triggered: VISGO procedure.
+
+15
+
+Set
+
+c(s, a)
+
+←
+
+I[N (s, a)
+
+≥
+
+2]
+
+2θ(s,a) N (s,a)
+
++
+
+I[N (s, a)
+
+=
+
+1]θ(s, a)
+
+and
+
+θ(s, a)
+
+←
+
+0.
+
+16
+
+For s ∈ S , set Ps,a,s ← N (s, a, s )/N (s, a), n(s, a) ← N (s, a), and Ps,a,s as in Eq. 5.
+
+17
+
+Set j ← j + 1, VI ← 2−j /(SA) and i ← 0, V (0) ← 0, V (−1) ← +∞.
+
+18
+
+For all (s, a) ∈ S × A, set n+(s, a) ← max{n(s, a), 1} and ιs,a ← ln
+
+12SAS [n+(s,a)]2 δ
+
+.
+
+19
+
+while V (i) − V (i−1) ∞ > VI do
+
+20
+
+For all (s, a) ∈ S × A, set
+
+b(i+1)(s, a) ← b(V (i), s, a), \\ see Eq. 6 for bonus expression
+
+(2)
+
+Q(i+1)(s, a) ← max c(s, a) + Ps,aV (i) − b(i+1)(s, a), 0 ,
+
+(3)
+
+V (i+1)(s) ← min Q(i+1)(s, a).
+
+(4)
+
+a
+
+21
+
+Set V (i+1)(g) = 0 and i ← i + 1.
+
+22
+
+Set Q ← Q(i), V ← V (i).
+
+The main algorithmic component lies in how to compute the Q-values (w.r.t. which the policy is greedy) when a doubling condition is met. To this purpose, we introduce a procedure called VISGO, for Value Iteration with Slight Goal Optimism. Starting with optimistic values V (0) = 0, it iteratively computes V (i+1) = LV (i) for a carefully deﬁned operator L. It ends when a stopping condition is met, speciﬁcally once V (i+1) − V (i) ∞ ≤ VI for a precision level VI > 0 (speciﬁed later), and it outputs the values V (i+1) (and Q-values Q(i+1)). We now explain how we design L and
+then provide some intuition. Let P and c be the current empirical transition probabilities and costs, and let n(s, a) be the current number of visits to state-action pair (s, a) (and n+(s, a) = max{n(s, a), 1}).
+We ﬁrst deﬁne transition probabilities P that are slightly skewed towards the goal w.r.t. P , as follows
+
+n(s, a)
+
+I[s = g]
+
+Ps,a,s
+
+:= n(s, a) + 1 Ps,a,s
+
++
+
+.
+
+n(s, a) + 1
+
+(5)
+
+Given the estimate B, speciﬁc positive constants c1, c2, c3, c4 and a state-action dependent logarithmic term ιs,a, we then deﬁne the exploration bonus function, for any state-action pair (s, a) ∈ S × A and vector V ∈ RS such that V (g) = 0, as follows
+
+b(V, s, a) := max c1
+
+V(Ps,a, V )ιs,a n+(s, a)
+
+,
+
+c2
+
+Bιs,a n+(s, a)
+
++ c3
+
+c(s, a)ιs,a n+(s, a)
+
++
+
+c4
+
+B S ιs,a n+(s, a)
+
+.
+
+(6)
+
+Note that the last term in Eq. 6 accounts for the skewing of P w.r.t. P (see Lem. 14). Given the transitions P and exploration bonus b, we are ready to deﬁne the operator L as
+
+LV (s) := max min c(s, a) + Ps,aV − b(V, s, a) , 0 .
+
+(7)
+
+a∈A
+
+We see that L promotes optimism in two different ways:
+
+6
+
+(i) On the empirical cost function c, via the bonus b (Eq. 6) that intuitively lowers the costs to c − b;
+(ii) On the empirical transition function P , via the transitions P (Eq. 5) that slightly bias P with the addition of a non-zero probability of reaching the goal from every state-action pair.
+While the ﬁrst feature (i) is standard in ﬁnite-horizon approaches, the second (ii) is SSP-speciﬁc, and is required to cope with the fact that the empirical model P may not admit any proper policy, meaning that executing value iteration for SSP on P may diverge. Our simple transition skewing actually guarantees that all policies are proper in P , for any ﬁxed and bounded cost function.6 By decaying the extra goal-reaching probability inversely with n(s, a), we can tightly control the gap
+between P and P and ensure that it only accounts for a lower-order regret term (cf. last term of Eq. 6).
+Equipped with these two sources of optimism, as long as B ≥ B , we are able to prove that a VISGO procedure veriﬁes the following two key properties:
+(1) Optimism: VISGO outputs an optimistic estimator of the optimal Q-function at each iteration step, i.e., Q(i)(s, a) ≤ Q (s, a), ∀i ≥ 0,
+(2) Finite-time near-convergence: VISGO terminates within a ﬁnite number of iteration steps (note that the ﬁnal iterate V (j) approximates the ﬁxed point of L up to an error scaling with VI).
+To satisfy (1), we derive similarly to MVP [Zhang et al., 2021a] a monotonicity property for the operator L, which is achieved by carefully tuning the constants c1, c2, c3, c4 in the bonus of Eq. 6. On the other hand, the requirement (2) is SSP-speciﬁc, since it is not needed in ﬁnite-horizon where value iteration requires exactly H backward induction steps. Without bonuses, the design of P would have directly entailed that L is contractive and convergent [Bertsekas, 1995]. However, our variance-aware exploration bonuses introduce a subtle correlation between value iterates (i.e., b depends on V in Eq. 6), which leads to a cost function that varies across iterates. By directly analyzing L, we establish that it is contractive with modulus ρ := 1 − ν < 1, where ν := mins,a P s,a,g > 0. This contraction property guarantees a polynomially bounded number of iterations before terminating, i.e., (2).
+Remark 1 (Computational complexity). Denote by T the accumulated time within the K episodes. By the stopping condition ||V (i+1) − V (i)||∞ ≤ VI, the choice of VI and the ρ-contraction of the operator L with ρ ≤ 1 − 1/T , any VISGO procedure is guaranteed to stop at an iteration i ≤ log(max{B , 1}/ VI)/(1−ρ) = O(T SA log(T max{B , 1})). Since there are at most O(SA log T ) VISGO procedures, we see that the total computational complexity of EB-SSP is near-linear in T , where T is bounded polynomially w.r.t. K as shown in the various cases of Sect. 4.1 (see App. G for details). Therefore EB-SSP is computationally efﬁcient. Note that its poly(K) complexity is a limitation shared by all existing parameter-free algorithms in SSP. On the other hand, the algorithm of Cohen et al. [2021] can obtain a log(K) computational complexity but only with T prior knowledge: without it, using the upper bound T ≤ B /cmin, where c−m1in becomes poly(K) when applying the cost perturbation trick, also leads to poly(K) complexity. It is an interesting open question whether it is possible in SSP to have log(K) computational complexity while staying parameter-free.
+
+4 Main Results
+
+Besides ensuring the computational efﬁciency of EB-SSP, the properties of VISGO lay the foundations for our regret analysis (App. D) to yield the following general guarantee.
+Theorem 3. Assume that B ≥ max{B , 1} and that the conditions of Lem. 2 hold. Then with probability at least 1 − δ the regret of EB-SSP (Alg. 1 with η = 0) can be bounded by
+
+RK = O
+
+(B2 + B )SAK log max{B , 1}SAT + BS2A log2 max{B , 1}SAT
+
+δ
+
+δ
+
+,
+
+with T the accumulated time within the K episodes.
+
+6In fact this transition skewing implies that an SSP problem deﬁned on P is equivalent to a discounted RL problem, with a varying state-action dependent discount factor. Also note that for different albeit mildly related purposes, a perturbation trick is sometimes used in regret minimization for average-reward MDPs [e.g., Fruit et al., 2018, Qian et al., 2019], where a non-zero probability of reaching an arbitrary state at each state-action is added to guarantee that all policies are unichain and that value iteration variants nearly converge in ﬁnite-time.
+
+7
+
+Thm. 3 is an intermediate result for the regret of EB-SSP, as it depends on the random and possibly unbounded total number of steps T executed over K episodes, it requires the possibly restrictive second condition of Lem. 2, and it relies on the parameter B being properly tuned. Nonetheless, it already displays interesting properties: 1) The dependence on T is limited to logarithmic terms; 2) The parameter B only affects the lower order term, while the main order term naturally scales with the exact range B ; 3) Up to dependence on T , the main order term displays minimax optimal dependencies on B , S, A, and K.
+Throughout the rest of the section, we consider for ease of exposition that B ≥ 1.7 For simplicity, when tuning the cost perturbations later, we assume as in prior works [e.g., Rosenberg et al., 2020, Chen et al., 2021, Chen and Luo, 2021] that the total number of episodes K is known to the agent (this knowledge can be eliminated with the standard doubling trick).
+Proof idea of Thm. 3. We decompose the regret into three parts: X1 (error on the optimistic V values), X2 (Bellman error) and X3 (cost estimation error), and among them the major part is X2. Later, X1 and X2 introduce the intermediate quantities X4 (variance of the optimistic V -values) and X5 (variance of the differences V − V ), which are bounded using the recursion technique generalized from Zhang et al. [2021a], where we normalize the values by 1/B to avoid an exponential blow-up in the recursions. At a high-level, the key idea is to calculate errors of different orders, F (1), F (2), . . . , F (d), . . . (see Lem. 24 and 25), and recursively bound F (i)’s variance by a sublinear function of F (i + 1). Throughout the proof, we bound quan√tities by solving inequalitie√s that contain the unknown quantities on both sides, such as X3 ≤ O( X3 + CK ) or X2 ≤ O( X2 + CK ), where the random variable CK denotes the cumulative cost over the K episodes. Indeed, the analysis at each time step t brings out the instantaneous cost ct and it is important to combine them so tha√t we can m√ake CK appear explicitly. Ultimately, we obtain a regret bound scaling as RK = O(( B + 1) SACK ). Since the regret in SSP is deﬁned as RK = CK − KV (s0), we obtain a quadratic inequality in CK, which we solve to get the O( (B2 + B )SAK) regret bound.
+
+4.1 Regret Bounds for B = B
+
+First we assume that B = B (i.e., the agent has prior knowledge of B ) and we instantiate the regret achieved by EB-SSP under various conditions on the SSP model.
+
+Positive Costs. We ﬁrst focus on the case of positive costs. Assumption 4. All costs are lower bounded by a constant cmin > 0 which is unknown to the agent.
+
+Asm. 4 guarantees that the conditions of Lem. 2 hold. Moreover, denoting by C the cumulative cost over K episodes, the total time satisﬁes T ≤ C/cmin. By simplifying the bound of Thm. 3 as C ≤ B K + RK ≤ O(B S2AK · B T SA/δ), we loosely obtain that T = O(B3S5A3K2/(c2minδ)).
+Corollary 5. Under Asm. 4, running EB-SSP (Alg. 1) with B = B and η = 0 gives the following regret bound with probability at least 1 − δ
+
+√ RK = O B SAK log
+
+KB SA cminδ
+
++ B S2A log2
+
+KB SA cminδ
+
+.
+
+The bound of Cor. 5 only depends polynomially on K, S, A, B . We note that T ≤ B /cmin and that this upper bound only appears in the logarithms. Under positive costs, the regret of EB-SSP is thus (nearly) minimax and horizon-free. Furthermore, in App. B we introduce an alternative assumption on the SSP problem (which is weaker than Asm. 4) that considers that there are no almost-sure zero-cost cycles. In this case also, the regret of EB-SSP is (nearly) minimax and horizon-free.
+General Costs and T Unknown. Now we handle the case of non-negative costs, with no assumption other than Asm. 1. We use a cost perturbation argument to generalize the results from positive to general costs (similar to Tarbouriech et al. [2020a], Rosenberg et al. [2020]). As reviewed in Sect. 2, this circumvents the second condition of Lem. 2 (which holds in the cost-perturbed MDP) and target the optimal proper policy in the original MDP up to a bias scaling with the cost perturbation. Indeed, running EB-SSP with costs cη(s, a) ← max{c(s, a), η} for η ∈ (0, 1] gives the bound of Cor. 5 with cmin ← η, B ← B + ηT and an additive bias of ηT K. We then pick η to balance these terms.
+7Otherwise, all √later bounds hold by replacing B with max{B , 1}, except for th√e B factor in the leading term that becomes B . This matches the lower bound of Cohen et al. [2021] of Ω( B SAK) for B < 1.
+
+8
+
+Corollary 6. Let L := log KT SAδ−1 . Running EB-SSP (Alg. 1) with B = B and η = K−n for
+
+any choice of constant n > 1 gives the following regret bound with probability at least 1 − δ
+
+RK = O
+
+nB
+
+√ S AK L
+
++
+
+√
+
+T
+
+nT SAL
+
+Kn−1 + Kn−1/2
+
++
+
+n2B
+
+S2AL2
+
+.
+
+√ This bound can be decomposed as (i) a K leading term and (ii) an additive term that depends on T and vanishes as K → +∞ (we omit the last term that does not depend polynomially on either K or T ). Note that the second term (ii) can be made as small as possible by increasing the choice of exponent n in the cost perturbation, at the cost of the multiplicative constant n in (i). Equipped only with Asm. 1, the regret of EB-SSP is thus (nearly) minimax, and it may be dubbed as horizon-vanishing when K is given in advance, insofar as it contains an additive term that depends on T and that becomes negligible for large values of K (if K is unknown in advance, the application of the doubling trick yields an additive term (ii) scaling as T ). We now show that the trade-off between (i) and (ii) can be resolved with loose knowledge of T and leads to a horizon-free bound.
+
+General Costs and Order-Accurate Estimate of T Available. We now consider that an orderaccurate estimate of T is available. It may be a constant lower-bound approximation away from T , or a polynomial upper-bound approximation away from T .
+
+Assumption 7. The agent has prior knowledge of a quantity T
+
+that
+
+veriﬁes
+
+T υ
+
+≤T
+
+≤ λT ζ for
+
+some unknown constants υ, λ, ζ ≥ 1. (Note that υ = λ = ζ = 1 when T is known.)
+
+We now tune the cost perturbation η using T . Speciﬁcally, selecting η := (T K)−1 ensures that the bias satisﬁes ηT K ≤ υ = O(1). We thus obtain the following guarantee (see App. C for the explicit dependencies on the constant terms υ, λ, ζ which only appear as multiplicative and additive factors).
+
+Corollary 8. Under Asm. 7, running EB-SSP (Alg. 1) with B = B and η = (T K)−1 gives the following regret bound with probability at least 1 − δ
+
+√ RK = O B SAK log
+
+KT SA δ
+
++ B S2A log2
+
+KT SA δ
+
+.
+
+This bound depends polynomially on K, S, A, B , and only logarithmically on T . Thus under general costs with an order-accurate estimate of T , EB-SSP’s regret is (nearly) minimax and horizon-free.
+We can c√ompare Cor. 8 with the concurrent result of Cohen et al. [2021]. Their regret bound scales as O(B SAKL + T 4S2AL5) with L = log(KT SAδ−1) under the assumptions of known T and B (or tight upper bounds of them), which imply that the conditions of Cor. 8 hold. The bound of Cor. 8 is strictly tighter, since it always holds that B ≤ T and the gap between the two may be arbitrarily large (see e.g., App. A), especially when some instantaneous costs are very small.
+
+4.2 Regret Bounds for Unknown B with Parameter-Free EB-SSP
+We now introduce a parameter-free version of EB-SSP that bypasses the requirement of B ≥ B (line 2 of Alg. 1). Note that the challenge of not knowing the range of the optimal value function does not appear in ﬁnite-horizon MDPs, where the bound H (or 1 for Zhang et al. [2021a]) is assumed to be known to the agent. In SSP, if the agent does not have a valid estimate B ≥ B , then it may design an under-speciﬁed exploration bonus which cannot guarantee optimism. The case of unknown B is non-trivial: it appears impossible to properly estimate B (since some states may never be visited) and it is unclear how a standard doubling trick may be used.8
+Parameter-free EB-SSP initializes a proxy B = 1 and increases it over the learning interaction according to a carefully deﬁned schedule. We need to ensure that the proxy B does not remain below B for too long, since in this case, the regret may keep growing linearly. Thus, ou√r ﬁrst condition to increase B is whenever a new episode k begins, speciﬁcally we set B ← max{B, k/(S3/2A1/2)}, which ensures that B ≥ B for large enough episodes. However, this is not enough: indeed notice that when B < B , the agent may never reach the goal and thus get stuck in the episode, so we cannot
+8Note that Qian et al. [2019] raised an open question whether it is possible to design an exploration bonus strategy in a setting where no prior knowledge of the “optimal range” is available. Indeed their approach in average-reward MDPs relies on prior knowledge of an upper bound on the optimal bias span.
+
+9
+
+exclusively rely on the end of an episode as a trigger for increasing B. Our second condition to increase B is to set B ← 2B whenever the cumulative cost exceeds a carefully deﬁned threshold (that depends on B, S, A, δ and the current episode and time indexes k and t, which are all computable quantities). Since the regret is upper bounded by the cumulative cost, this second condition prevents the learner from accumulating too large regret when B < B . Finally, we introduce a third condition to increase B in order to ensure the computational efﬁciency, since VISGO may diverge when B < B (speciﬁcally, we track the range of the value V (i) at each VISGO iteration i and if V (i) ∞ > B, then we terminate VISGO and increase B ← 2B). At a high-level, the analysis of the scheme proceeds as follows: we bound the regret by the cumulative cost when B < B (ﬁrst regime), and by the regret bound of Thm. 3 when B ≥ B (second regime). Note that this two-regime decomposition is only implicit (i.e., at the level of analysis), since the agent is unable to know in which regime it is (since B is unknown). The full pseudo-code and analysis of parameter-free EB-SSP is deferred to App. H.
+Theorem 9 (Extension of Theorem 3 to unknown B ). Assume the conditions of Lem. 2 hold. Then with probability at least 1 − δ the regret of parameter-free EB-SSP (Alg. 2, App. H) can be bounded by
+
+B SAT
+
+RK = O RK log
+
+δ
+
++ B3S3A log3 B SAT δ
+
+,
+
+where T is the cumulative time within the K episodes and RK bounds the regret after K episodes of EB-SSP in the case of known B (i.e., the bound of Thm. 3 with B = B ).
+Thm. 9 implies that we can remove the condition of B ≥ max{B , 1} in Thm. 3, i.e., we make the statement parameter-free. Hence, all the regret bounds from Sect. 4.1 in the case of known B (i.e., Cor. 5, 6, 8, 11) still hold up to additional logarithmic and lower-order terms when B is unknown.
+
+5 Conclusion
+We introduced EB-SSP, the ﬁrst algorithm for online SSP to be simultaneously nearly minimaxoptimal and parameter-free (i.e., it does not need to know T nor B ). Also in various cases its regret is nearly horizon-free with only a logarithmic dependence on T , thus exponentially improving over existing bounds w.r.t. the dependence on T , which may be arbitrarily larger than B when instantaneous costs are small. The horizon-free property is perhaps even more meaningful in the goal-oriented setting than in ﬁnite-horizon MDPs (with total reward bounded by 1) [e.g., Wang et al., 2020a, Zhang et al., 2021a,b], as we do not impose a known constraint on the total cost of a trajectory.
+An interesting question raised by our paper is whether it is possible to simultaneously achieve minimax, parameter-free and horizon-free regret for SSP under general costs. Another direction can be to build on our approach (e.g., the VISGO procedure) to derive tight sample complexity bounds in SSP, which as explained by Tarbouriech et al. [2021] do not directly ensue from regret guarantees.
+
+Acknowledgement
+SSD gratefully acknowledges the funding from NSF Award’s IIS-2110170 and DMS-2134106.
+
+References
+Mohammad Gheshlaghi Azar, Ian Osband, and Rémi Munos. Minimax regret bounds for reinforcement learning. In Proceedings of the 34th International Conference on Machine Learning-Volume 70, pages 263–272. JMLR. org, 2017.
+Peter L Bartlett and Ambuj Tewari. Regal: A regularization based algorithm for reinforcement learning in weakly communicating mdps. arXiv preprint arXiv:1205.2661, 2012.
+Dimitri Bertsekas. Dynamic programming and optimal control, volume 2. 1995. Dimitri P Bertsekas. Linear network optimization: algorithms and codes. Mit Press, 1991.
+10
+
+Dimitri P Bertsekas and John N Tsitsiklis. An analysis of stochastic shortest path problems. Mathematics of Operations Research, 16(3):580–595, 1991.
+Dimitri P Bertsekas and Huizhen Yu. Stochastic shortest path problems under weak conditions. Lab. for Information and Decision Systems Report LIDS-P-2909, MIT, 2013.
+Blai Bonet. On the speed of convergence of value iteration on stochastic shortest-path problems. Mathematics of Operations Research, 32(2):365–373, 2007.
+Liyu Chen and Haipeng Luo. Finding the stochastic shortest path with low regret: The adversarial cost and unknown transition case. arXiv preprint arXiv:2102.05284, 2021.
+Liyu Chen, Haipeng Luo, and Chen-Yu Wei. Minimax regret for stochastic shortest path with adversarial costs and known transition. In Conference on Learning Theory, pages 1180–1215. PMLR, 2021.
+Alon Cohen, Yonathan Efroni, Yishay Mansour, and Aviv Rosenberg. Minimax regret for stochastic shortest path. arXiv preprint arXiv:2103.13056, 2021.
+Yonathan Efroni, Nadav Merlis, Mohammad Ghavamzadeh, and Shie Mannor. Tight regret bounds for model-based reinforcement learning with greedy policies. In Advances in Neural Information Processing Systems, 2019.
+Ronan Fruit, Matteo Pirotta, Alessandro Lazaric, and Ronald Ortner. Efﬁcient bias-span-constrained exploration-exploitation in reinforcement learning. In International Conference on Machine Learning, pages 1578–1586. PMLR, 2018.
+Matthieu Guillot and Gautier Stauffer. The stochastic shortest path problem: a polyhedral combinatorics perspective. European Journal of Operational Research, 285(1):148–158, 2020.
+Thomas Jaksch, Ronald Ortner, and Peter Auer. Near-optimal regret bounds for reinforcement learning. Journal of Machine Learning Research, 11(Apr):1563–1600, 2010.
+Chi Jin, Zeyuan Allen-Zhu, Sebastien Bubeck, and Michael I Jordan. Is q-learning provably efﬁcient? In Advances in Neural Information Processing Systems, pages 4863–4873, 2018.
+Chi Jin, Tiancheng Jin, Haipeng Luo, Suvrit Sra, and Tiancheng Yu. Learning adversarial markov decision processes with bandit feedback and unknown transition. In International Conference on Machine Learning, pages 4860–4869. PMLR, 2020.
+Tiancheng Jin and Haipeng Luo. Simultaneously learning stochastic and adversarial episodic mdps with known transition. Advances in Neural Information Processing Systems, 33, 2020.
+Andrey Kolobov, Mausam, Daniel Weld, and Hector Geffner. Heuristic search for generalized stochastic shortest path mdps. In Proceedings of the International Conference on Automated Planning and Scheduling, volume 21, 2011.
+Shiau Hong Lim and Peter Auer. Autonomous exploration for navigating in mdps. In Conference on Learning Theory, pages 40–1. JMLR Workshop and Conference Proceedings, 2012.
+Andreas Maurer and Massimiliano Pontil. Empirical bernstein bounds and sample variance penalization. arXiv preprint arXiv:0907.3740, 2009.
+Pierre Menard, Omar Darwiche Domingues, Xuedong Shang, and Michal Valko. Ucb momentum q-learning: Correcting the bias without forgetting. In Proceedings of the 38th International Conference on Machine Learning, pages 7609–7618. PMLR, 2021.
+Gergely Neu and Ciara Pike-Burke. A unifying view of optimism in episodic reinforcement learning. In Advances in Neural Information Processing Systems, volume 33, pages 1392–1403, 2020.
+Gergely Neu, András György, and Csaba Szepesvári. The online loop-free stochastic shortest-path problem. In COLT, volume 2010, pages 231–243. Citeseer, 2010.
+11
+
+Gergely Neu, Andras Gyorgy, and Csaba Szepesvári. The adversarial stochastic shortest path problem with unknown transition probabilities. In Artiﬁcial Intelligence and Statistics, pages 805–813. PMLR, 2012.
+Jian Qian, Ronan Fruit, Matteo Pirotta, and Alessandro Lazaric. Exploration bonus for regret minimization in discrete and continuous average reward mdps. In Advances in Neural Information Processing Systems, pages 4891–4900, 2019.
+Aviv Rosenberg and Yishay Mansour. Online convex optimization in adversarial markov decision processes. In International Conference on Machine Learning, pages 5478–5486. PMLR, 2019a.
+Aviv Rosenberg and Yishay Mansour. Online stochastic shortest path with bandit feedback and unknown transition function. Advances in Neural Information Processing Systems, 32:2212–2221, 2019b.
+Aviv Rosenberg and Yishay Mansour. Stochastic shortest path with adversarially changing costs. In Proceedings of the Thirtieth International Joint Conference on Artiﬁcial Intelligence, IJCAI-21, pages 2936–2942, 2021.
+Aviv Rosenberg, Alon Cohen, Yishay Mansour, and Haim Kaplan. Near-optimal regret bounds for stochastic shortest path. In International Conference on Machine Learning, pages 8210–8219. PMLR, 2020.
+Max Simchowitz and Kevin G. Jamieson. Non-asymptotic gap-dependent regret bounds for tabular mdps. In Advances in Neural Information Processing Systems, volume 32, pages 1151–1160, 2019.
+Jean Tarbouriech, Evrard Garcelon, Michal Valko, Matteo Pirotta, and Alessandro Lazaric. No-regret exploration in goal-oriented reinforcement learning. In International Conference on Machine Learning, pages 9428–9437. PMLR, 2020a.
+Jean Tarbouriech, Matteo Pirotta, Michal Valko, and Alessandro Lazaric. Improved sample complexity for incremental autonomous exploration in mdps. In Advances in Neural Information Processing Systems, volume 33, pages 11273–11284, 2020b.
+Jean Tarbouriech, Matteo Pirotta, Michal Valko, and Alessandro Lazaric. Sample complexity bounds for stochastic shortest path with a generative model. In Algorithmic Learning Theory, pages 1157–1178. PMLR, 2021.
+Ruosong Wang, Simon S. Du, Lin F. Yang, and Sham M. Kakade. Is long horizon RL more difﬁcult than short horizon RL? In Advances in Neural Information Processing Systems, 2020a.
+Yuanhao Wang, Kefan Dong, Xiaoyu Chen, and Liwei Wang. Q-learning with ucb exploration is sample efﬁcient for inﬁnite-horizon mdp. In International Conference on Learning Representations, 2020b.
+Chen-Yu Wei, Mehdi Jafarnia-Jahromi, Haipeng Luo, Hiteshi Sharma, and Rahul Jain. Modelfree reinforcement learning in inﬁnite-horizon average-reward markov decision processes. In International Conference on Machine Learning, 2020.
+Haike Xu, Tengyu Ma, and Simon S Du. Fine-grained gap-dependent bounds for tabular mdps via adaptive multi-step bootstrap. arXiv preprint arXiv:2102.04692, 2021.
+Huizhen Yu and Dimitri P Bertsekas. On boundedness of q-learning iterates for stochastic shortest path problems. Mathematics of Operations Research, 38(2):209–227, 2013.
+Andrea Zanette and Emma Brunskill. Tighter problem-dependent regret bounds in reinforcement learning without domain knowledge using value function bounds. In International Conference on Machine Learning, pages 7304–7312, 2019.
+Zihan Zhang, Yuan Zhou, and Xiangyang Ji. Almost optimal model-free reinforcement learningvia reference-advantage decomposition. Advances in Neural Information Processing Systems, 33, 2020.
+12
+
+Zihan Zhang, Xiangyang Ji, and Simon Du. Is reinforcement learning more difﬁcult than bandits? a near-optimal algorithm escaping the curse of horizon. In Conference on Learning Theory, pages 4528–4531. PMLR, 2021a.
+Zihan Zhang, Jiaqi Yang, Xiangyang Ji, and Simon S Du. Variance-aware conﬁdence set: Variancedependent bound for linear bandits and horizon-free bound for linear mixture mdp. arXiv preprint arXiv:2101.12745, 2021b.
+Zihan Zhang, Yuan Zhou, and Xiangyang Ji. Model-free reinforcement learning: from clipped pseudo-regret to sample complexity. In Proceedings of the 38th International Conference on Machine Learning, pages 12653–12662. PMLR, 2021c.
+13
+

@@ -1,0 +1,688 @@
+404
+
+IEEE ROBOTICS AND AUTOMATION LETTERS, VOL. 2, NO. 2, APRIL 2017
+
+Estimation, Control, and Planning for Aggressive Flight With a Small Quadrotor With a Single Camera and IMU
+Giuseppe Loianno, Chris Brunner, Gary McGrath, and Vijay Kumar
+
+Abstract—We address the state estimation, control, and planning for aggressive ﬂight with a 150 cm diameter, 250 g quadrotor equipped only with a single camera and an inertial measurement unit (IMU). The use of smartphone grade hardware and the small scale provides an inexpensive and practical solution for autonomous ﬂight in indoor environments. The key contributions of this paper are: 1) robust state estimation and control using only a monocular camera and an IMU at speeds of 4.5 m/s, accelerations of over 1.5 g, roll and pitch angles of up to 90◦, and angular rate of up to 800◦/s without requiring any structure in the environment; 2) planning of dynamically feasible three-dimensional trajectories for slalom paths and ﬂights through narrow windows; and 3) extensive experimental results showing aggressive ﬂights through and around obstacles with large rotation angular excursions and accelerations.
+Index Terms—Aerial robotics, optimization and optimal control, sensor-based control.
+I. INTRODUCTION
+M ICRO Aerial Vehicles (MAVs) equipped with on-board sensors, are ideal platforms for autonomous navigation in complex and conﬁned environments for solving tasks such as exploration [1], inspection [2], [3], mapping [4], interaction with the environment [5], [6] and, search and rescue [7].
+In this work, we analyze the problem of aggressive maneuvers with a small and lightweight quadrotor platform using on-board sensing capabilites such as a single camera and IMU. Aggressive and fast maneuvers have always been considered an active
+Manuscript received September 10, 2016; accepted November 5, 2016. Date of publication November 29, 2016; date of current version December 26, 2012. This paper was recommended for publication by Associate Editor P. Pounds and Editor J. Roberts upon evaluation of the reviewers’ comments. This work was supported in part by the Qualcomm Research, in part by the ARL Grant W911NF-08-2-0004, in part by the ONR Grants N00014-07-1-0829 and N00014-14-1-0510, in part by the ARO Grant W911NF-13-1-0350, in part by the NSF Grants IIS-1426840 and IIS-1138847, in part by the DARPA Grants HR001151626 and HR0011516850, and in part by the TerraSwarm, one of six centers of STARnet, a Semiconductor Research Corporation program sponsored by MARCO and DARPA.
+G. Loianno and V. Kumar are with the General Robotics, Automation, Sensing, and Perception Laboratory, University of Pennsylvania, Phialdelphia, PA 19103 USA (e-mail: loiannog@seas.upenn.edu; kumar@seas.upenn.edu).
+C. Brunner and G. McGrath are with Qualcomm Technologies, Inc., San Diego, CA 92121 USA (e-mail: chris@qti.qualcomm.com; gmcgrath@ qti.qualcomm.com).
+This paper has supplementary downloadable material available at http://ieeexplore.ieee.org, provided by the authors. Color versions of one or more of the ﬁgures in this letter are available online at http://ieeexplore.ieee.org.
+Digital Object Identiﬁer 10.1109/LRA.2016.2633290
+
+Fig. 1. A 250 gram quadrotor equipped with a single downward-facing camera, a forward-facing stereo camera (not used in this paper), an IMU, and a Qualcomm SnapdragonTM and HexagonTM DSP.
+research area from a control and estimation perspectives due to the extreme ﬂight conditions, an underactuated system as a quadrotor, is subjected to. The ability to ﬂy fast and maneuver aggressively is useful in tasks with time constraints and in search and rescue applications. A number of groups have demonstrated aggressive maneuvers with aerial vehicles such as quadrotors [8]–[10]. These works mostly show strategies for generating sequences of controllers that stabilize the robot to a desired state. In [9], the authors focus on the hovering stabilization problem after a ﬂip maneuver, whereas [8], [10] address the learning and adaptive iteration of the control law, which is reﬁned based on different ﬂight trials. Excellent results, showing aggressive maeuvers with a quadrotor have been obtained in [11]. Compared to previous works, the main difference is in the use of the property of differential ﬂatness and the development of an efﬁcient planning algorithm to generate trajectories for a quadrotor without the limitation to ﬁrst order dynamics. The aggressive motion task is solved via the composition of three control modes. The main drawbacks of this approach are the use of a motion capture systems for localization and linearized controllers.
+In this work, we solve the aggressive maneuvering task using only on-board sensing capabilities. The minimal sensor suite for autonomous localization consists of two inexpensive, lightweight and widely available sensors, a monocular camera and an IMU as shown in [12]–[15]. The observability analysis applied to aerial navigation is discussed in [16], [17]. Relevant to this work, are also results focusing on vision-based fast navigation with MAVs. In [18], a quadrotor equipped with a stereo camera and IMU is able to ﬂy at 4 m/s, whereas in [19], a smartphone is able to provide the necessary computation capabilities to ﬂy up to 3 m/s using the single camera and IMU available on the device. The setup in [18] leverages a stereo camera conﬁg-
+
+2377-3766 © 2016 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission. See http://www.ieee.org/publications standards/publications/rights/index.html for more information.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+LOIANNO et al.: ESTIMATION, CONTROL, AND PLANNING FOR AGGRESSIVE FLIGHT WITH A SMALL QUADROTOR
+
+405
+
+Fig. 2. The platform traversing a vertical narrow window gap.
+uration, which facilitates the handling of the scaling problems that arise with monocular camera systems. In [20] the authors focus on the 6-DOF pose tracking with a DVS camera. This method works only with planar shapes or gradient maps that are known a priori. In addition, the estimated pose is not used for closed loop control. Instead an external motion capture system is used. Finally, in [21] an approach for automatically recover from any unknown initial attitude is proposed. However, the system employs a downward pointing laser for scale estimation and only focuses on the speciﬁc maneuver for recovery.
+In this paper, we address the perception, control and planning problems to enable autonomous aggressive maneuver with small scale, low power and lightweight quadrotor with limited computational capabilities. Our platform of choice is a 0.15 m diameter, 250 g quadrotor using Qualcomm SnapdragonTMFlightTM (see Fig. 1). To validate the proposed strategy, we focus on aggressive ﬂights with large operating envelope and with signiﬁcant excursions in roll and pitch angles such as ﬂights through narrow window gaps with different orientations as shown in Fig. 2. Compared to previous approaches, our solution relies on a nonlinear controller and on on-board capabilities without requiring the need of external motion capture systems. Moreover, we do not rely on switching and learning strategies, but we propose a deterministic trajectory planning approach to generate aggressive maneuvers with a small quadrotor. These motions require fast and large rotations and accelerations. Finally, in all previous works medium size quadrotor, weighing more than 500 g, are used. We believe this is the smallest, fully autonomous ﬂying robot in which all sensing and computing is done on-board without GPS.
+This work presents multiple contributions. First, we develop the control, estimation pipelines to enable vision-based aggressive maneuvers with a single camera and IMU. Second, we show how to generate dynamically feasible trajectories enabling ﬂights through and around obstacles in constrained trajectories without the need to switch between different control modes. Finally, this is the ﬁrst time that perception, planning and control are combined for autonomous navigation and aggressive maneuvers of a small lightweight aerial vehicle without relying on GPS and on any external motion capture system, but just using onboard computation. The proposed operating conditions require perception, state estimation, environment reconstruction, obstacle avoidance and trajectory planning algorithms with large accelerations and rotations over short ranges and time scales. Thus, the perception, planning and control subproblems have to be solved concurrently as a single problem. Our solution enables vision-based closed loop control ﬂights with roll and pitch
+
+angular values up to 90◦ without using surfaces with special texture.
+The paper is organized as follows. Section II shows a general overview of our framework. In Section III, the dynamics of the quadrotor and the control framework are provided, whereas in Section IV, the strategy to obtain the pose of the vehicle at high rate, enabling autonomous ﬂight, is shown. Section V, presents our methodology to generate dynamically feasible trajectories through and around obstacles in constrained trajectories. Section VI presents extensive results on navigation with the proposed prototype. Section VII concludes the work and provides an overview of the multiple future scenarios.
+
+II. SYSTEM OVERVIEW
+Our platform of choice is a quadrotor due to its mechanical simplicity [22] due to its ability to operate in conﬁned spaces, hover in place and perch or land on ﬂat surfaces.
+
+A. Hardware Architecture
+The experimental platform shown in Fig. 2 is equipped with 4 brushless motors and a Qualcomm SnapdragonTM board. This board features a Qualcomm HexagonTM DSP, Wi-Fi, Bluetooth connectivity, 802.11n Wi-Fi, and GPS, all packed into a board (58 mm × 40 mm). Based on the SnapdragonTM 801 processor, the system just uses 1 core of the total CPU. The board is equipped with a downward facing VGA camera with 160◦ ﬁeld of view, a VGA stereo camera, and a 4 K camera.
+
+B. Software Architecture
+The software components are a position and attitude controller (see Fig. 3), a state estimation algorithm composed of VIO described in Section IV, which processes images at 30 Hz and an Unscented Kalman Filter (UKF) to deal with control constraints for fast motions (see green box in Fig. 3). The control receives the estimated pose at 500 Hz from the UKF and sends the attitude commands to the DSP. It is worth to specify that the presented approach, for state estimation employs only the downward facing camera and the IMU available on the Qualcomm SnapdragonTMFlightTM. The framework has been developed in ROS.1 All the tasks are then executed on-board the vehicle in separate threads with state estimation and control at a ﬁxed rate of 500 Hz.
+
+III. MODELING AND CONTROL
+We introduce the system dynamics and the control employed to execute aggressive maneuvers.
+
+A. Dynamic Model
+
+Consider an inertial reference frame denoted by e1 , e2, e3 and a body reference frame centered in the center of mass of the vehicle denoted by R = b1 , b2 , b3 (see Fig. 4) where R ∈ SO(3). The system dynamic model is
+
+x˙ = v, mv˙ = Rτ e3 − mge3 ,
+
+R˙ = RΩˆ , J Ω˙ + Ω × J Ω = M ,
+
+(1)
+
+1www.ros.org
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+406
+
+IEEE ROBOTICS AND AUTOMATION LETTERS, VOL. 2, NO. 2, APRIL 2017
+
+Fig. 3. The architecture overview.
+
+Fig. 4. The quadrotor model and its reference frames.
+where x ∈ R3 is the Cartesian position of the vehicle expressed in the inertial frame, v ∈ R3 is the velocity of the vehicle in the inertial frame, m ∈ R is the mass, Ω ∈ R3 is the angular velocity and J ∈ R3×3 is the inertia matrix both with respect to the body frame. The hat symbol ˆ· denotes the skew-symmetry operator according to xˆy = x × y for all x, y ∈ R3, g is the standard gravitational acceleration.
+B. Position and Attitude Controllers
+In most previous works, a back-stepping approach is used for control because the attitude dynamics can be assumed to be faster than the position dynamics, and linearized controllers are used for both loops [16], [22]. In this work, because we need to model aggressive maneuvers and large excursions from the hover position, we use a nonlinear controller based on [23], [24].
+The control inputs τ, M are chosen as
+M = −kR eR − kΩ eΩ + Ω × J Ω
+− J Ωˆ R RC ΩC − R RC Ω˙ C ,
+τ = (−kx ex − kv ev + mge3 + mx¨d ) · Re3 , (2)
+with x¨d the desired acceleration, kx , kv , kR , kΩ positive definite terms. The subscript C denotes a commanded value. The relationship between single motor force fj , the total thrust τ and the total moment M can be inverted for non-zero values of the distance from the center of mass to the center of each rotor. Our assumption that τ and M are the inputs of the plant is therefore valid. The quantities eR , eΩ , ex , ev are the orientation, angular rate, and translation errors respectively, deﬁned in [19], [23], [24]. If the initial attitude error is between 90◦ and 180◦, the zero equilibrium of the tracking errors is almost globally exponentially attractive [23].
+
+IV. STATE ESTIMATION
+In this section, we describe the different steps that enable to recover the 6-DOF (Degree Of Freedom) pose of the vehicle, necessary to control the vehicle. Our pipeline uses an EKF combining visual and IMU data (VIO block in Fig. 3). In this work, to enable aggressive maneuvers, we need a high level of robustness and high control rates. In addition to the EKF, an Unscented Kalman Filter (UKF) is able to estimate the full state of the vehicle at 500 Hz. We use an UKF, instead of an EKF because of the need to operate over a large envelope with signiﬁcant excursions in roll and pitch angles from the hover conﬁguration and velocities up to 5 m/s. The separation of the VIO and UKF is useful to keep the CPU usage limited. The state size of the VIO algorithm is not constant, since image features are part of it. For this reason, considering a prediction at 500 Hz is more expensive than 30 Hz. In this way, we obtain similar performances satisfying at the same time the control rate constraints. The state estimation rate (over 100 Hz) also guarantees small integration errors and thus better accuracy.
+
+A. Visual Inertial Odometry
+The VIO system localizes the rigid body with respect to the inertial frame using accelerometers, gyroscopes and camera sensors. The navigation state vector x(t) ∈ R12 × se(3) is
+
+x = x Θ v γ bg ba ,
+
+(3)
+
+where x ∈ R3, v denote the robot’s position and velocity respectively as expressed in Section III-A, The term Θ is the attitude R expressed in exponential coordinates, γ is the unknown gravity vector in the inertial frame, and ba and bg denote accelerometer and gyroscope biases modeled as random walk processes. The prediction step is based on the IMU integration. The measurement update step is given by the standard 3D landmark perspective projection onto the image plane leading to the EKF updates, assuming that distinguishable features that can be tracked over time using a camera. In the past decade, camera measurements have been effectively used to aid Inertial Navigation Systems [12]–[14]. The setup also estimates the calibration parameters, such as inertial sensor scale factor, non-orthogonality, camera-accelerometer transformation by appending them to the state. We also employ an inverse depth parametrization [25], which facilitates feature initialization and the convergence of the corresponding 3D point. If the station-
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+LOIANNO et al.: ESTIMATION, CONTROL, AND PLANNING FOR AGGRESSIVE FLIGHT WITH A SMALL QUADROTOR
+
+407
+
+ary feature is found to be persistent, then we augment the state with the feature vector along with the pose of the body frame at which it was ﬁrst observed in order to correctly account for correlations of errors in subsequent measurements of the feature to errors in the state.
+
+B. Unscented Kalman Filter
+To enable on–board control, an UKF is used to estimate the full state of the vehicle at 500 Hz. The state is represented by
+
+xf = x v Φ ba ,
+
+(4)
+
+where x, v have been deﬁned in Section III-A, Φ is the quaternion and ba the accelerometer biases. The prediction step uses the input ya , yg ∈ R3 linear acceleration and angular velocity measurements given by the IMU. The VIO pose estimates, are then used to update the state estimate using a linear measurement model. The measurement delay due to the image processing is compensated accumulating the IMU values till a new measurement from the VIO block is provided.
+
+V. PLANNING FOR AGGRESSIVE MANEUVERS
+The trajectory planning has to generate dynamically feasible trajectories that will take the quadrotor to its destination. In this section, we focus on two types of aggressive maneuvers.
+
+A. Dynamically Feasible Trajectories
+Similar to [24], we use the differential ﬂatness property, which facilitates the computation of trajectories for the underactuated quadrotor system. We propose the a set of variables called ﬂat outputs, the Cartesian position vector x and the yaw angle ψ, which will be used to show that the system’s state and the control inputs can be written in terms of this subset of variables and their derivatives. Considering (1), the nominal force is
+
+τ = m x¨ + ge3 ,
+
+(5)
+
+and the orientation of the third axis of body frame, b3 is
+
+b3 =
+
+x¨ + ge3 x¨ + ge3
+
+.
+
+(6)
+
+The rest of the rotation matrix, R, can be determined by deﬁning a vector bc , using the yaw angle ψ, to determine b2
+
+b2 =
+
+b3 × bc b3 × bc
+
+, bc =
+
+cos ψ
+
+sin ψ
+
+0.
+
+(7)
+
+Then b2 × b3 gives b1 . Differentiating again (1) we obtain
+
+mx(3) = −τ R˙ e3 − τ˙ Re3 = −τ RΩˆ e3 − τ˙ b3 (8)
+
+and the scalar projection onto b3 reveals that
+
+τ˙ = b3 · mx(3) .
+
+(9)
+
+Next, we can determine the ﬁrst two terms of the angular body rates Ω, by solving (8) for Ωˆ e3
+
+Ω1 Ω2
+
+m =
+τ
+
+−b2 b1
+
+x(3) .
+
+(10)
+
+Fig. 5. The planned trajectory over the window with 45◦ roll and 20◦ pitch angles, planning (left) and without (right) planning the yaw angle.
+
+The third term of Ω depends on the yaw angle derivative ψ˙. Decomposing R by the Euler angles Z (ψ) − X (φ) − Y (θ) parametrization we obtain
+
+Ω3
+
+=
+
+Ω1
+
+tan θ
+
++
+
+cos φ ψ˙ cos θ
+
+(11)
+
+Differentiating again (8) and similar to before, we can solve for the ﬁrst two component of Ωˆ˙ . The third element will require the 2nd derivative of the yaw angle. With this angular acceleration,
+we can solve for the required moments. Thus, the control inputs
+can be computed in terms of the ﬂat outputs and their derivatives. The 4th derivative of position appears in the control inputs and the 2nd derivative of the yaw appears in the moments. An
+optimal motion plan is deﬁned as one that that minimizes the
+cost function Γ
+
+tf d4 x(t) 2
+
+d2 ψ(t) 2
+
+Γ=
+t0
+
+dt4
+
+dt + dt2
+
+dt.
+
+(12)
+
+Considering a nth order time-parametrized polynomial trajectories for each Cartesian coordinate d and the yaw
+
+n
+
+αd (t) = cid ti = cd t, d = 1, · · · , 4,
+
+(13)
+
+i=0
+
+the problem in eq. (12) can be formulated as a Quadratic Programming (QP), with the initial t0 and the ﬁnal tf times
+
+min cd
+
+tf d4
+
+d4
+
+t0 dt4 t dt4 t
+
+dt cd = min cd Td cd (14)
+
+and in the general form
+
+min C T C,
+
+subject to AC B, Ae C = Be ,
+
+(15)
+
+with
+
+C = c1 c2 c3 c4 , T = diag T1 T2 T3 T4 .
+The matrix A ∈ Rk×4n and B ∈ Rk , where k is the total number of linear constraints. The matrix Ae ∈ Rp×4n and vector Be ∈ Rp can be used to impose p equality constraints. Generally, a trajectory is divided into segments. The coefﬁcients for each segment can be easily incorporated into the QP. The equality constraints are used to guarantee during the trajectory the
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+408
+
+IEEE ROBOTICS AND AUTOMATION LETTERS, VOL. 2, NO. 2, APRIL 2017
+
+Fig. 6. The slalom path with two poles obstacles in red (left) and the planned trajectory over the narrow window gap at 0◦ green − 45◦ orange − 90◦ blue (right) with the arrow indicating the desired acceleration direction in 3D Cartesian space.
+
+continuity of position and its derivatives and to specify a constraint at a desired time. We also consider a maximum velocity bound vmax.
+It is also necessary to consider constraints imposed by the mechanics and sensors of the system since we are focusing on aggressive maneuvers. Speciﬁcally, the maximum thrust imposes a constraint of the type
+
+m x¨ + ge3 τmax , ∀t ∈ [t0 , tf ] ,
+
+(16)
+
+where τmax =
+
+f 4
+j=1 jm ax
+
+= 4kf ωm2 m a x
+
+is the total thrust act-
+
+ing in the b3 direction, whereas kf is the thrust coefﬁcient and
+
+ωm m ax the maximum single motor speed.
+
+In addition, a constraint on the jerk is induced by the maxi-
+
+mum angular speed detectable by the gyros as
+
+f1 x(3), x¨, ψ˙ ωmax , ∀t ∈ [t0 , tf ] ,
+
+(17)
+
+and the maximum moment Mmax , on one body axis, induces a constraint as
+f2 x(4), x(3), x¨, ψ˙ , ψ¨ Mmax , ∀t ∈ [t0 , tf ] , (18)
+
+where Mmax = l (ωm m a x − ωm m in ), with l the vehicle arm length. Practically, the constraints expressed by (16), (17), (18) are nonlinear, thus they cannot be directly incorporated in the QP problem. However, to take advantage of the QP formulation, it is still possible to consider them indirectly with upper bounds on the acceleration, jerk and snap respectively and then verifying a-posteriori they are respected.
+
+B. Slalom Path
+We consider maneuvers with increasing degree of difﬁculties in term of acceleration, velocity and attitude angles. In this case, we assume to know the obstacles’ locations with respect to the robot’s starting position. We consider the starting point P1 and the ﬁnal point P5. A set of obstacles is located between these two points (in our case 2 static obstacles are located between P1 − P3 and P3 − P5 see Fig. 6 left). The obstacle’s position imposes some constraints on the planned trajectory. We consider a set of virtual waypoints Pvi (Pvi x , Pvi y , Pvi z ) located at the obstacle positions (P2 and P4 in the considered case) and their
+
+corresponding times instants tvi . In addition to the constraints speciﬁed in the previous paragraph, we can then impose in our QP problem a bound on each of the Cartesian dimension (x, y, z) around the obstacles’ positions as
+
+x (t) Pvi x + x , y (t) Pvi y + y , z (t) Pvi z + z ,
+
+∀t ∈ (tvi − δ, tvi + δ) ,
+
+(19)
+
+where δ is a time interval and i, y , z indicate the thresholds the vehicle’s center of mass should respect to be safe.
+
+C. Planning Trajectories through a Narrow Gap
+Let us consider a narrow obstacle like a window. We assume the window gap is in the ﬁeld of view at the robot’s starting position. The stereo conﬁguration available on the board allows to identify the window using a planar homography algorithm. This gives as output the rotation RBW = [xW yW zW ] and the translation tW of the window with respect to the initial robot frame B. Without loss of generality let us decompose the rotation using the Z (ψ) − X (φ) − Y (θ) Euler angles parametrization. It is worth specifying that our approach does not depend on the Euler parametrization since it is based on a geometric control approach as shown in Section III. However, it is necessary to employ a parametrization in case a yaw angle has to be planned. The parametrization of choice should then be the same used for the differential ﬂatness in Section V-A. It is useful to clarify again that neither the stereo camera nor the shape of the window is used to solve for visual scale. Since the gap is narrow, the vehicle can only traverse it such that the main body plane (the plane deﬁned by the centers of the four propellers) is orthogonal to the window planar surface deﬁned by the yW − zW axes (see Fig. 5). However, the user can decide if the yaw should be zero at the traversing point. In that case, the vehicle will traverse the window with the x body axis in the same direction of the window axis (see Fig. 5 left), otherwise the vehicle will have to keep constant yaw during the trajectory and it should then use both roll and pitch to traverse the window (see Fig. 5 right) such to respect that the body plane is orthogonal to the yW − zW plane. Since we are planning already aggressive trajectories we opt for the ﬁst solution and solve the yaw offset
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+LOIANNO et al.: ESTIMATION, CONTROL, AND PLANNING FOR AGGRESSIVE FLIGHT WITH A SMALL QUADROTOR
+
+409
+
+TABLE I POSITION AND VELOCITY RMSE AND STD OF THE ESTIMATES COMPARED TO MOTION CAPTURE SYSTEM AT FOR THE SLALOM CASE
+
+Obstacles Max. Acc. Max. Ang. Cartesian
+
+RMSE VIO
+
+RMSE UKF
+
+RMSE
+
+STD position STD position
+
+STD
+
+apart (m)
+
+(m/s2 ) Vel. (deg/s) Component estimation (m) estimation (m) Velocity (m/s)
+
+VIO (m)
+
+UKF (m) velocity (m/s)
+
+3
+
+4.11
+
+240.0653
+
+x
+
+0.0774
+
+0.0793
+
+0.0868
+
+0.0758
+
+0.0645
+
+0.0851
+
+y
+
+0.0290
+
+0.0436
+
+0.0813
+
+0.0228
+
+0.0812
+
+0.0700
+
+z
+
+0.0662
+
+0.0635
+
+0.0916
+
+0.0290
+
+0.0915
+
+0.0641
+
+1.5
+
+5.69
+
+344.8861
+
+x
+
+0.0437
+
+0.0490
+
+0.0421
+
+0.0423
+
+0.0391
+
+0.0355
+
+y
+
+0.0388
+
+0.0374
+
+0.0625
+
+0.0325
+
+0.0281
+
+0.0424
+
+z
+
+0.0637
+
+0.0558
+
+0.0538
+
+0.0438
+
+0.0348
+
+0.0413
+
+Fig. 8. Ground truth (blue), estimated (green), desired (magenta) Cartesian position for the 6 m slalom trajectory.
+Fig. 7. Ground truth (blue), estimated (green), desired (magenta) trajectories for the 6 m slalom trajectory
+
+between the window and the vehicle during the takeoff phase.
+All the information to plan the trajectory through the window is then available. We deﬁne the traversing window point as tW and we enforce the orientation RBW at the gap with the following acceleration constraint
+
+aW d e s = RBW aW − γe3 ,
+
+(20)
+
+where the aW = ae3 is chosen by the user according to what the desired vertical acceleration is. The trajectory is planned through points P1 − P5 (see Fig. 6) with P1 and P5 the starting and landing point respectively. This constraint is derived
+from (6). The third body axis is acceleration and gravity vectors dependent. This guarantees to plan b3 as in (6) and also b2 as in (7). Then, b1 is chosen as b2 × b3 . We estimate that an orientation time change by π/2 radians using our robots takes approximately 0.2 s. Thus, during the portion of the trajectory
+corresponding to the gap, we specify an acceleration such that b3 is in the same direction of the zW window axis.
+
+VI. EXPERIMENTAL RESULTS
+In this section, we report on the experiments that have been performed at the PERCH lab (Penn Engineering Research Collaboration Hub) at the University of Pennsylvania indoor
+
+Fig. 9. Ground truth (blue), estimated (green), desired (magenta) Cartesian velocities for the 6 m slalom trajectory.
+testbed. The total ﬂying area is a volume of 20 × 6 × 4 m3. The algorithms for odometry estimation and control are running onboard. A Qualisys2 motion capture system with 22 Oqus cameras running at 100 Hz is used for ground-truth comparison. We evaluate the two previous aggressive trajectory tasks under different conditions. The VIO module is set to track an average of 20–30 features each frame. A good pose estimation is obtained
+2http://www.qualisys.com/
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+410
+
+IEEE ROBOTICS AND AUTOMATION LETTERS, VOL. 2, NO. 2, APRIL 2017
+
+TABLE II ORIENTATION RMSE AND STD IN RADIANS OF THE ESTIMATES COMPARED TO MOTION CAPTURE SYSTEM FOR THE SLALOM CASE
+
+Orientation Ψ (R, Rd )
+
+Path length (m)
+6 3
+
+RMSE VIO estimation
+6 × 10−2 1 × 10−3
+
+RMSE UKF estimation
+3 × 10−2 1 × 10−3
+
+STD VIO
+5 × 10−2 9 × 10−3
+
+STD UKF
+3 × 10−2 1.73 × 10−4
+
+TABLE III POSITION AND VELOCITY RMSE AND STD OF THE ESTIMATES COMPARED TO MOTION CAPTURE FOR THE WINDOW CASE
+
+Gap Max. Max. Acc. Max. Ang. Cartesian
+
+RMSE VIO
+
+RMSE UKF
+
+RMSE
+
+STD position STD position
+
+STD
+
+Angle (◦)
+
+(m/s2 )
+
+Vel. (deg/s) Component estimation (m) estimation (m) estimation (m)
+
+VIO (m)
+
+UKF (m) Velocity (m/s)
+
+0
+
+4
+
+149.2578
+
+x
+
+0.0703
+
+0.0618
+
+0.0805
+
+0.0701
+
+0.0599
+
+0.0795
+
+y
+
+0.0378
+
+0.0420
+
+0.0507
+
+0.0349
+
+0.0379
+
+0.0496
+
+z
+
+0.0510
+
+0.0463
+
+0.0516
+
+0.0397
+
+0.0337
+
+0.0514
+
+45
+
+8
+
+257.8085
+
+x
+
+0.0414
+
+0.0480
+
+0.0579
+
+0.0387
+
+0.0446
+
+0.0577
+
+y
+
+0.0711
+
+0.0754
+
+0.1179
+
+0.0711
+
+0.0753
+
+0.1178
+
+z
+
+0.0665
+
+0.0764
+
+0.0915
+
+0.0514
+
+0.0633
+
+0.0914
+
+90
+
+15
+
+782.2472
+
+x
+
+0.0527
+
+0.0629
+
+0.0626
+
+0.0390
+
+0.0605
+
+0.0621
+
+y
+
+0.0415
+
+0.0445
+
+0.1353
+
+0.0387
+
+0.0422
+
+0.1352
+
+z
+
+0.0469
+
+0.0583
+
+0.1230
+
+0.0364
+
+0.0518
+
+0.1224
+
+Fig. 10. Ground truth (blue), estimated (green), desired (magenta) trajectories over the window at 90 degrees.
+when this number does not drop below 2. The initialization requires around 10 features.
+We consider slalom paths around poles that are (a) 3 m and (b) 1.5 m apart requiring the quadrotor to maintain a clearance distance around the poles. The results are reported in Table I. For the ﬁrst test we reach a maximum speed of 4.5 m/s whereas in the second case 3 m/s with a maximum acceleration of 5 m/s2 in both cases. Despite only the initial information about obstacles’ positions, the vehicle is still able to avoid them. This validates the precision and robustness of our localization strategy. Moreover, it is noticeable that despite the trajectories having different velocities, accelerations, and thus angles, the results are in the same range of values both for Root Mean Square Error (RMSE) and Standard Deviation (STD). For brevity, we do not report on the control error values, which are similar to the estimated ones as visible from Figs. 7, 8, 9. The reader can also notice that the VIO and UKF modules have similar errors with the separation strategy providing the beneﬁts already discussed. The orientation errors in Table II have been computed according to [26].
+
+Fig. 11. Ground truth (blue), estimated (green), desired (magenta) Cartesian positions over the window at 90 degrees.
+The attached multimedia material shows that each experiment has been repeated multiple times with different safety distances of up to 0.5 m and with similar performances to the results in Table I.
+The results for the narrow gap experiment are reported in Table III. The experiment has been repeated considering different maximum rotation angles on one of the window’s axis. The results show that our methodology gives similar results despite different operating conditions and increased level of difﬁculty induced by a higher values of acceleration, platform angles and larger operating envelope. The traversing gap of the trajectory is encapsulated between the take-off and landing phase that have an average duration of 2.5 s each. The traversing path has a length of 6 m along the x Cartesian axis and a duration of 5 s (see Figs. 10–12, between 5 and 10 s). In all cases, the vehicle reaches an average maximum speed of 4.5 m/s, accelerations of up to 15 m/s2 and angular rotations of up to 800 deg/s.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+
+LOIANNO et al.: ESTIMATION, CONTROL, AND PLANNING FOR AGGRESSIVE FLIGHT WITH A SMALL QUADROTOR
+
+411
+
+Fig. 12. Ground truth (blue), estimated (green), desired (magenta) Cartesian velocities over the window at 90 degrees.
+For brevity, we omit the orientation errors since similar to the slalom task. The reader will notice from the attached multimedia material the successful accomplishment of multiple trials. The acceleration aW is set to be half of the available thrust.
+VII. CONCLUSION
+In this work, we presented the system architecture and methodologies to enable vision-based high speed and aggressive ﬂight with a small scale quadrotor equipped only with a single camera and an IMU as sensors. We demonstrated the algorithm framework for estimation, control and trajectory generation, and experimental performance of our autonomous navigation solution based on camera and IMU with slalom trajectories and ﬂight through narrow windows (gaps) at different angles. We successfully achieve the desired control, state estimation, and trajectory planning through constrained environments, even with limited on-board computational capabilities derived from smartphone grade hardware. Our results reveal the feasibility and correctness of the proposed approach. Speciﬁcally we reach speeds of 5 m/s, roll and pitch angles of 90 degrees, accelerations of up to 15 m/s2 and angular velocities of up to 800 deg/s. Our ongoing work addresses the use of the small baseline, stereo camera for real-time dense mapping to allow obstacle detection and mapping for planning.
+ACKNOWLEDGMENT
+The authors would like to thank for helpful discussions with Dr. D. Mellinger and his team at Qualcomm Research Philadelphia.
+REFERENCES
+[1] T. Tomic et al., “Toward a fully autonomous UAV: Research platform for indoor and outdoor urban search and rescue,” IEEE Robot. Autom. Mag., vol. 19, no. 3, pp. 46–56, Sep. 2012.
+[2] T. Ozaslan, S. Shen, Y. Mulgaonkar, N. Michael, and V. Kumar, “Inspection of penstocks and featureless tunnel-like environments using micro UAVs,” in Proc. 9th Int. Conf. Field Service Robot., Brisbane, Australia, 2013, pp. 123–136.
+
+[3] J. Cacace, A. Finzi, V. Lippiello, G. Loianno, and D. Sanzone, Aerial Service Vehicles for Industrial Inspection: Task Decomposition and Plan Execution. Berlin, Germany: Springer-Verlag, 2013, pp. 302–311.
+[4] G. Loianno, J. Thomas, and V. Kumar, “Cooperative localization and mapping of MAVs using RGB-D sensors,” in Proc. IEEE Int. Conf. Robot. Autom., May 2015, pp. 4021–4028.
+[5] F. Forte, R. Naldi, A. Macchelli, and L. Marconi, “Impedance control of an aerial manipulator,” in Proc. Amer. Control Conf., Montreal, QC, Canada, Jun. 2012, pp. 3839–3844.
+[6] J. Thomas, G. Loianno, K. Daniilidis, and V. Kumar, “Visual servoing of quadrotors for perching by hanging from cylindrical objects,” IEEE Robot. Autom. Lett., vol. 1, no. 1, pp. 57–64, Jan. 2016.
+[7] N. Michael et al., “Collaborative mapping of an earthquake-damaged building via ground and aerial robots,” J. Field Robot., vol. 29, no. 5, pp. 832–841, 2012.
+[8] P. Abbeel, “Apprenticeship learning and reinforcement learning with application to robotic control,” Ph.D. dissertation, Comput. Sci. Dept., Stanford Univ., Stanford, CA, USA, 2008.
+[9] J. H. Gillula, H. Huang, M. P. Vitus, and C. J. Tomlin, “Design of guaranteed safe maneuvers using reachable sets: Autonomous quadrotor aerobatics in theory and practice,” in Proc. IEEE Int. Conf. Robot. Autom., May 2010, pp. 1649–1654.
+[10] S. Lupashin, A. Schllig, M. Sherback, and R. D’Andrea, “A simple learning strategy for high-speed quadrocopter multi-ﬂips,” in Proc. IEEE Int. Conf. Robot. Autom., May 2010, pp. 1642–1648.
+[11] D. Mellinger, N. Michael, and V. Kumar, “Trajectory generation and control for precise aggressive maneuvers with quadrotors,” Int. J. Robot. Res., vol. 31, no. 5, pp. 664–674, 2012.
+[12] E. S. Jones and S. Soatto, “Visual-inertial navigation, mapping and localization: A scalable real-time causal approach,” Int. J. Robot. Res., vol. 30, no. 4, pp. 407–430, 2011.
+[13] J. Kelly and G. S. Sukhatme, “Visual-inertial sensor fusion: Localization, mapping and sensor-to-sensor self-calibration,” Int. J. Robot. Res., vol. 30, no. 1, pp. 56–79, Jan. 2011.
+[14] J. A. Hesch, D. G. Kottas, S. L. Bowman, and S. I. Roumeliotis, “CameraIMU-based localization: Observability analysis and consistency improvement,” Int. J. Robot. Res., vol. 33, no. 1, pp. 182–201, 2014.
+[15] A. Martinelli, “Visual-inertial structure from motion: Observability and resolvability,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., Nov. 2013, pp. 4235–4242.
+[16] S. Weiss, D. Scaramuzza, and R. Siegwart, “Monocular-SLAM-based navigation for autonomous micro helicopters in GPS denied environments,” J. Field Robot., vol. 28, no. 6, pp. 854–874, 2011.
+[17] S. Shen, N. Michael, and V. Kumar, “Tightly-coupled monocular visualinertial fusion for autonomous ﬂight of rotorcraft mavs,” in Proc. IEEE Int. Conf. Robot. Autom., May 2015, pp. 5303–5310.
+[18] S. Shen, Y. Mulgaonkar, N. Michael, and V. Kumar, “Vision-based state estimation and trajectory control towards high-speed ﬂight with a quadrotor,” in Proc. Robot. Sci. Syst., Berlin, Germany, 2013.
+[19] G. Loianno et al., “Smartphones power ﬂying robots,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., Hamburg, Germany, Sep. 2015, pp. 1256– 1263.
+[20] E. Mueggler, B. Huber, and D. Scaramuzza, “Event-based, 6-DOF pose tracking for high-speed maneuvers,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., Chicago, IL, USA, Sep. 2014, pp. 2761–2768.
+[21] M. Faessler, F. Fontana, C. Forster, and D. Scaramuzza, “Automatic reinitialization and failure recovery for aggressive ﬂight with a monocular vision-based quadrotor,” in Proc. IEEE Int. Conf. Robot. Autom., May 2015, pp. 1722–1729.
+[22] N. Michael, D. Mellinger, Q. Lindsey, and V. Kumar, “The GRASP multiple micro–UAV test bed,” IEEE Robot. Autom. Mag., vol. 17, no. 3, pp. 56–65, Sep. 2010.
+[23] T. Lee, M. Leok, and N. H. McClamroch, “Nonlinear robust tracking control of a quadrotor UAV on SE(3),” Asian J. Control, vol. 15, no. 2, pp. 391–408, 2013.
+[24] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom., Shangai, China, 2011, pp. 2520–2525.
+[25] J. Civera, A. J. Davison, and J. M. M. Montiel, “Inverse depth parametrization for monocular slam,” IEEE Trans. Robot., vol. 24, no. 5, pp. 932–945, Oct. 2008.
+[26] F. Bullo and A. D. Lewis, Geometric Control of Mechanical Systems (Applied Mathematics Series) vol. 49. New York, NY, USA: SpringerVerlag, 2004.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on June 08,2022 at 09:50:12 UTC from IEEE Xplore. Restrictions apply.
+

@@ -1,0 +1,218 @@
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+Operator Counting Heuristics for Probabilistic Planning
+Felipe Trevizan, Sylvie Thie´baux, Patrik Haslum Research School of Computer Science, Australian National University
+Data61, CSIRO ﬁrst.last@anu.edu.au
+
+Abstract
+For the past 25 years, heuristic search has been used to solve domain-independent probabilistic planning problems, but with heuristics that determinise the problem and ignore precious probabilistic information. In this paper, we present a generalization of the operator-counting family of heuristics to Stochastic Shortest Path problems (SSPs) that is able to represent the probability of the actions outcomes. Our experiments show that the equivalent of the net change heuristic in this generalized framework obtains signiﬁcant run time and coverage improvements over other state-of-the-art heuristics in different planners.
+1 Introduction
+Over the past two decades, heuristic search has established itself as the method of choice for optimal deterministic planning. This is in large part thanks to the strong focus on developing domain-independent admissible heuristics, of which there is now a large supply to choose from – see e.g. works on delete-relaxation [Bonet and Geffner, 2001], critical path [Haslum and Geffner, 2000], abstraction [Helmert et al., 2007], landmark [Helmert and Domshlak, 2009], operatorcounting [van den Briel et al., 2007, Pommerening et al., 2014], and potential heuristics [Pommerening et al., 2015].
+Heuristic search also has the potential to be a powerful approach for optimally solving probabilistic planning problems such as Stochastic Shortest Path problems (SSPs). Many search algorithms have been developed for this purpose, including (L)TRDP [Barto et al., 1995, Bonet and Geffner, 2003], LAO* [Hansen and Zilberstein, 2001], FRET [Kolobov et al., 2011, Steinmetz et al., 2016], and i-dual [Trevizan et al., 2016]. However, in contrast to the situation in deterministic planning, the success of these algorithms has been limited by the lack of effective domain-independent heuristics dedicated to SSPs. Existing heuristics simply determinise the problem and fall back on well-established deterministic planning heuristics, failing to exploit valuable information about the probabilities of action outcomes.
+In this paper, we present the regrouped operator counting heuristics (hroc) [Trevizan et al., 2017b] that, as far as we are aware, is the ﬁrst domain-independent admissible heuristic
+
+for SSPs that reasons about both cost and outcomes probabilities of actions. hroc is an extension of the operator-counting heuristics used in the deterministic setting [Pommerening et al., 2014] in which additional constraints are added to model the outcome probability distribution of the each action. Our experiments show that iLAO* and LRTDP guided by hroc often explore signiﬁcantly fewer nodes than when guided by state-of-the-art heuristics for SSPs obtaining up to 56x speed up in running time. Moreover, hroc is able to improve the scalability of the planners allowing them to solve larger problems than with the previous heuristics.
+This paper focuses on one of the contributions in our ICAPS 2017 paper [Trevizan et al., 2017b], and brieﬂy summarises the others. We refer to that paper for further details.
+2 Stochastic Shortest Path Problems
+We start with some background about stochastic shortest paths problems, which we represent using a probabilistic variant of SAS+ [Backstro¨m, 1992]. We then follow with a description of relevant solution methods and heuristics for SSPs.
+Probabilistic SAS+. A probabilistic SAS+ task is a tuple V, A, s0, s , C . V is a ﬁnite set of state variables, and each variable v has a ﬁnite domain Dv. A partial state (or valuation) is a function s on a subset Vs of V, such that s[v] ∈ Dv for v ∈ Vs and v = ⊥ otherwise. If Vs = V, we say that s is a state. s0 is the initial state and s is a partial state representing the goal. Given two partial states s and s , we write s ⊆ s when s [v] = s[v] for all v ∈ Vs .
+The result of applying a (partial) valuation e in state s is the state res(s, e) such that res(s, e)[v] = e[v] if e[v] = ⊥ and res(s, e)[v] = s[v] otherwise. A is a ﬁnite set of probabilistic actions. Each a ∈ A consists of a precondition pre(a) represented by a partial valuation over V, a set eff (a) of effects, each of which is a partial valuation over V, and a probability distribution Pra(·) over effects e ∈ eff (a) representing the probability of res(s, e) being the state resulting from applying a in s. Finally, C(a) ∈ R∗+ is the immediate cost of applying a.
+Stochastic Shortest Path Problem. A probabilistic SAS+ task is a factored representation of a Stochastic Shortest Path problem (SSP) [Bertsekas and Tsitsiklis, 1991]. A SSP is a tuple S = S, s0, G, A, P, C in which S is the ﬁnite set of states, s0 ∈ S is the initial state, G ⊂ S is the non-empty
+
+5384
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+set of goal states, A is the ﬁnite set of actions, A(s) is the subset of actions applicable in state s, P (s |s, a) represents the probability that s ∈ S is reached after applying action a ∈ A(s) in state s, and C(a) ∈ R∗+ is the immediate cost of applying action a.
+Corresponding SSP. The correspondence between SSPs and their probabilistic SAS+ representation is straightforward: a probabilistic SAS+ task V, A, s0, s , C deﬁnes an
+SSP S, s0, G, A, P, C × where S = v∈V Dv, G = {s ∈
+S|s ⊆ s}, A(s) = {a ∈ A|pre(a) ⊆ s}, and Pr(s |s, a) = e∈eff (a) s.t. s =res(s,e) Pra(e).
+Policies. A solution for an SSP is a policy π : S → A such that π(s) ∈ A(s) is the action to be applied in state s. An optimal policy minimises the total expected cost of reaching G from s0. In this paper, we assume that s0 ∈ G and that the goal is always reachable, i.e., that there are no dead ends. However, our experiments feature problems with dead ends and relax this assumption using the ﬁxed-cost penalty formulation of dead ends [Kolobov et al., 2012].1
+The optimal policy π∗ for an SSP might not be unique; however, any optimal policy can be obtained from the unique optimal value function V ∗ [Bertsekas and Tsitsiklis, 1991]. Given a state s, V ∗(s) represents the minimum total expected cost of reaching G from s and it is formally deﬁned as the ﬁxed-point solution of the Bellman equations:
+V ∗(s) = min P (s |s, a)(C(a) + V ∗(s )) (1)
+a∈A(s) s ∈S
+for s ∈ S \ G and V ∗(s) = 0 for s ∈ G.
+Heuristic Search. Directly solving the Bellman equations (1) requires exploring the entire state space at once. In contrast, heuristic search algorithms for SSPs such as (i)LAO* [Hansen and Zilberstein, 2001] and LRTDP [Bonet and Geffner, 2003] start from the factored problem representation (e.g., as a probabilistic SAS+ task), and incrementally generate parts of the search space, guided by admissible heuristics that estimate the expected cost to reach the goal from each newly generated state (fringe state).
+All-outcomes determinisation. A key technique to compute heuristics for SSPs is the all-outcomes determinisation [Jimenez et al., 2006]. Formally, given a probabilistic SAS+ task, its all-outcomes determinisation is the deterministic SAS+ task with identical set of variables, initial state, and goal, but whose actions are split into one deterministic action αa,e for each probabilistic action a ∈ A and effect e ∈ eff (a), such that pre(αa,e) = pre(a), eff (αa,e) = {e}, and C(αa,e) = C(a).
+Current Heuristics for SSPs. The admissible heuristics (i.e.,lower bounds on V ∗) used by heuristic search algorithms are typically obtained in two steps: (i) compute the all-outcomes determinisation of the given SSP; (ii), since the resulting deterministic planning problem is still PSPACEcomplete, it is further relaxed into an admissible deterministic planning heuristic computable in polynomial time, such
+1More principled treatments of dead ends are also possible [Trevizan et al., 2017a].
+
+as h-max or lm-cut [Bonet and Geffner, 2001, Helmert and Domshlak, 2009]. Unfortunately, these relaxations of V ∗ do
+not take probabilities into account, foregoing valuable infor-
+mation.
+
+3 Regrouped Operator Counting Heuristics
+
+In this section, we present the Regrouped Operator-Counting Heuristic hroc, our probabilistic version of the family of
+operator-counting heuristics. This family of heuristics are de-
+scribed using a linear program (LP) of variables known as operator counts [Pommerening et al., 2014]. When applied
+to the all-outcomes determinisation of a given probabilistic SAS+ task, an operator count variable Ya,e represents, for each action a and effect e of a, the number of times a is executed and e occurs. These operator counts variables Ya,e are used in linear constraints to represent a relaxation of the orig-
+inal problem and an LP is formulated to ﬁnd the solution with minimum cost for this relaxed problem. The idea behind hroc
+is to add a set of linear constraints to any operator-counting heuristic that regroup the operator counts Ya,e of the same probabilistic action a and enforce the relationship between the respective probabilities of the effects e of a.
+In this paper, we focus on the net change heuristic hnet, that is, the operator-counting heuristic using net change constraints. Intuitively, the net change heuristic keeps track of
+the changes in the value of each state variable from a state
+to another. For each possible state variable assignment (or atom) v = d ∈ Dv, this heuristic distinguishes between 4 disjoint classes of action/effect pairs, depending on whether they always produce (AP), sometimes produce (SP), always consume (AC) or sometimes consume (SC) the atom:
+
+• APv=d = {(a, e) | e[v] = d, pre(a)[v] = d = d}
+
+• SPv=d = {(a, e) | e[v] = d, pre(a)[v] = ⊥}
+
+• ACv=d = {(a, e) | e[v] = d = d, pre(a)[v] = d}
+
+• SCv=d = {(a, e) | e[v] = d = d, pre(a)[v] = ⊥}
+
+The possible net change that a variable can accumulate from a state s where s[v] = d to the goal s is:
+
+ {0, 1}
+
+
+
+ 
+
+{−1, 0}
+
+
+
+pncvs→ =ds = {1}
+
+ 
+
+{−1}
+
+
+
+ {0}
+
+if s [v] = ⊥ and s[v] = d if s [v] = ⊥ and s[v] = d if s [v] = d and s[v] = d if s [v] = d and s[v] = d = d otherwise
+
+With these notations, given v ∈ V, d ∈ Dv, and a state s, the net change constraints Nv,d,s are deﬁned as the linear constraints (C1) and (C2) and the net change heuristic hnet is
+formally described in Deﬁnition 1.
+
+Ya,e −
+
+Ya,e +
+
+Ya,e ≥ min pncvs→ =ds
+
+(a,e)∈APv=d (a,e)∈ACv=d (a,e)∈SPv=d
+
+(C1)
+
+Ya,e −
+
+Ya,e −
+
+Ya,e ≤ max pncvs→ =ds
+
+(a,e)∈APv=d (a,e)∈ACv=d (a,e)∈SCv=d
+
+(C2)
+
+Deﬁnition 1 (net change heuristic). Given a probabilistic SAS+ task, the net change heuristic hnet at state s is the solu-
+tion of the LP:
+
+hnet(s) = min Ya,eC(a) Nv,d,s ∀v ∈ V, d ∈ Dv
+Y a,e
+
+5385
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+In order to recover the information about the probabilistic effects of each action lost by the all-outcomes determinisation (a necessary step to compute Nv,d,s), our heuristic hroc uses the following set of linear constraints:
+Deﬁnition 2 (Regrouping constraints). The set of regrouping constraints, denoted as Regroup, is
+Pra(e1)Ya,e2 = Pra(e2)Ya,e1 ∀ a ∈ A, {e1, e2} ∈ eff (a).
+These constraints enforce that the expected number of times outcome e1 of action a occurs is proportional with a factor Pra(e1)/ Pra(e2) to the expected number of times any other outcome e2 of the same action occurs. Therefore, not only the probability of each effect is recovered, but also their dependency, i.e., Ya,ei > 0 iff Ya,ej > 0 for all {e1, e2} ⊆ eff (a).
+The heuristic hroc is presented in Deﬁnition 3. hroc is an admissible heuristic for SSPs, that is, for all s ∈ S, hroc(s) ≤ V ∗(s) [Trevizan et al., 2017b]. Intuitively, the admissibility of hroc is due the admissibility of hnet and the fact the only difference between them is the set of regroup constraints that enforces the probabilistic deﬁnition of actions through the ratio of their expectations; therefore, as in the original SSP, if a particular effect of an action is desirable, all other effect of the same action must be accounted for since they will happen with positive probability.
+Deﬁnition 3 (Regrouped operator-counting heuristic). Given a probabilistic SAS+ task, the regrouped operatorcounting heuristic hroc at state s is the solution of the LP:
+hroc(s) = min Ya,eC(a) Regroup, Nv,d,s ∀v ∈ V, d ∈ Dv
+Y a,e
+4 Empirical Evaluation
+In this section we empirically evaluate hroc against the following state-of-the-art heuristics for SSPs: hmax, hlmc and net change heuristic hnet. Notice that all these heuristics are determinisation-based heuristics. We use LRTDP and iLAO* as the search algorithms for this comparison. Each parametrization of planner and heuristic solves the same problem 30 times using a different random seed on each run to initialize the planner to account for the stochastic nature of the problem. For each run, we enforce a 30-minutes and 4-Gb cut-off for all experiments. We use two metrics for our experiments: (i) coverage, the number of runs a given parametrization found the optimal solution (out of 30) for each problem; and (ii) runtime, the average time spent to ﬁnd the optimal solution over the runs that found the optimal solution.
+We consider the following domains from the 2008 International Planning Competition (IPC’08): probabilistic Blocks World, Exploding Blocks World, and Triangle Tire World. We also consider a new domain, Probabilistic Parc Printer. This domain is a probabilistic extension of the sequential Parc Printer domain from IPC in which s sheets need to be printed on a modular printer. The printer has c unreliable components in which a sheet can jam with probability 0.1 making the component unavailable and requiring a new exemplar of this sheet to be printed. The unavailability of components creates avoidable dead ends. Also, a high-cost repair action that
+
+Blocks World
+
+Parc Printer
+
+8 8 8 10 10 12
+F,4,2 F,4,3 F,5,2 F,5,3 T,4,2 T,4,3 T,5,1
+7 8 9 10 11 12 15
+3 4 5 6
+
+LRTDP hmax hlmc hnet hroc
+3 0 26 30 28 0 30 30 2 0 12 30 0 0 0 30 0 0 0 30 0 000
+30 30 30 30 30 30 30 30 0 30 0 30 0 30 0 30 0 001 0 000 0 000
+30 30 30 30 30 30 0 30 30 30 0 30 30 30 0 30 0 000 0 000 0 000
+30 30 30 30 30 30 30 30 30 24 0 30 0 0 0 30
+
+iLAO hmax hlmc hnet hroc
+2 30 30 30 30 30 30 30
+2 30 30 30 0 0 1 30 0 0 0 30 0 0 0 30
+4 30 30 30 0 30 30 30 2 16 0 30 0 0 0 30 1 30 30 30 0 30 30 30 0 0 0 30
+30 30 30 30 0 003
+30 30 0 30 23 4 0 11 12 6 0 16 24 15 0 26 28 12 0 23
+30 30 30 30 30 30 30 30
+0 004 0 000
+
+Triag. Tire Exploding BW
+
+Table 1: Coverage for selected SSP problems. Best planner (i.e.,
+fastest planner to obtain the best coverage) in bold. Dead-end variant of the hroc is used in the gray cells. Parameters: number of blocks for blocks world; (has repair action,s,c) for parc printer; and IPPC’08
+problem number for exploding blocks world and triangle tire world.
+
+removes all jams and restores availability of all components can be available.
+Table 1 presents coverage results for a subset of our experiments. The following is a summary of our ﬁndings from the experiments and we refer the reader to Trevizan et al. (2017b) for a comprehensive description of our methodology, domains and results.
+Does taking probability into account in the heuristic help? Yes. Notice that the only difference between hnet and hroc is that hroc takes probability into account through the regrouping constraints and planners using hroc obtained a speed up w.r.t. to hnet between 2x-56x, 1.3x-10x, and 1.1x-14x for blocks world, tire world and parc printer respectively. Moreover, planners using hroc were able to scale up to larger problems than when using hnet: 10 blocks vs 8 blocks for blocks world, 5 vs 4 sheets for parc printer, and problem #5 vs #4 for tire world. For exploding blocks world, there was no statistical difference – unless we incorporate dead-end detection as reﬂected in the table and explained below.
+How does hroc compare to the state-of-the-art? For blocks world, planners using hroc are the only ones that scale up to problems with 10 blocks and the best performance overall is obtained by iLAO* with hroc. For parc printer, hroc outperforms all other heuristics. The best performance in this domain alternates between LRTDP with hroc and iLAO* with hroc. For tire world LRTDP with hmax is the best planner closely followed by LRTDP with hroc as the problem size increases up to problem #5. LRTDP with hroc is the only planner that can handle problem #6. A similar trend happens for iLAO* with hmax and hroc. Except in exploding blocks world, we found that hroc expands much fewer states, e.g., up to 48x
+
+5386
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+less than hmax and 10x less than hnet in parc printer, 5x times less than hlmc in blocks world.
+For exploding blocks world, planners using hnet and hroc perform poorly as they do not detect dead ends as early as hmax and hlmc. This advantage of hmax and hlmc is due to two reasons: (i) a state s has zero probability of reaching the goal iff it is a dead end in the all-outcomes determinisation, thus hmax and hlmc are aware of dead ends even though they ignore probabilities; and (ii) for this domain, the dead ends are reached when a precondition of an action that potentially leads to the goal becomes false, thus hmax and hlmc can easily ﬁnd the dead ends since they propagate the actions preconditions. To illustrate these points, we augmented hroc with hmax as a dead-end detector. Formally, hrdoec(s) equals the dead-end penalty if hmax reports that s is a dead end and hroc(s) otherwise. The results for hrdoec corroborate the above explanation because of the large increase in performance when compared against hroc. Moreover, planners using hmax and hrdoec perform similarly and the best heuristic for a given problem alternates between them: hmax is better in 4 problems, hrdoec is better in 3 problems, and the difference is statistically insigniﬁcant for 2 problems.
+5 Beyond SSPs and hroc
+C-SSPs. Constrained SSPs (C-SSPs) are a natural generalization of SSPs to model planning under uncertainty problems for resource-bounded agents with multiple competing objectives [Altman, 1999, Dolgov and Durfee, 2005]. In a C-SSP, actions are associated with multiple cost functions (e.g., fuel, time, money), one of which is designated as the primary, and the others as secondary costs, and one seeks a policy that minimizes the expected primary cost subject to cost constraints, i.e., constraints over the expected secondary costs.
+hroc for C-SSPs. Recently, the ﬁrst heuristic search algorithm for C-SSPs, i-dual, was introduced [Trevizan et al., 2016]. Although it provided a large improvement over blind search algorithms, its full potential was not realised due to the lack of heuristics that could take cost constraints into account. We have shown how hroc can be easily extended to incorporate such constraints resulting in hc-roc [Trevizan et al., 2017b], the ﬁrst heuristic for C-SSPs that reasons about both outcome probabilities of actions and cost constraints. The empirical evaluation of i-dual using hroc against hc-roc shows that taking cost constraints into consideration improves both the scalability and running time of i-dual, e.g., hc-roc successfully solved 16 problems from the constrained version of the parc printer domain that hroc could not solve.
+Projection Occupation Measure Heuristic. Similarly to hroc, the projection occupation measure heuristic (hpom) [Trevizan et al., 2017b] is a heuristic for SSPs that takes outcome probabilities of actions into consideration. hpom is also deﬁned as an LP and is formulated using occupation measures, which are the probabilistic counterpart of operator counts. Formally, an occupation measure xs,a represents the expected number of times action a is executed in state s and the dual LP representation of the Bellman equations is formulated using them [D’Epenoux, 1963].
+
+Given a probabilistic SAS+ task, hpom works by projecting the problem onto its variables and representing each projection as its own SSP using occupation measures. A beneﬁt of projections is that they are still probabilistic problems; therefore the outcome probabilities of actions is not lost. Nonetheless, treating the projections as independent problems yields a lower bound on V ∗ worse than the state-of-the-art heuristics based on determinisation [Trevizan et al., 2017b]. Instead, hpom weakly ties all projections together to obtain a relaxed problem that can still be solved efﬁciently while providing a tighter lower bound on V ∗. This weak tying is implemented as a set of linear constraints over the occupation measures enforcing that the total expected number of times a given action is executed in each projection is the same. We proved that hpom is admissible and that, for all s ∈ S, hroc(s) ≤ hpom(s). Our experiments show that iLAO* and LRTDP guided by hroc are more efﬁcient then their counterparts using hpom. This stems from the fact that hroc requires substantially fewer LP variables than hpom. Similarly to hroc, hpom can be generalized to C-SSPs by adding cost constraints into its LP formulation.
+Integrated i-dual. An advantage of occupation measure heuristics such as hpom over operator counting ones such as hroc, is that they can be computed at once for multiple states using the same set of linear constraints. Thus, their formulation can directly be incorporated into the LP solved by i-dual to update the current policy at each iteration. This yields a new algorithm, integrated i-dual (i2-dual) [Trevizan et al., 2017b], which represents a brand new type of heuristic search method for C-SSPs where the heuristic computation is lazy, reusable across multiple parts of the search space, and works in unison with the policy update. In our experiments, i2-dual outperforms i-dual in coverage, time and number of nodes expanded, regardless of the heuristic used by the latter. For instance, in the constrained version of the parc printer domains, i2-dual obtained a coverage between 30% and 100% in 13 problems for which all other planners’ coverage was 0% and up to 34x speed up w.r.t. the second best planner in the other problems.
+6 Conclusion
+In this paper, we have presented hroc and the ﬁrst domainindependent admissible heuristic speciﬁcally designed to exploit the interactions between probabilities and action costs found in SSPs. We have shown that hroc perform well across a range of domains and search algorithms, and that handling probabilities in heuristics often pays. Previous heuristics exploiting outcome probabilities have only considered MaxProb type problems, and used the planning graph data structure which can yield poor estimates when policies are cyclic [Little and Thie´baux, 2006]. One area of future work is to improve the accuracy of hroc by augmenting its formulation with merges and disjunctive action landmarks (and other operator counting constraints), as was done in the deterministic setting by Bonet and van den Briel [2014].
+Acknowledgements
+This research was funded by AFOSR grant FA2386-15-14015.
+
+5387
+
+Proceedings of the Twenty-Seventh International Joint Conference on Artiﬁcial Intelligence (IJCAI-18)
+
+References
+[Altman, 1999] Eitan Altman. Constrained Markov Decision Processes, volume 7. CRC Press, 1999.
+[Backstro¨m, 1992] Christer Backstro¨m. Equivalence and tractability results for SAS+ planning. In Proc. 3rd Int. Conf. on Principles of Knowledge Representation and Reasoning (KR), 1992.
+[Barto et al., 1995] Andrew G. Barto, Steven J. Bradtke, and Satinder P. Singh. Learning to act using real-time dynamic programming. Artif. Intell., 72(1-2):81–138, 1995.
+[Bertsekas and Tsitsiklis, 1991] D.P. Bertsekas and J.N. Tsitsiklis. An Analysis of Stochastic Shortest Path Problems. Mathematics of Operations Research, 16(3):580– 595, 1991.
+[Bonet and Geffner, 2001] Blai Bonet and Hector Geffner. Planning as heuristic search. Artif. Intell., 129(1-2):5–33, 2001.
+[Bonet and Geffner, 2003] Blai Bonet and Hector Geffner. Labeled RTDP: improving the convergence of real-time dynamic programming. In Proc. Int. Conf. on Automated Planning and Scheduling, 2003.
+[Bonet and van den Briel, 2014] Blai Bonet and Menkes van den Briel. Flow-based heuristics for optimal planning: Landmarks and merges. In Proc. Int. Conf. on Automated Planning and Scheduling, 2014.
+[D’Epenoux, 1963] F. D’Epenoux. A probabilistic production and inventory problem. Management Science, 10:98– 108, 1963.
+[Dolgov and Durfee, 2005] Dmitri A. Dolgov and Edmund H. Durfee. Stationary deterministic policies for constrained mdps with multiple rewards, costs, and discount factors. In Proc. Int. Joint Conf. on Artiﬁcial Intelligence, 2005.
+[Hansen and Zilberstein, 2001] Eric A Hansen and Shlomo Zilberstein. LAO*: A heuristic search algorithm that ﬁnds solutions with loops. Artiﬁcial Intelligence, 129(1):35–62, 2001.
+[Haslum and Geffner, 2000] Patrik Haslum and Hector Geffner. Admissible heuristics for optimal planning. In Proc. Int. Conf. of Artiﬁcial Intelligence Planning Systems, pages 140–149, 2000.
+[Helmert and Domshlak, 2009] Malte Helmert and Carmel Domshlak. Landmarks, critical paths and abstractions: What’s the difference anyway? In Proc. Int. Conf. on Automated Planning and Scheduling, 2009.
+[Helmert et al., 2007] Malte Helmert, Patrik Haslum, and Jo¨rg Hoffmann. Flexible abstraction heuristics for optimal sequential planning. In Proc. Int. Conf. on Automated Planning and Scheduling, pages 176–183, 2007.
+[Jimenez et al., 2006] Sergio Jimenez, Andrew Coles, and Amanda Smith. Planning in probabilistic domains using a deterministic numeric planner. In Proc. Workshop of the UK Planning and Scheduling Special Interest Group, 2006.
+
+[Kolobov et al., 2011] Andrey Kolobov, Mausam, Daniel S. Weld, and Hector Geffner. Heuristic search for generalized stochastic shortest path mdps. In Proc. Int. Conf. on Automated Planning and Scheduling, 2011.
+[Kolobov et al., 2012] Andrey Kolobov, Mausam, and Daniel S. Weld. A theory of goal-oriented mdps with dead ends. In Proc. Conf. on Uncertainty in Artiﬁcial Intelligence (UAI), 2012.
+[Little and Thie´baux, 2006] Iain Little and Sylvie Thie´baux. Concurrent probabilistic planning in the graphplan framework. In Proc. Int. Conf. on Automated Planning and Scheduling, 2006.
+[Pommerening et al., 2014] Florian Pommerening, Gabriele Ro¨ger, Malte Helmert, and Blai Bonet. Lp-based heuristics for cost-optimal planning. In Proc. Int. Conf. on Automated Planning and Scheduling, 2014.
+[Pommerening et al., 2015] Florian Pommerening, Malte Helmert, Gabriele Ro¨ger, and Jendrik Seipp. From nonnegative to general operator cost partitioning. In Proc. of National Conference on Artiﬁcial Intelligence (AAAI), pages 3335–3341, 2015.
+[Steinmetz et al., 2016] Marcel Steinmetz, Joerg Hoffmann, and Olivier Buffet. Revisiting goal probability analysis in probabilistic planning. In Proc. Int. Conf. on Automated Planning and Scheduling, 2016.
+[Trevizan et al., 2016] Felipe W. Trevizan, Sylvie Thie´baux, Pedro Henrique Santana, and Brian C. Williams. Heuristic search in dual space for constrained stochastic shortest path problems. In Proc. Int. Conf. on Automated Planning and Scheduling, 2016.
+[Trevizan et al., 2017a] Felipe W. Trevizan, Florent Teichteil-Kœnigsbuch, and Sylvie Thie´baux. Efﬁcient solutions for stochastic shortest path problems with dead ends. In Proc. 33rd Conf. on Uncertainty in Artiﬁcial Intelligence (UAI), 2017.
+[Trevizan et al., 2017b] Felipe W. Trevizan, Sylvie Thie´baux, and Patrik Haslum. Occupation measure heuristics for probabilistic planning. In Proc. Int. Conf. on Automated Planning and Scheduling, 2017.
+[van den Briel et al., 2007] Menkes van den Briel, J. Benton, Subbarao Kambhampati, and Thomas Vossen. An lpbased heuristic for optimal planning. In Int. Conf. on Principles and Practice of Constraint Programming, 2007.
+
+5388
+

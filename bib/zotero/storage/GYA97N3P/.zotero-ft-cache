@@ -1,0 +1,1013 @@
+IEEE TRANSACTIONS ON ROBOTICS
+
+1
+
+A Fast Planning Approach for 3D Short Trajectory with a Parallel Framework
+Han Chen1, Shengyang Chen2, Peng Lu3∗, and Chih-Yung Wen2
+
+arXiv:2110.10376v1 [cs.RO] 20 Oct 2021
+
+Abstract—For real applications of unmanned aerial vehicles, the capability of navigating with full autonomy in unknown environments is a crucial requirement. However, planning a shorter path with less computing time is contradictory. To address this problem, we present a framework with the map planner and point cloud planner running in parallel in this paper. The map planner determines the initial path using the improved jump point search method on the 2D map, and then it tries to optimize the path by considering a possible shorter 3D path. The point cloud planner is executed at a high frequency to generate the motion primitives. It makes the drone follow the solved path and avoid the suddenly appearing obstacles nearby. Thus, vehicles can achieve a short trajectory while reacting quickly to the intruding obstacles.
+We demonstrate fully autonomous quadrotor ﬂight tests in unknown and complex environments with static and dynamic obstacles to validate the proposed method. In simulation and hardware experiments, the proposed framework shows satisfactorily comprehensive performance.
+Index Terms—Motion planning, obstacle avoidance, quadrotor, autonomous navigation, trajectory generation.
+SUPPLEMENTARY MATERIALS
+Demo video: https://youtu.be/AOENvwf8sfM
+I. INTRODUCTION
+I N application scenarios, such as searches and expeditions, small drones are usually used to explore unknown environments. To achieve autonomous unmanned aerial vehicle (UAV) navigation in unknown environments, achieving onboard simultaneous localization and mapping (SLAM) and path planning is required. In the research ﬁeld of path planning for UAVs, the three most essential indicators are usually safety, path length, and calculation time for replanning the trajectory. In general, all methods are designed to ensure that the ﬂight is safe, that is, collision-free. However, regarding path length and calculation time, most researchers have only focused on one of these factors because of the potential conﬂicts between them. In other words, calculating a shorter path is always more time-consuming. Minimizing the calculation time often requires direct planning based on the raw sensing data instead of planning on the periodically updated map, and therefore, it is difﬁcult to handle complex environments. The UAV is more likely to detour, resulting in an inefﬁcient ﬂight trajectory.
+1Department of Aeronautical and Aviation Engineering, Hong Kong Polytechnic University, Hong Kong, China.
+2Department of Mechanical Engineering, The Hong Kong Polytechnic University, Hong Kong, China.
+3Department of Mechanical Engineering, The University of Hong Kong, Hong Kong, China. lupeng@hku.hk
+∗Corresponding author
+
+In addition, calculating the shortest path in the global 3D map consumes too much time and is not applicable to realtime planning. While ﬂying in an unknown environment, the environmental information sensed by the drone is continuously used to update the map. After the map is updated, if the planned path cannot be replanned in time, the ﬂight of the drone will be greatly imperiled. Therefore, for real-time calculations during drone ﬂight, using a local map (the part of the global map around the location of the drone) is a common and effective method. Moreover, drones in unknown environments usually do not have a complete map, which means that the globally shortest path is difﬁcult to plan.
+Admittedly, planning the globally shortest path with only a local map is impossible. Shortening the path in the local map will also contribute to shortening the ﬁnal ﬂight path length. Nevertheless, to respond to emergencies, planning on the map may not be sufﬁciently fast. Mapping and planning on the map cost too much time to avoid the intruding dynamic obstacles. The drone must be able to avoid sudden obstacles in the unknown environment before the map is updated. Therefore, we propose a framework in which a low-frequency path planner and a high-frequency trajectory planner work in parallel. The designated goal is cast to the local map as the local goal. The map planner (MP) is ﬁrst used to determine the 2D path to the local goal with the improved jump point search (JPS) method on the projection map. Then, a discrete angular graph search (DAGS) is used twice to ﬁnd a 3D path that is obviously shorter than the 2D one. If the shorter 3D path is found, it is adopted. Otherwise, the 2D path is output. The point cloud planner (PCP) for trajectory planning is based on the design in our previous work [1]. With a given goal, the PCP generates collision-free motion primitives continuously in a computationally efﬁcient way to navigate the drone. In this parallel framework, it calculates the goal from the path output by the MP. In addition, we introduce the calculation formula for obtaining the goal for the PCP from the waypoints in the path. One beneﬁt of the local map is that the computational time for the path planning on the map will not increase with the global map size. The path output frequency and the computational resource usage are guaranteed in a speciﬁc range to ensure that the loop frequency of the PCP is unaffected, and the MP can respond to the map change in time. In this framework, all the submodules are designed to minimize the time cost. For UAVs’ real-time planning, it is safer when the planning outer loop frequency is higher.
+The main contributions of this work are as follows: • A parallel architecture with the MP and PCP is proposed,
+considering the planning success rate, path length, and
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+2
+
+fast response. The framework has been tested to achieve satisfactorily synthesized performance in extensive environments. • We improve the original JPS path and obtain a shorter 2D path. A sliding local map with two resolutions is introduced to increase the planning speed while maintaining a ﬁne-grained path around the drone. • We introduce the DAGS based on the angular cost and try to ﬁnd a 3D path shorter than the improved 2D path. • Based on our former work [1], the PCP is further optimized in time cost, motion planning success rate, and safety. To connect two planners in one framework, we build an optimization problem to calculate the local goal from the path output by the MP. The analytical solution of the optimization problem is found from a geometric view.
+Our proposed framework’s performance is tested and veriﬁed in several simulation and hardware tests. The ﬂight trajectory length and the detailed algorithm execution time are compared with the shortest global path length and those of the state-of-the-art algorithms, respectively, demonstrating the superiority of our method with the best all-around performance.
+II. RELATED WORK
+A. Environmental information retrieving method
+In the related works, two main categories for environmental information retrieving methods can be summarized: memoryless and fusion-based [2]. The ﬁrst category only uses the latest sensor measurement data or weights the most recent data [3, 4]. In other words, these methods will not record the passed by obstacles [5, 6]. An example of this kind of method is to generate motion primitives randomly and check collision with the transformed point cloud and the trajectories [7]. However, path planning directly on the latest point cloud requires the information of high quality and in full view. For UAVs with limited sensors, e.g., only one single depth camera with a narrow ﬁeld of view, such methods are not applicable.
+The second type is based on data fusion. Sensor data will be continuously fused into a map, usually in the form of occupying grid or distance ﬁeld [8]. Considering the map is important to plan a safe and short path in complex scenarios, many navigation frameworks are applied on a global map or local map. For building a map with the sensed environmental information, representative methods include voxel grids [9], Octomap [10], and elevation maps [11]. Octomap is memoryefﬁcient for presenting a large-scale environment and maintaining the map automatically. In [12], with the point cloud raw data input, Octomap is utilized to provide the map for their proposed planning algorithms, and the experimental results are satisfactory.
+B. Path planning
+For path searching of UAVs, the algorithms commonly used can be classiﬁed into two categories: searching-based or sampling-based methods. Searching-based methods discretize the whole space into a grid map and solve path planning
+
+by graph searching. The graph can be deﬁned in a 2D, 3D, or higher-order state space. Typical methods include Dijkstra [13], A* [14], anytime repairing A* [15], JPS [16], and hybrid A* [17]. Dijkstra’s algorithm is the root of the above methods, which searches path by utilizing an exhaustive method on all the given grids. A* improves the efﬁciency by setting a cost function to cut off the search away from the goal. As an improved version of the traditional A*, JPS greatly reduces its time cost without sacriﬁcing the optimality in all the cases. However, as the path direction is constrained, the path is not the true shortest in the unconstrained 2D map.
+Sampling-based methods usually do not need to discretize the space ﬁrst. In the representative sampling-based approach such as rapidly exploring random tree (RRT) [18], random and uniform sampling is performed from the space near the starting point, and the root node and child nodes are continuously connected to form a tree that grows toward the target. The RRT algorithm can effectively ﬁnd a viable path, but it has no asymptotic optimality, and its search will stay at the ﬁrst feasible solution. Sampling-based methods with asymptotic optimality include probabilistic road maps (PRM*) [19], rapid exploration of random graphs (RRG) [20] and RRT* [20], where RRT* can make the solution converge to the global best point with the increase of samples. RRG is an extension of the RRT algorithm because it connects the new sample with all other nodes within a speciﬁc range and searches for the path after constructing the graph. Based on RRT, the method in [21] cancels the optimal control of time to ensure the asymptotic optimality of the path and kinematics feasibility. Also, a belief roadmap can be combined with RRG [22] to solve the problem of trajectory planning under the state uncertainty. A technique called “partial ordering” balances conﬁdence and distance to complete the expansion graph in the conﬁdence space.
+C. Trajectory and motion planning
+The trajectory planner utilizes the local obstacle information and the target point’s position to plan an optimal path and a corresponding set of motion primitives within a particular time. The artiﬁcial potential ﬁeld (APF) method [23] conceives that the goal point generates an “attractive force” to the vehicle, and the obstacle exerts a “repulsive force”. The movement of the vehicle is controlled by seeking the resultant force. Its expression is concise, but it is easy to fall into the local optimal solution. The vector ﬁeld histogram (VFH) [24] is a classical algorithm for robot navigation with a lidar, improved from the APF method. VFH will calculate the travel cost in each direction. The more obstacles in this direction, the higher the cost. The dynamic window approach (DWA) is a samplingbased method, which samples the motion primitives within the feasible space and chooses one set by ranking them with a cost function [25]. The concepts in these classical methods are of the excellent reference value and enlightening signiﬁcance for our method. However, for an UAV with a single depth camera ﬂying in an unknown environment, they are not sufﬁcient.
+Inspired by the methods mentioned above, several advanced frameworks have successfully been tested in actual drone ﬂights. For frameworks that directly obtain the motion primitives, they can also be divided into two categories: One
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+3
+
+is based on solving an optimization problem, and the other is based on sampling within the feasible state space. The former requires a wise and appropriate form to represent the UAV trajectory, e.g., Bezier curves [26], and constraints are needed to ensure the planned trajectory is collision-free. The representative works in this category are [27–29]. For sampling-based methods, the evaluation function is necessary to choose the most suitable group of motion primitives as the output. A representative work is presented by [30], in which the time cost to generate and evaluate trajectories is short enough to enable the quadrotor to even catch a falling ball.
+Path planning on a local map can be conducted before the motion planning to improve the trajectory length. The local map only maintains the environment information near the UAV, while the global goal is converted to the goal in the local map. Then, the path planning algorithms introduced above can be utilized with the local map, and the motion primitives are gained based on the path. For example, Chen et al. [31] and Liu et al. [32] adopt the minimum-jerk method to generate trajectory through the waypoints from an A* search based on the local occupancy grid map. Besides, some works studied how to allocate the ﬂight time for a drone to ﬂy through the waypoints. The receding horizon control policy is introduced to plan in a limited time range [33], and a bi-level optimization method is also effective [34, 35].
+For the two categories, collision check is the most timeconsuming part of the framework. In our previous work [1], we proposed a computational efﬁcient sampling-based method with a novel collision check technique to generate collisionfree trajectories on the point cloud obtained during UAV’s navigation. Its loop frequency is up to 60 Hz, and it is a submodule of this project.
+In the last few year, several research works discussed how to combine the optimal global planning algorithm for static maps with the algorithm applied to real-time online replanning. The algorithms can learn from each other’s strengths and weaknesses, i.e., working out a short path and responding quickly to map changes for replanning the trajectory. For the existence of the unknown space in the environment, several methods can be adopted: the unknown space is regarded to be freely passable in [36, 37], and the path is continuously adjusted as the obstacle information is updated. We call it the optimistic planner. In [35, 38], the optimistic global planner and conservative local planner are combined to ensure the safety of the aircraft. To diminish the inconsistency between the global and local planner, Tordesillas et al. [39] proposed a planning framework with multi-ﬁdelity models. They run the JPS algorithm on the local slide grid map, and the constraints of motion optimization were divided into three parts according to the distance from the drone, where the most strict constraints are for the closest area.
+III. MAPPING AND THE MAP PLANNER
+The ﬂight system architecture is shown in Fig. 1. The MP obtains the map from the mapping kit and plans the ﬁnal path as the reference, and the PCP searches the next waypoint based on the ﬁnal path and optimizes the motion primitives to make the drone ﬂy through the waypoint.
+
+Fig. 1. Architecture of our autonomous navigation system for UAVs.
+
+This section primarily introduces the construction of a stitched map with two resolutions and the algorithms used for path planning in the local map (the MP). The PCP will be introduced in section IV. Moreover, the point cloud ﬁlter for the raw sensor data preprocessing is introduced at the beginning.
+A. Point cloud ﬁlter
+The dense point cloud from a real depth camera contains noise. The noise follows certain types of distributions, that is, the noise level is high when the object is far from the camera. In addition, the dense points may overburden computational procedures, such as point coordinate transformation, mapping, and planning. Moreover, the noise will mislead the mapper to mark many nonexistent obstacles on the map. Before building a map, we ﬁlter out the noise in the point cloud and keep the actual obstacle points. The process of ﬁltering the point cloud is shown in Fig. 2. First, we ﬁlter the original point cloud data through the distance ﬁlter to obtain Pcl1. It removes the points farther than dpass from the camera, which may contain too much noise. Next, a voxel ﬁlter is used to reduce Pcl1 to Pcl2. Furthermore, the outlier ﬁlter removes the outliers to obtain Pcl3: The local point density distinguishes the outliers because the point cloud density of the noise is usually smaller. Then, we convert Pcl3 into Pcl4 in the Earth coordinate system and use Pcl4 in the mapping kit to build and maintain a global map. Finally, the center points of occupied voxels are used as the 3D map for the collision check, referred to as Pclm. It is apparent that Pclm well retains the basic shape of the obstacle in a more concise and tidy form. BE in (1) is the transformation matrix from body coordinate B−xyz to Earth coordinate E −XYZ. cψ is short for cos(ψ), sψ is short for sin(ψ), and ψ, φ , and θ are attitude angles.
+At last, Pcl4 is used for the map building and collision check in the PCP, and Pclm is used for the 3D path collision check in the MP.
+
+
+
+cψ cθ
+
+sψ cθ
+
+−sθ 
+
+BE =  cψsθ sφ − sψcφ sψsθ sφ + cψcφ cθ sφ  (1)
+
+cψsθ cφ + sψsφ sψsθ cφ − cψsφ cθ cφ
+
+B. Mapping and 2D path planning The mapping kit MLmapping1 assembled in this project is
+self-developed. It provides Pclm and the projected 2D grid map
+1https://github.com/HKPolyU-UAV/MLMapping
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+4
+choices, because it is fast and can replan the path in real time. JPS outputs the optimal path by searching a set of jump points where the path changes its direction. However, two problems arise if the path planning is performed directly on Map1. First, to ﬁnd a short and safe path, the local map scale should not be small. Otherwise, the optimal path on a tiny local map is more likely to end at a blind alley or differs substantially from the globally optimal path. However, a large local map is computationally expensive, and it is important to leave as much CPU resource as possible to the high-frequency PCP for safety. Second, the path planned directly on Map1 is adjacent to the obstacle projection. In our framework, considering the drone frame size and ﬂight control inaccuracies, the drone must remain at a safe distance from obstacles. Thus, the path should remain a certain distance from obstacles. The PCP will make the drone closely follow the path obtained by the MP. When the path is found to be occupied, the PCP starts to take effect. As a result, the PCP in this framework can run faster compared to that of [1], because the initial search direction is more likely to be collision-free.
+
+Fig. 2. Process for point cloud ﬁltering, coordinate transformation, and mapping.
+
+Fig. 3. Local and global maps. The goal projection of the local 3D map is gl ∈ R3. Pcllm, while gl is the projection of gl in the 2D local map Map1, and gl locates on the edge of Map1.
+for the path planning in this paper. Here, we ﬁrst introduce the basic concepts of the local map. A local map is a subset of the global map and is also presented by voxels’ center points. The space covered by the local map is a cuboid with a square bottom surface, and it has no relative rotation to the global map. As shown in Fig. 3, lms is the square side length, and hms is the local map height, which is much smaller than lms. The center of the local map follows the drone’s current position pn ∈ R3. Pcllm represents the subset of Pclm corresponding to the local map in the text below. By projecting the local map on the ground plane, the 2D grid map Map1 is obtained to plan the 2D path.
+To plan an optimal path on Map1, JPS is one of the best
+
+Fig. 4. Partial view of the mapping process (k=3,h=2). The ﬁgures in the ﬁrst row show the path in Map1 and Map1b. The ﬁgures in the second row show the path in Mapc, the jump points in Path1, and the stitched map. The dark gray grids indicate the obstacle, and the light gray grids are the obstacle’s inﬂation after the convolution. The path planning start point is the center of Map1 and Mapc.
+In our framework, we take two measurements to address
+these two problems. For the ﬁrst problem, we plan the path on
+the downsampled local map and the cast local map, respec-
+tively, and fuse the paths. We ﬁrst conduct the convolution
+with Map1 to reduce the map size and obtain a low-resolution version Map1b from Map1. Mapc is segmented from Map1 afterward as the original resolution map around the drone.
+Then, we plan Pathb on Map1b and ﬁnd the intersection point gist of Pathb and the Mapc boundary. The part of Pathb that
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+5
+
+lies in Mapc is removed. Finally, we use gist as the goal point to ﬁnd the path Patha in Mapc, and splice Patha and Pathb to form a complete path Path1. The grid size of Map1b positively correlates with the map size, so the time cost of 2D path planning can be controlled.
+For the second problem, after we have obtained Mapc, we ﬁrst perform an expansion operation on the obstacles in Mapc. Using a convolution kernel to convolve the binary matrix corresponding to Mapc, the blank area next to the obstacle in the map can be marked as an obstacle so that each point on Path1 maintains a certain distance from true obstacles.
+
+Map1 =
+
+[Map1]i× j [0](i+s)×s [0]s× j
+
+(2)
+
+
+
+[0]k×(n+2k)
+
+
+
+Mapc =  [0](m+2k)×k [Mapc]m×n [0](m+2k)×k  (3)
+
+[0]k×(n+2k)
+
+Mapc = Sgn(Conv1([Mapc](m+2k)×(n+2k), Ik×k)) (4)
+
+Map1b =
+
+Convh([M
+
+a
+
+p1](i+s)×(
+
+j+s)
+
+,
+
+Ih×h h2
+
+)
+
+(5)
+
+ij
+
+h=
+
+(i j > 3mn & (i + s) is divisible by h) (6)
+
+2mn
+
+Equations (2)-(5) show the calculation of the downsampling and inﬂation. i and j denote the size of the original Map1 (i = j), and m and n denote the size of the cut map Mapc (m = n). We use [ ] to present a matrix, and the subscript of the matrix denotes its size. [0] indicates the zero matrix. s is the line and column number for zero padding for Map1. h and k are the convolution kernels’ size for map downsampling and obstacle inﬂation, respectively. Sgn() is a function that returns the sign matrix corresponding to each element in the input matrix. The sign matrix is used as the binary map with two types of elements: 0 and 1. Conv() indicates the
+
+convolution, and it inﬂates the occupancy grids on the map or downsamples Map1. Its subscription indicates the step size for the kernel sliding, and the second element is the convolution kernel. is for rounding the number to the nearest integer. If a matrix is in , it rounds each element in the matrix. (4) represents the obstacle inﬂation process, and (5) is for the map downsampling. Fig. 4 illustrates the map processing and
+
+path planning intuitively. The deep gray grids represent the obstacles, and the light gray grids are the inﬂation of obstacles after the convolution. gist is represented in blue on the maps. When gist is occupied after the inﬂation, we ﬁnd the nearest free grid on the map edge as the new gist . The calculation of h is introduced in (6), and i, j, m, n, s should meet the conditions in the bracket.
+
+C. Improved 2D path
+In section III.B, a path Path1( j p1, j p2, ...) on a plane parallel to the ground plane XY is found using the JPS method in the hybrid map of Map1b and Mapc. However, in some cases, it is not the shortest path in the plane, as search directions of waypoints can only be a multiple of 45◦. We can further optimize the original path by deleting the redundant waypoints.
+
+For example, in Fig. 5, the red path is the original path, the green path is the improved path, and j p2 and j p4 are deleted. The deleting process can be written in Algorithm 1. ti is the iteration number, j pck is the ckth point in Path1, and the same for j pti. We connect the third point in the original JPS path with the ﬁrst point and check if the line collides with the occupied grid in the map. If it does not collide, the point before the checked point in the waypoint sequence of the original JPS path is deleted. The ﬁrst and third points can be directly connected as the path. Then, the next point will be checked until all the point pairs (the two points are not adjacent) from Path1 are checked, and all excess waypoints in Path1 are removed.
+
+Algorithm 1 Optimize the original JPS path
+
+1: for j pck in Path1 (ck is the iteration number): do 2: ti = ck + 2
+
+3: while ti < len(Path1) and len(Path1) > 2 do
+
+4:
+
+if j pck j pti does not collide with the occupied grids
+
+in the 2D map: then
+
+5:
+
+ti = ti − 1, delete j pti from Path1
+
+6:
+
+end if
+
+7:
+
+ti = ti+1
+
+8: end while
+
+9: end for
+
+D. Shorter 3D path searching
+
+After an improved 2D path is found, we notice an obviously
+
+shorter 3D path in some scenarios. For example, to avoid a
+
+wall, which has large width but limited height, ﬂying above
+
+the wall is better than ﬂying over a bypass from right or left.
+
+To search for a shorter 3D path with light computation, a
+
+generalized method DAGS for all environments is described
+
+in Algorithm 2, Fig. 5, and Fig. 6 in detail. It is composed of
+
+two rounds of search, and each round determines one straight
+
+line segment to compose the 3D path. Pcllm is divided into two parts: One part is denoted as Pcllm−1 and is composed of the points whose distance to pn is smaller than pn j p1. Another part Pcllm−2 consists of the remaining points. As shown in Fig. 5, the ﬁrst segment is pnt p1, the second segment is t p1t p2, and pn −t p1 −t p2 −gl represents the shorter 3D path. αres is the angular resolution of the discrete angular graph. Ag(αg1, αg2) is the angular part of the spherical coordinates of gl, and the origin of the spherical coordinate system is psr for each search round. min() is a function that returns the minimal value of
+
+an array.
+
+Here, the procedure for the ﬁrst round of the search is brieﬂy
+
+introduced, and the second round is basically identical. First,
+
+the discrete angular graph is built by Algorithm 2, line 3-8,
+
+as shown in Fig. 6(b). returns the integer part of each
+
+element of the input. The angular coordinate in the graph is
+
+the direction angle difference between the goal gl and any point in the space. The colored grids represent all the discrete
+
+angular coordinates Amid−d corresponding to the input point
+
+cloud. Then, the (line 9), which
+
+relative has the
+
+direction minimal
+
+angle angle
+
+Adeigfffeorrenpcnet pw1 iitshfo−pu−nn→gdl
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+6
+
+(the yellow grid in Fig. 5 and Fig. 6). Next, the length of path segment pnt p1 is determined in line 10, and the direction angle of this path segment in E−XYZ is calculated by line 11. αsa f e is the angle increment to make the path segment remain a safe distance from obstacles. Finally, the coordinate of the endpoint of this path segment is calculated in line 13. If the 3D path is found by Algorithm 2, it is compared to the optimized Path1, and the path with the shortest length is denoted as Path f nl. Subsequently, the drone follows Path f nl, and the MP is suspended until Path f nl collides with the obstacles in the updated map.
+
+Algorithm 2 DAGS method
+
+1: for sr in {1,2} (sr is the searching rounds number) do
+
+2: 3:
+
+If sr The
+
+a=ng1u,laprsrc=ooprdni,noattheeorwf i−ps−ser→gplsr→=
+
+t p1 Ag(αg1,
+
+αg2)
+
+4: for each point pmi in Pcllm−sr: do
+
+5:
+
+The angular coordinate of pmi → Ami
+
+6:
+
+Amig = Ami − Ag
+
+7:
+
+Discretize Amig, Amig−d = Amig/αres , build the dis-
+
+crete angular graph with Amig−d
+
+8: end for
+
+9: The edge of all Amig−d in the angular graph
+
+→ Aeg−all , Aeg ⊂ Aeg−all and Aeg 2 =
+
+min( Aeg−all(1) 2, Aeg−all(2) 2, ...)
+
+10: Points in Pcllm−sr corresponding to Aeg → Pcleg, peg ⊂
+
+Pcleg and peg has the maximal distance to psrgl, lt p =
+
+11:
+
+pn peg Get the
+
+direction
+
+angle
+
+of
+
+−p−sr−t−p→sr ,
+
+At p
+
+=(
+
+Aeg
+
+2+
+
+αsa f e)
+
+Aeg Aeg
+
+,
+2
+
+αsa f e
+
+=
+
+arcsin(rsa f e/lt p)
+
+12: t psr = psr + lt p(cos(At p(1)), sin(At p(1)), sin(At p(2)))
+
+13: end for
+
+A. Review of DAS
+
+Fig. 5. A scenario where the 3D path is much shorter than the improved 2D path.
+
+(a)
+
+(b)
+
+Fig. 6. (a): A wall stands between the drone pn and the local goal gl , (b): The discrete angular graph for (a), αres = 20◦. The orange grids are the edge grid of the obstacle.
+
+IV. TRAJECTORY PLANNING ON THE POINT CLOUD
+This section will introduce how the goal gn is generated from Path f nl for the PCP’s current step n and how the PCP outputs the ﬁnal motion primitives. First, the discrete angular search (DAS) method speciﬁes the safe waypoint wpn ∈ R3 in free space, which the drone should traverse. The motion planner solves the optimization equation to make the drone pass through wpn under the given motion constraints. The PCP also includes an additional safety measure to ensure that no collision will occur, which works when no wpn can be found in an emergency.
+
+The PCP in this paper is an improved version of our previously proposed trajectory planner based on the DAS method [1]. Thus, brieﬂy introducing it helps to understand the contributions in this section.
+
+In [1], we ﬁrst search a waypoint wpn near the drone
+
+as the constraint for the motion planning, and a quadratic
+
+polynomial curve is optimized as the ﬁnal trajectory in the
+
+motion planning. Motion planning is for solving a nonlinear
+
+optimization problem. The trajectory traverses wpn within a
+
+small, predetermined distance error, and the corresponding
+
+motion primitives are within the kinematic constraints. More-
+
+over, the real trajectory between pn and wpn can be proved
+
+collision-free. As shown in Fig. 7, gn is the goal point for
+
+the current step, a cluster of line segments fanned out in the direction of −p−n→gn, and these line segments have a common starting point pn and the same length rdet . In this paper, gn is determined by the planned path Path f nl. rdet is the point cloud distance threshold, and the collision check only considers the
+
+points about
+
+−pw−ni→gthninonditshteanpcleanrdeetpfarroamllelpnto.
+
+The the
+
+two symmetrical lines ground plane are ﬁrst
+
+checked to determine if they collide with obstacles (minimal
+
+distance smaller than rsa f e). rsa f e is an important parameter for
+
+safety, which is a function of the preassigned maximal speed
+
+vamboaxuta−pn−nd→gnacicnetlhereavtieornticaamlapx.laTneheanr,e
+
+the two symmetrical lines checked. Fig. 7 shows that
+
+when the ﬁrst round of the search fails, another round with a
+
+greater angle difference is conducted until a collision-free line
+
+pn pw is found. wpn is on pn pw, and pnwpn should satisfy the
+
+safety analysis in [1]).
+
+When the drone encounters a suddenly intruded obstacle in the sensor detection range, the PCP plans a safe trajectory in 0.02 s before the map and Path f nl are updated.
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+7
+
+minimal total distance between three ﬁxed points (κ1a1 + pn, κ2a2 + pn, v0 + pn). The triangle composed of these three points is called a Fermat triangle. It can be solved by locating
+the Fermat point fm of the triangle, as shown in Fig. 8, and gn = fm. The calculation of fm is illustrated in (9). First, the plane coordinates (x f 1, y f 1), (x f 2, y f 2), and (x f 3, y f 3) in the plane Pf m for the three points are determined (Pf m is the plane deﬁned by the Fermat triangle). S f m is the area of the triangle. l1 is the length of the side opposite to the triangle point (x f 1, y f 1), and so on. fm(x f m, y f m) is the coordinate of fm in plane Pf m. Finally, fm is converted to E−XYZ to obtain fm.
+
+Fig. 7. Illustration of the DAS process. The red dash circle and red arrows are for the search on the ground-parallel plane, while the green ones are for the vertical plane. In this ﬁgure, the collision check for the ﬁrst line of the second search round is successful (denoted as pn pw).
+B. Connection between the PCP and MP
+
+For every
+
+the step
+
+PCP, an updated n. The direction
+
+goal −p−n→gn
+
+point gn is always required at is the initial search direction.
+
+If this direction does not collide with any obstacles, the
+
+planned trajectory will head to gn directly.
+
+The ﬁnal path Path f nl = [pt1, pt2, ..., gl] is received from the
+
+MP (Path f nl dose not include pn), and an optimization problem
+
+(8) is designed to ﬁnd the current goal gn. It is designed to
+
+make the ﬁnal trajectory smooth by sliding gn continuously.
+
+If pt1 is simply assigned as gn, gn will jump to pt2 as the
+
+drone approaching pt1. This result may cause wpn to also jump
+
+with gn and cannot be reached within the drone’s kinematic
+
+constraints. The drone should start to turn earlier to avoid
+
+a violent maneuver, which leads to a greater control error
+
+and undermines safety. The endpoint of the planned trajectory
+
+remains near Path f nl under the premise of safety assurance.
+
+min
+vt
+
+vt
+
+v0 vt
+
+2 − v0
+2
+
+2+
+
+vt − κ1a1 2 +
+
+vt − κ2a2 2
+
+(8)
+
+s.t. a1 = pt1 − pn, a2 = pt2 − pn, vt = −p−n→gn
+
+In (8), the three components are the acceleration cost, the
+cost of pt1, and the cost of pt2. pn is the current position of the drone, and v0 is the current velocity. vt presents the initial search direction of the local planner. rdet is the search range radius for the DAS. κ1 and κ2 are the weight factors for adjusting the inﬂuence of pt1 and pt2 on vt , and κ1 is much larger than κ2. Fig. 8 intuitively demonstrates the initial search direction vt for the PCP, drone position, and waypoints on Path f nl. The green, dashed line displays the rough shape of the trajectory if the PCP does not check for a collision and
+wpn is always on pngn. We can see from (8) and Fig. 8 that as the drone approaches the next waypoint pt1, the inﬂuence on gn from a2 overwhelms a1. When the drone is far from pt1 and pt2, a1 is the governing inﬂuence factor of vt . We can also reduce the difference between the trajectory and Path f nl by regulating κ1 and κ2. If only one waypoint gl remains in Path f nl, pt1 = pt2 = gl.
+Solving a nonlinear optimization problem, such as (8), is
+computationally expensive. From a geometric point of view,
+the nature of (8) is to ﬁnd a point (vt ) in the space with the
+
+3
+
+√
+
+∑ x f m = ( x f i(4S f m + 3li2) + g(y))/ fSl
+
+i=1
+
+3
+
+√
+
+∑ y f m = ( y f i(4S f m + 3li2) + g(x))/ fSl i=1
+
+(9)
+
+g(x) = [x f 1, x f 2, x f 3][l32 − l22, l12 − l32, l22 − l12]T
+
+g(y) = [y f 1, y f 2√, y f 3][l32 − l22, l12 − l32, l22 − l12]T fSl = 12S f m + 3(l12 + l22 + l32)
+
+Fig. 8. Geometric illustration of the analytical solution of (8). The pink, dashed line marks the Fermat triangle.
+C. Improvements on the PCP
+1) Streamline and sequence the input point cloud: For the input point cloud Pclr of the PCP, Pclr = Pclmr ∪ Pcl4r. Pcl4r is the subset of Pcl4, Pclmr is the subset of Pclm, and their distance to pn is within rdet . Not only Pcl4r but also Pclmr is used as the input point cloud because the camera ﬁeld of view (FOV) is narrow. If only Pcl4r is checked for the collision, the drone may still collide with the obstacles outside the FOV.
+In [1], we ﬁnd that the execution time of the trajectory planner is highly relevant to the size of the input point cloud. The collision check accounts for a large proportion of the total time cost. Every point in Pclr is checked for a collision in the loops. Once a point p1st in Pclr is ﬁrst found to collide with the detecting line segment, the collision check loops are terminated. Therefore, we hope to ﬁnd p1st in a more computation-efﬁcient way to reduce the time cost.
+By analyzing a large amount of recorded data of the PCP in simulation and hardware tests, we found the following statistical laws. p1st has a larger probability to appear in the
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+8
+
+part that is closer to pn and pngn (Pclr is ﬁrst sorted in order of increasing distance to pn). d ft is the farthest distance from pn to the points in Pclr. For approximately 89.6% of all the recorded p1st , pn p1st ≤ 0.5d ft . For approximately 81.3% of p1st , the angle ∠p1st pngn ≤ 90◦. Thus, the part of Pclr that is out of the highlight range (pn p1st ≤ 0.5d ft , and ∠p1st pngn ≤ 90◦) can be streamlined. In Algorithm 3, we streamline Pclr to remain within at most nuse points of it. len() returns the list size. Dpn is the list that stores the distance between the points in Pcl4r and pn. The point that is more likely to collide is stored in list Pcluse to have a higher priority for being checked (line 3-4). When the number of points in
+Pcluse is more than nuse, Pcluse is evenly spaced to limit its size. The limited size of Pcluse reduces and stabilizes the time cost for the collision check. In addition, if nuse and rsa f e are reasonable, safety is not compromised in extensive simulation
+and hardware tests.
+
+Algorithm 3 Streamline the sorted Pcl4r
+
+1: for pc j in Pcl4r ( j is the iteration number): do 2: if (Dpn( j) ≤ 0.5d ft or ∠p1st pngn ≤ 90◦): then
+
+3:
+
+Put pc j in list Pcluse
+
+4: end if
+
+5: end for
+
+6: if len(Pcluse) > nuse: then
+
+7: Remove len(Pcluse) − nuse points in Pcluse randomly
+
+8: else
+
+9: Choose nuse − len(Pcluse) points from Pcl4r Pcluse randomly, add them into Pcluse
+
+10: end if
+
+2) Improve the motion primitives generation efﬁciency: After obtaining the next waypoint wpn, the next step is to calculate the motion primitives and send the command to the ﬂight controller. Sending wpn directly as the control command may cause the ﬂight to be unstable, and the acceleration magnitude may exceed amax. Because wpn may vary significantly between two continuous motion planning steps, the point cloud quality is harmed when the drone acceleration magnitude is too large. In addition, the position commands cannot control the speed. To ensure that the aircraft can ﬂy within its kinematic limits and reach the next waypoint, the motion primitives are generally obtained by solving an optimization problem. Previously [1], we considered the ﬂight time to reach wpn the optimization variable. However, we found the solver may fail in the given number of iteration steps in some cases. The solving success rate with an error tolerance 10−3 is approximately 83.7% within 40 steps. When the solver fails in several continuous PCP steps, the planned trajectory deviates considerably from wpn, and the drone is very dangerous. Furthermore, considering the requirement of low time cost for real-time computing, the maximal number of iteration steps should be limited. The time variable increases the problem complexity, and the ﬂight controller does not require it. Therefore, the ﬂight time can be removed from the optimization variables and the optimization strategy (7) is proposed. It is slightly different from that of [1], to improve the success rate and time cost.
+
+min
+an
+
+an
+
+2 2
+
++
+
+η1
+
+−w−p−n−p−n→+1
+
+2 + η2
+
+−p−n−p−∗n→+1 × −p−∗n+−−1w−→pn 2 −p−nw−→pn 2
+
+s.t. vn = p˙n, an = v˙n
+
+vn+1 2 ≤ vmax, an 2 ≤ amax
+
+(7)
+
+vn+1 = vn + antavs
+
+pn+1
+
+=
+
+pn
+
++
+
+vntavs
+
++
+
+1 2
+
+anta2vs
+
+p∗n+1 = pn + 2vntavs + 2anta2vs
+
+In the revised optimization formula, we ﬁx the trajectory
+
+predicting time to tavs. tavs is the average time cost of the last
+
+10 executions of the PCP. The endpoint constraint is moved to
+
+the objective function. The endpoint of the predicted trajectory
+
+need not coincidence with wpn. Because the execution time of
+
+the PCP is always much smaller than the planned time to
+
+reach wpn, before the drone reaches wpn, a new trajectory is
+
+generated, and then the remainder of the formerly predicted
+
+trajectory is abandoned. Predicting only the trajectory between
+
+the current step to the next step of the PCP is sufﬁcient.
+
+Therefore, minimizing the distance between the trajectory
+
+endpoint at tavs and wpn is reasonable. Given that the current
+
+step run time of the PCP may exceed tavs, the distance from the trajectory endpoint at 2tavs to pnwpn should also be optimized.
+
+The subscript n presents the current step in a rolling process of the PCP. vn ∈ R3 and an ∈ R3 are the current velocity and
+acceleration of the drone. vmax and amax are the kinematic
+
+constraints for speed and acceleration, respectively, and vn+1, pn+1, and pn+1 are calculated using the kinematic formula. η1, η2 are the weight factors for the trajectory endpoint constraint.
+
+After the modiﬁcation, the success rate with error tolerance 10−3 within 20 steps is increased to 99.8%, and no dangerous
+
+trajectory deviation from wpn can be detected. The time cost of
+
+the motion planning and safety of the PCP is greatly improved.
+
+3) Safety backup plan: On some occasions, such as when
+
+the obstacles are too dense or an obstacle suddenly appears
+
+near the drone (distance is smaller than rsa f e), DAS may
+
+fail to ﬁnd a feasible direction. To solve this problem, the
+
+minimum
+
+braking
+
+distance dbkd
+
+=
+
+vn
+
+2 2
+
+2amax
+
+at
+
+current
+
+velocity
+
+vn
+
+is introduced. It is smaller than rsa f e by setting the appropriate
+
+maximum acceleration constraint amax and velocity constrain
+
+vmax ( vn 2 ≤ vmax). If the minimum distance from the drone to obstacles is greater than dbkd, the search direction having the maximum distance to the obstacles is chosen (although the
+
+distance is smaller than rsa f e). Otherwise, the drone brakes
+
+immediately and ﬂies back to the position at the former PCP
+
+step, and the chosen search direction of the former step will
+
+not be considered after the drone has ﬂown back in place. This
+
+measure is called the “safety backup plan.”
+
+D. The whole framework
+To summarize, Algorithm 4 shows the overall proposed framework. The two planners (MP and PCP) are designed to run in ROS parallelly and asynchronously because of their large difference in operation time and share all the data
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+9
+
+Algorithm 4 our proposed framework
+
+1: while true: (Thread 1) do
+
+2: Filter the raw point cloud data, output Pcl4 3: end while
+
+4: while true: (Thread 2) do
+
+5: Build a global 3D voxel map Pclm, and project it on the ground to obtain Map1
+6: end while
+
+7: while the goal is not reached: (Thread 3) do
+
+8: if the shorter 3D path has not been found or it collides
+
+with the updated Pclm: then 9: Apply convolution on Map1, ﬁnd the 2D path Path1
+on the stitched map.
+
+10:
+
+Try to ﬁnd a shorter 3D path, output Path f nl
+
+11: end if
+
+12: end while
+
+13: while the goal is not reached: (Thread 4) do
+
+14: Calculate the goal gn from Path f nl 15: Find the waypoint wpn by DAS method 16: if found a feasible waypoint: then
+
+17: Run the motion planner to get motion primitives
+
+18: else
+
+19: Run the safety backup plan, and go to line 14
+
+20: end if
+
+21: Send the motion primitives to the UAV ﬂight controller
+
+22: end while
+
+involved in the calculation via the ROS master node. In addition, the point cloud ﬁlter and the mapping kit are run in parallel on different threads.
+V. TEST RESULTS In this section, the static tests and real-time ﬂight tests are introduced to validate the effectiveness of the methods in our proposed framework.
+
+proposed method should be veriﬁed and analyzed, two rounds of numerical simulations are designed and conducted.
+The ﬁrst round tests the inﬂuence of the local map size, the second-round tests the effect of the Mapc size (see Fig. 4). A large-scale 2D map is used in the numerical tests, as shown in Fig. 9. The map size is 800 m*800 m, and the local map size is tested with three conﬁgurations (unit: m): 75*75, 200*200, and 400*400. We assume the local map center moves along the local map path and can only move one meter (including the diagonal move) in one step. The test is conducted with 10 combinations of the randomly assigned start point and goal point, whose straight-line distance is greater than 500 m. For each local map size, the 10 combinations are identical.
+For the ﬁrst round, the average time cost and real trajectory length are compared with that of the planning on the entire map, as shown in TABLE I. Len1 represents the average trajectory length, while Len2 denotes the average global JPS path length. Tc1 is the average total computing time of each replanning step with the local map, and Tc2 is that of the global planning. TABLE I shows that Len1 does not increase substantially compared to Len2, while the time cost is saved considerably compared to the global planning time. We use green color to highlight the data corresponding to our proposed method, demonstrating the superiority. Len1 increases by only 2.2% and Tc1 decreases by 96.6% compared to Len2 and Tc2, respectively, when the Map1 size is 200 m*200 m. It is the most time-efﬁcient map size among the three tested sizes.
+For the second round, the size of Map1 is ﬁxed at 200 m*200 m and the size of Mapc has three alternatives (unit: m): 70*70, 100*100, and 120*120. In TABLE II, the average total computing time Tc3 and trajectory length Len3 are compared between the tests that do and do not use the stitched map. When the size of Mapc is 100 m*100 m, the real trajectory length Len3 increases by only 0.31%, while the time cost Tc3 is reduced by 53.4% compared to Len1 and Tc1, respectively. Thus, the effectiveness of planning on the multi-resolution hybrid map is well validated.
+
+A. Algorithm performance static test
+Our detailed algorithms and methods are designed to obtain an undiminished or much better path planning performance with a decreased or slightly increased time cost. To prove our proposed algorithms’ effectiveness, we ﬁrst individually test them ofﬂine with static data input. This approach can avoid the inﬂuence from the ﬂuctuations in computing performance caused by other simultaneously running algorithms when one algorithm is analyzed. Moreover, the data can be customized, so the tests are more effective and targeted. In this subsection, all the time costs are measured on a personal computer with an Intel Core i7-8565U 1.8-4.6 GHz processor and 8 GB RAM, and Python 2.7 is used as the programming language.
+1) Path planning on the 2D map: The size of the local map is the main inﬂuencing factor of the actual ﬂight trajectory length and computing time of each replanning step. In addition, we apply the JPS algorithm twice on two maps of different sizes and resolutions and splice the two paths into a whole. The Mapc size is also a key to balancing the time cost and the path length. As the effectiveness of our
+
+TABLE I TEST RESULTS OF DIFFERENT Map1 SIZES
+
+Map1 size (m) 75*75 200*200 400*400
+
+Len1 (m) 1021.962 1001.783 997.486
+
+Tc1 (s) 0.036 0.118 0.284
+
+Len2 (m) 980.439 980.439 980.439
+
+Tc2 (s) 3.454 3.454 3.454
+
+TABLE II TEST RESULTS OF DIFFERENT Mapc SIZES
+
+Mapc size (m) 70*70 100*100 120*120
+
+Len3 (m) 1110.374 1004.848 1002.917
+
+Tc3 (s) 0.040 0.055 0.082
+
+Len1 (m) 1001.783 1001.783 1001.783
+
+Tc1 (s) 0.118 0.118 0.118
+
+2) Shorter 3D path searching: To study the path length shortened by the 3D path search and corresponding extra time
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+10
+
+TABLE III FLIGHT TEST RESULTS FOR THE 3D PATH PLANNING
+
+Map size (m) 12*12 20*20 30*30
+
+T3D (s) 0.011 0.032 0.059
+
+η2D (%) 38.6 35.7 35.0
+
+Len3D (m) 39.274 32.635 30.843
+
+Len2D (m) 47.263 44.582 42.341
+
+(a)
+(b)
+Fig. 9. Visualized result during the numerical simulation. (a): only the sliding local map is used, with the map size of 75 m*75 m, (b): the double layer map is used, the sizes of Map1 and Mapc are 200*200 and 100*100 (unit: m). The conﬁguration for the obstacle inﬂation and map downsampling is the same with Fig. 4. The blue line indicates the real trajectory of the drone, the red dash line indicates the global JPS path, and the purple line is the JPS path on the local map.
+cost, the ﬂight data in the Gazebo/ROS simulation environment is analyzed. Gazebo is a simulation software that provides a physical simulation environment similar to the real world. Compared to our experimental hardware platform, all the simulation conﬁgurations are set up as the same or similar to ensure the credibility of the simulation and the analysis conclusion. The Gazebo simulation world and the visualized data are shown in Fig. 10. The obstacle feature size in the simulation is from 0.5 m to 6 m, which is similar to that of most real scenes. Three local 3D map bottom sizes are used (unit: m): 12*12, 20*20, and 30*30, and the map height is ﬁxed at 6 m with the map resolution of 0.2 m. The drone is at the center of the local map. We also conduct 5 ﬂight tests with different combinations of starting and goal points for each local map size. For each ﬂight test, an additional ﬂight test without the 3D path search procedure is used as the control group to compare the ﬁnal trajectory length. During the ﬂight simulation, the time cost of the 3D path search and the path length is recorded for statistical analysis. The results can be found in TABLE III. η2D indicates the mean of shortening percentage of the 3D path compared to the 2D path. T3D is the average time cost for the 3D path search (Algorithm 3). Len3D and Len2D are the actual trajectory average lengths for the ﬂight tests with and without Algorithm 3, respectively.
+We can see that η2D and Len3D decrease as the map size
+
+increases. When the map size is small, the points in the 3D map reduces. Seemingly, the algorithm is more likely to ﬁnd a shorter 3D path. However, the 3D path of a small local map is more likely to collide with the newly appearing obstacles in the updated local map. Therefore, the drone has a high probability of taking a detour while ﬂying along the 3D path, and the actual trajectory length is longer than when we use a large local map. When the local map size is settled as 20 m*20 m, the average outer loop frequency of the path planning is greater than 15 Hz, and the actual trajectory is smooth and natural. We use this map size in the following ﬂight tests.
+3) The improvements in optimization formula: After several hardware ﬂight tests with our proposed framework, we record all the required data for solving the optimization problem, including pn, vn, and wpn, at each step (over 5.3 × 104 steps in total). To validate the improvements of the optimization formula, the collected data is input to the original optimization formula and the improved one in this paper for comparison. In addition, the optimization solving performance under different maximum iterating numbers is studied. The average time cost and overall success rate are counted for quantitative comparison. In TABLE IV, Rog and Tog are the solution success rate and the average time cost of the original optimization formula, respectively, and Rim and Tim are for the improved version. We can see that the success rate and time cost are greatly improved. When the maximum step is more than 20, the success rate improvement is minor. Because 99.83% is a satisfactory success rate, we set the maximum step number as 20 to reduce the time cost. The motion optimization problemsolving time decreases by 39.33% compared to that of the original formula.
+
+TABLE IV TEST RESULTS FOR THE IMPROVEMENTS OF OPTIMIZATION FORMULA
+
+Max steps 5 10 20 40 80
+
+Rog (%) 41.51 61.14 76.87 83.68 92.15
+
+Rim (%) 89.12 95.49 99.83 99.96 100.00
+
+Tog (ms) 3.24 4.87 6.56 9.45 14.78
+
+Tim (ms) 2.12 2.94 3.98 5.23 5.61
+
+B. Simulated ﬂight tests with real-time planning
+Compared to the counterpart that follows the original JPS path directly on the 2D map, our proposed framework is proved to shorten the actual trajectory substantially with limited additional time cost. Another test is required to compare
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+11
+
+Table V describes the parameter settings of the framework in
+
+the simulation test. “pcl” is short for the point cloud.
+
+All the length results of the 10 ﬂight tests are shown in
+
+TABLE VI. The mean of the actual trajectory length Len3D increases by approximately 12.8% compared to the mean of
+
+the globally optimal path length Lenopt . tmp is the average step
+
+time cost of MP in this ﬂight. trrt∗ is the total time cost for RRT* to ﬁnd the shortest path in the 5 runs. trrt∗ only include
+
+the time cost of the runs before the shortest path is found.
+
+Fig. 11 illustrates the detailed visualized data of the ﬂight test
+
+corresponding to second test in TABLE VI (the bold part).
+
+Fig. 11(a) demonstrates the entire map of the simulation
+
+world in Fig. 10. The coordinates of the starting and goal
+
+(a)
+
+points of the ﬂight test in Fig. 11(b) are (11.4, 14.4, 0.8)
+
+and (−12.0, −10.0, 1.2), respectively. The global optimal path
+
+length for this ﬂight is 33.252 m, and the actual ﬂight trajectory
+
+length is 36.057 m. We see that the real trajectory has obvious
+
+differences with the globally optimal path. Nevertheless, the
+
+path length gap is not large, which is similar to the numerical
+
+test results on the 2D map.
+
+The trajectory length comparison between our proposed
+
+framework and the state-of-the-art algorithms is shown in TA-
+
+BLE VII. [1] is our former work for the trajectory planner. η3D
+
+indicates the mean of the 3D path length percentage increase
+
+compared to the optimal 3D path. Except for the η3D of [1]
+
+is evaluated from the ﬂight test data in the same simulation
+
+world, the other data is obtained from the experimental results
+
+in the references. Our proposed framework can ﬂy the shortest
+
+trajectory compared to the works listed in TABLE VII.
+
+(b)
+Fig. 10. (a): The simulation world. (b): The visualized data in RVIZ. The Gazebo window when the ﬂight test is ongoing is shown at the lower right corner. The colorful dots is the point cloud of the 3D local map. The black blocks on the ground plane in RVIZ stand for the obstacles, the white part stands for the free or unknown area.
+the ﬁnal trajectory length with the 3D global shortest path to further validate the framework’s performance. However, the globally optimal path can only be obtained after the map is entirely constructed, so we cannot obtain it while exploring the environment. Because the 3D map of the environment is represented by the point cloud, no graph-searching based algorithm can be applied to obtain the 3D optimal path length. We adopt the asymptotically optimal method RRT* to generate the globally optimal path using a large amount of ofﬂine iteration computing. For comparison, the same simulation conﬁguration with the former ﬂight tests is used in this test. We ﬁrst ﬂy the drone manually with the mapping kit to build up the globally 3D map for the simulation world. Then, the RRT* method is applied 5 times on the map with each group of starting and goal points. The shortest path of the 5 runs is considered the global optimal. The initial parameters of RRT* are generated randomly so that the repeating can avoid the local optimum. The iteration terminates when the relative error of the path length is smaller than 10−3 in the last 10 iterations.
+
+TABLE V PARAMETERS FOR THE FRAMEWORK
+
+Parameter lms
+αres m, n
+h pnwpn voxel size depth resolution η1, η2
+
+Value 20 m 10◦
+50 2 0.3 m 0.2 m 640*360 40, 10
+
+Parameter hms i, j k rsa f e nuse
+pcl frequency κ1, κ2 rdec
+
+Value 6m 100
+3 0.5 m
+70 30 Hz 4.2, 1.5 3m
+
+C. Hardware ﬂight tests
+The video for the hardware test has been uploaded online. In the test environment, static and dynamic obstacles are present to validate the fast reaction of the PCP.
+1) Introduction of hardware platform: We conduct the hardware tests on a self-assembled quadrotor. The Intel RealSense depth camera D435i is installed under the frame as the only perception sensor. The drone frame is QAV250, with the diagonal length 25 cm. The Pixracer autopilot with a V1.10.1 ﬁrmware version is adopted as the underlying ﬂight controller. A LattePanda Alpha 800S with an Intel Core M3-8100Y, dual-core, 1.1-3.4 GHz processor is installed as the onboard computer, where all the following timing
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+TABLE VI 3D PATH LENGTH COMPARISON WITH THE GLOBAL OPTIMAL
+
+Len3D(m) 41.385 36.057 32.249 30.674 38.668 34.916 38.269 39.475 33.785 40.879
+
+Lenopt (m) 36.761 33.252 26.825 27.692 32.707 31.832 33.403 36.412 31.353 36.044
+
+tmp(s) 0.073 0.067 0.068 0.072 0.071 0.069 0.074 0.073 0.068 0.070
+
+trrt∗(s) 6.294 6.091 4.505 3.974 5.340 6.110 4.904 3.841 5.916 6.554
+
+TABLE VII 3D PATH LENGTH COMPARISON WITH THE STATE-OF-THE-ART
+ALGORITHMS
+work η3D work η3D work η3D Ours 12.8% [39] 15.6% [35] 29.7% [40] 49.6% [1] 29.5% [28] 34.5%
+
+12 (a)
+
+breakdowns are measured. For the hardware test, we ﬂy the drone in multiple scenarios with our self-developed visualinertial odometry (VIO) kit2 to demonstrate the practicality of our proposed framework. The point cloud ﬁlter, the VIO kit, and the mapping kit are executed by C++ code, while the other modules are run by the Python scripts. All the parameters used in the hardware test are identical to the simulation ﬂight tests, as shown in TABLE V. The yaw angle of the drone is controlled to keep the camera always heading toward the local goal gl.
+2) Indoor tests: Fig. 12 is our indoor ﬂight test environment. First, the drone takes off from point 1 and ﬂies through the cluttered static obstacles (shown in the picture), following the sequence 2-3-4. The environment is unknown to the drone before it takes off. We can see from the video that the drone can avoid the obstacles agilely. Meanwhile, the drone posture is stable and the ﬁnal ﬂight trajectory is smooth. After the drone reaches point 3 and starts ﬂying toward point 4, a person who hides behind the boxes suddenly appears closely in front of the drone. In the video, the drone quickly maneuvers after the person appears, and the avoidance is successful. The map is updated afterward, and the drone continues to follow the path from the MP.
+The constructed voxel map and ﬂight trajectory after this ﬂight are shown in Fig. 13. The position, attitude, and velocity curves of the drone can be found in Fig. 14. The attitude angles react immediately to the appearance of the person, and then the velocity changes considerably. Sequentially, the drone decelerates and ﬂies to the left side to pass the person. The maximum speed is 1.23 m/s at 74.40 s. The drone does not approach any obstacles before this time, so the speed
+2https://github.com/HKPolyU-UAV/FLVIS
+
+(b)
+
+(c)
+Fig. 11. (a): The entire 3D occupancy grid map. (b): The map after one ﬂight test using our proposed framework. The gradient color curve represents the ﬁnal trajectory. (c): The comparison of the globally optimal path found by RRT* and the actual trajectory from the ﬂight test data. The 3D map is shown in the form of a point cloud. (b) and (c) are for the same ﬂight test from different views.
+
+continues to increase. Because always greater than −p−n−p−n→+1 2,
+
+−p−nw−→pn in the
+
+problem (7), minimizing the cost η1
+
+2 is assigned to be motion optimization −w−p−n−p−n→+1 2 leads to
+
+positive acceleration. The drone will decelerate when the
+
+obstacles are near it, because of the acceleration cost and the
+
+endpoint cost in the objective function.
+
+3) Outdoor tests: In addition, the proposed framework is tested in diverse outdoor scenarios. Fig. 15 shows the environments of two experiments, and the ﬂight tests in other environments are included in the video. Fig. 15(a) is entirely static, with several obstacles standing on a slope and dense
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+13
+
+(a)
+Fig. 12. Indoor environment for the hardware ﬂight tests. In the video, a ﬂight test is ﬁrst conducted with static obstacles, and then the table closest to trace of the person moving is removed for the test with an intruding person.
+(b)
+
+(c)
+
+Fig. 13. Explored map and the drone trajectory after the hardware ﬂight test in the static environment.
+
+Fig. 14. (a)-(c): Curves of the three-axis coordinate positions, ﬂight velocities, and attitude angles. The framework begins to work at time 0 s, and the data shown in the ﬁgures start at 70.38 s and end at 94.31 s, corresponding to the ﬂight from point 3 to point 4. The moving person enters the depth camera’s FOV at 76.09 s (marked with the vertical dashed lines).
+
+bushes and trees. This environment is challenging, requiring the 3D precise trajectory planning and motion control. Fig. 15(b) is a larger environment compared to those of the tests above. In addition to the complex static obstacles, ﬁve moving people in the ﬁeld continuously interrupt the drone from the original planned path and validate its reaction performance. The video demonstrates that the drone performs agile and safe ﬂights in various test environments, so the practicability and ﬂight efﬁciency of our proposed framework can be proven.
+Finally, the average time cost of each part of the MP and PCP for the hardware tests is counted and analyzed in Fig. 16 to show the computational efﬁciency. In Fig. 16(a), the average time cost and the percentage are provided on a pie chart. In Fig. 16(b), the relationship between the time cost of each procedure in the PCP and the size of Pcluse is illustrated, with the average time cost shown on the right side. For the MP, most of the time cost (63%) is used for path planning and optimization on the 2D map. The path search with the 3D point cloud is computationally inexpensive. The average total time cost of each MP step is 0.078 s, and the loop frequency is approximately 12 Hz. These results are slower than the ofﬂine test results because the computing resource is occupied by the other part of the framework (VIO, mapping kit, point cloud ﬁlter, and the PCP). For the PCP, only the time cost of the waypoint searching is relevant to the Pcluse size because the number of the points determines the collision check’s circling
+
+(a)
+
+(b)
+
+Fig. 15. Two of the outdoor ﬂight test environments. (a) locates in a campus and (b) is at the sports corner in a park.
+
+number. The average time cost of the PCP step is 16.2 ms, of which searching for wpn is the most time-consuming part.
+Moreover, the time cost is compared with those of the stateof-the-art algorithms in TABLE VIII. Because our proposed method is composed of two planners running asynchronously, no single value represents the framework execution time. Thus, the average step time costs of the MP and PCP are listed for the comparison. Notably, the time costs of the related works are measured on different hardware platforms with different program code types. “MSCF” is the abbreviation for the maximum single-core frequency of the hardware platform processor. Although TABLE VIII cannot be used for the absolute performance comparison, the trajectory replanning time cost of our proposed method (PCP) is believed promisingly to
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+14
+
+However, the test environments do cover all the UAV application scenarios. Moreover, the UAV ﬂight speed in our tests is not sufﬁciently high. In the future, the framework will be tested in more challenging environments with a higher vehicle speed than the current study.
+
+ACKNOWLEDGMENT
+The authors would like to thank Mr. Ching-wei Chang for his kind help in the hardware equipment debugging and Miss Yuyang Hu for her assistance in the hardware tests.
+
+(a)
+
+(b)
+Fig. 16. (a): Average time cost and the proportion of each submodule of MP. (b): The time cost versus Pcluse size curves of each part of the PCP. The average time cost is marked with a dashed line, and the values are on the right side.
+
+be better than those of the state-of-the-art algorithms.
+
+TABLE VIII COMPARISON WITH STATE-OF-THE-ART ALGORITHMS.
+
+Works MP PCP [28] [32] [41] [1] [40] [26]
+
+Time cost (ms) 78 16.2
+>100 >160 >40
+19 199 106
+
+MSCF (GHz) 3.4 3.4 3.0 3.4 N/A 4.6 3.1 3.0
+
+VI. CONCLUSION AND FUTURE WORK
+In this paper, a framework of trajectory planning for UAVs with two parallel planners is introduced. The map planner tries to ﬁnd the shortest possible path in limited computational time. The point cloud planner takes effect when the point cloud near the drone differs from the 3D map to ensure safety. It reacts much faster than the path planning on the map. The test results verify that the techniques proposed in this paper can reduce the computing time cost, with the performance basically unchanged or even improved compared to that of the original method [1]. The real-time ﬂight trajectory length outperforms those of the state-of-the-art algorithms, and the reacting time of the PCP is also superlative. The entire framework is tested extensively in simulation and hardware experiments, demonstrating excellent rapid response capabilities and ﬂight safety.
+
+REFERENCES
+[1] H. Chen and P. Lu, “Computationally efﬁcient obstacle avoidance trajectory planner for uavs based on heuristic angular search method,” in 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 5693–5699, 2020.
+[2] F. E. Duchonˇ and et al., “Path planning with modiﬁed a star algorithm for a mobile robot,” Procedia Engineering., vol. 96, pp. 59–69, 2014.
+[3] D. Dey, K. S. Shankar, S. Zeng, R. Mehta, M. T. Agcayazi, C. Eriksen, S. Daftry, M. Hebert, and J. A. Bagnell, “Vision and learning for deliberative monocular cluttered ﬂight,” in FSR, pp. 391–409, 2016.
+[4] P. R. Florence, J. Carter, J. Ware, and R. Tedrake, “Nanomap: Fast, uncertainty-aware proximity queries with lazy search over local 3d data,” in 2018 IEEE International Conference on Robotics and Automation (ICRA), pp. 7631–7638, 2018.
+[5] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Bradlow, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Motion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research, vol. 33, no. 9, pp. 1251–1270, 2014.
+[6] F. Augugliaro, A. P. Schoellig, and R. D’Andrea, “Generation of collision-free trajectories for a quadrocopter ﬂeet: A sequential convex programming approach,” in 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems, pp. 1917–1922, 2012.
+[7] B. T. Lopez and J. P. How, “Aggressive collision avoidance with limited ﬁeld-of-view sensing,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 1358–1365, 2017.
+[8] B. Lau, C. Sprunk, and W. Burgard, “Improved updating of euclidean distance maps and voronoi diagrams,” in 2010 IEEE/RSJ International Conference on Intelligent Robots and Systems, pp. 281–286, 2010.
+[9] A.Elfes., “Using occupancy grids for mobile robot perception and navigation,” IEEE Computer., vol. 22, pp. 46–57, 1989.
+[10] A. Hornung, K. M. Wurm, M. Bennewitz, C. Stachniss, and W. Burgard, “Octomap: an efﬁcient probabilistic 3d mapping framework based on octrees,” Autonomous Robots, vol. 34, no. 3, pp. 189–206, 2013.
+[11] S. Choi, J. Park, E. Lim, and W. Yu, “Global path planning on uneven elevation maps,” in 2012 9th International Conference on Ubiquitous Robots and Ambient Intelligence (URAI), pp. 49–54, 2012.
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+15
+
+[12] J. Lunenburg, R. van de Molengraft, and M. Steinbuch, “A representation method based on the probability of collision for safe robot navigation in domestic environments,” Autonomous Robots, vol. 42, no. 3, pp. 601–614, 2018.
+[13] E. W. Dijkstra, “A note on two problems in connexion with graphs,” Numerische Mathematik, vol. 1, no. 1, pp. 269–271, 1959.
+[14] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic determination of minimum cost paths,” IEEE Transactions on Systems Science and Cybernetics, vol. 4, no. 2, pp. 100–107, 1968.
+[15] M. Likhachev, G. J. Gordon, and S. Thrun, “Ara*: Anytime a* with provable bounds on sub-optimality,” in Advances in Neural Information Processing Systems 16, pp. 767–774, 2003.
+[16] D. Harabor and A. Grastien, “Online graph pruning for pathﬁnding on grid maps,” in AAAI’11 Proceedings of the Twenty-Fifth AAAI Conference on Artiﬁcial Intelligence, pp. 1114–1119, 2011.
+[17] D. Dolgov, S. Thrun, M. Montemerlo, and J. Diebel, “Path planning for autonomous vehicles in unknown semi-structured environments,” The International Journal of Robotics Research, vol. 29, no. 5, pp. 485–501, 2010.
+[18] S. M. LaValle and J. J. Kuffner, “Randomized kinodynamic planning,” The International Journal of Robotics Research, vol. 20, no. 5, pp. 378–400, 2001.
+[19] L. Kavraki, P. Svestka, J.-C. Latombe, and M. Overmars, “Probabilistic roadmaps for path planning in highdimensional conﬁguration spaces,” international conference on robotics and automation, vol. 12, no. 4, pp. 566– 580, 1996.
+[20] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” The International Journal of Robotics Research, vol. 30, no. 7, pp. 846–894, 2011.
+[21] D. J. Webb and J. van den Berg, “Kinodynamic rrt*: Asymptotically optimal motion planning for robots with linear dynamics,” in 2013 IEEE International Conference on Robotics and Automation, pp. 5054–5061, 2013.
+[22] A. Bry and N. Roy, “Rapidly-exploring random belief trees for motion planning under uncertainty,” in 2011 IEEE International Conference on Robotics and Automation, pp. 723–730, 2011.
+[23] O. Khatib, “Real-time obstacle avoidance for manipulators and mobile robots,” The International Journal of Robotics Research, vol. 5, no. 1, pp. 90–98, 1986.
+[24] J. Borenstein and Y. Koren, “The vector ﬁeld histogramfast obstacle avoidance for mobile robots,” international conference on robotics and automation, vol. 7, no. 3, pp. 278–288, 1991.
+[25] D. Fox, W. Burgard, and S. Thrun, “The dynamic window approach to collision avoidance,” IEEE Robotics & Automation Magazine, vol. 4, no. 1, pp. 23–33, 1997.
+[26] F. Gao, W. Wu, Y. Lin, and S. Shen, “Online safe trajectory generation for quadrotors using fast marching method and bernstein basis polynomial,” in 2018 IEEE International Conference on Robotics and Automation (ICRA), pp. 344–351, 2018.
+
+[27] T. M. Howard, C. J. Green, A. Kelly, and D. Ferguson, “State space sampling of feasible motions for high-performance mobile robot navigation in complex environments,” in Journal of Field Robotics - Special Issue on Field and Service Robotics archive, vol. 25, pp. 325–345, 2008.
+[28] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” in IEEE Robotics and Automation Letters, vol. 4, pp. 3529–3536, 2019.
+[29] J. A. Preiss, K. Hausman, G. S. Sukhatme, and S. Weiss, “Trajectory optimization for self-calibration and navigation,” in Robotics: Science and Systems 2017, vol. 13, 2017.
+[30] M. W. Mueller, M. Hehn, and R. DAndrea, “A computationally efﬁcient motion primitive for quadrocopter trajectory generation,” IEEE Transactions on Robotics, vol. 31, no. 6, pp. 1294–1310, 2015.
+[31] H. Chen, P. Lu, and C. Xiao, “Dynamic obstacle avoidance for uavs using a fast trajectory planning approach,” in 2019 IEEE International Conference on Robotics and Biomimetics (ROBIO), pp. 1459–1464, 2019.
+[32] S. Liu, M. Watterson, S. Tang, and V. Kumar, “High speed navigation for quadrotors with limited onboard sensing,” in 2016 IEEE International Conference on Robotics and Automation (ICRA), pp. 1484–1491, 2016.
+[33] M. Watterson and V. Kumar, “Safe receding horizon control for aggressive mav ﬂight with limited range sensing,” in 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 3235–3240, 2015.
+[34] J. van den Berg, D. Wilkie, S. J. Guy, M. Niethammer, and D. Manocha, “Lqg-obstacles: Feedback control with collision avoidance for mobile robots with motion and sensing uncertainty,” in 2012 IEEE International Conference on Robotics and Automation, pp. 346–353, 2012.
+[35] H. Oleynikova, Z. Taylor, R. Siegwart, and J. Nieto, “Safe local exploration for replanning in cluttered unknown environments for microaerial vehicles,” in IEEE Robotics and Automation Letters, vol. 3, pp. 1474–1481, 2018.
+[36] J. Chen, T. Liu, and S. Shen, “Online generation of collision-free trajectories for quadrotor ﬂight in unknown cluttered environments,” in 2016 IEEE International Conference on Robotics and Automation (ICRA), vol. 2016, pp. 1476–1483, 2016.
+[37] M. Pivtoraiko, D. Mellinger, and V. Kumar, “Incremental micro-uav motion replanning for exploring unknown environments,” in 2013 IEEE International Conference on Robotics and Automation, pp. 2452–2458, 2013.
+[38] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and E. Galceran, “Continuous-time trajectory optimization for online uav replanning,” in 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 5332–5339, 2016.
+[39] J. Tordesillas, B. T. Lopez, J. Carter, J. Ware, and J. P. How, “Real-time planning with multi-ﬁdelity models for agile ﬂights in unknown environments,” in 2019 International Conference on Robotics and Automation
+
+IEEE TRANSACTIONS ON ROBOTICS
+
+16
+
+(ICRA), pp. 725–731, 2019. [40] A. Bircher, M. Kamel, K. Alexis, H. Oleynikova, and
+R. Siegwart, “Receding horizon ”next-best-view” planner for 3d exploration,” in 2016 IEEE international conference on robotics and automation (ICRA), pp. 1462–1468, IEEE, 2016. [41] M. Burri, H. Oleynikova, M. W. Achtelik, and R. Siegwart, “Real-time visual-inertial mapping, re-localization and planning onboard mavs in unknown environments,” in 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pp. 1872–1878, 2015.
+
+Han Chen received his Bachelor of Engineering in 2016 from Beijing Institude of Technology, P.R.China and Master of Science from Beijing Institude of Technology in 2019. Currently, he is a PhD candidate in MAV/UAV Lab and ARC Lab, Department of Aeronautical and Aviation Engineering, The Hong Kong Polytechnic University.
+
+Shengyang Chen received his Bachelor of Engineering from Northwestern Polytechnical University, P.R.China and Master of Science from University of Siegen, Germany respectively. Currently, He is a PhD candidate in MAV/UAV Lab, Department of Mechanical Engineering, The Hong Kong Polytechnic University.
+
+assistant professor.
+
+Peng Lu obtained his BSc degree in automatic control and MSc degree in nonlinear ﬂight control both from Northwestern Polytechnical University (NPU). He continued his journey on ﬂight control at Delft University of Technology (TU Delft) where he received his PhD degree in 2016. After that, he shifted a bit from ﬂight control and started to explore control for ground/construction robotics at ETH Zurich (ADRL lab) as a Postdoc researcher in 2016. Since 2020 he works in the University of Hong Kong, Department of Mechanical Engineering, as an
+
+Chih-Yung Wen received his Bachelor of Science degree from the Department of Mechanical Engineering at the National Taiwan University in 1986 and Master of Science and PhD from the Department of Aeronautics at the California Institute of Technology (Caltech), U.S.A. in 1989 and 1994 respectively. He joined the Department of Mechanical Engineering, The Hong Kong Polytechnic University in 2012, as a professor. In 2019, he became the interim head of the Department of Aeronautical and Aviation Engineering in The Hong Kong Polytechnic University. His current research interests include modeling and control of tail-sitter UAVs, visual-inertial odometry systems for UAVs and AI object detection by UAVs.
+

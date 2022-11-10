@@ -1,0 +1,673 @@
+Homotopic Path Planning for an AUV on Maps Improved with Scan Matching
+Emili Hern´andez ∗ Marc Carreras ∗ Pere Ridao ∗ Angelos Mallios ∗
+∗ Department of Computer Engineering, University of Girona, 17071 Girona, Spain (e-mail: {emilihb,pere,marcc,amallios}@eia.udg.edu).
+
+Abstract: The main contribution of this paper is an application for an Autonomous Underwater Vehicle (AUV) which ﬁrst improves dead-reckoning navigation through scan matching techniques to build and Occupancy Grid Map (OGM) and then performs path planning to ﬁnd safe paths towards the goal. The path planning process is guided with homotopy classes, which topologically describe how paths avoid the obstacles. Then, a homotopic path planner called Homotopic Bug (HBug) eﬃciently computes a feasible path for each homotopy class in the OGM. The application has been tested on an AUV in a controlled unknown scenario.
+
+Keywords: Marine systems, path planning, scan matching
+
+1. INTRODUCTION
+The work presented in this paper is focused on a motion system for an Autonomous Underwater Vehicle (AUV), which it has to be able to perceive the environment, build an internal local map of the explored area, compute a safe path through the map and, ﬁnally, generate the high-level commands to follow it. The target application of this research is autonomous navigation and guidance in harbors, ocean observatories, ﬂeets of ships or steep seabeds for inspection, where the robot is navigating at a ﬁxed depth or at a ﬁxed distance to the seaﬂoor.
+In this paper we propose a map building and a path planning application for an AUV. Given a controlled unknown scenario, our method improves the dead-reckoning navigation with the MSISpIC, a probabilistic sonar scan matching algorithm (Hern´andez et al. [2009b]). This algorithm is well suited to be used with mechanically scanned proﬁling or imaging sonars commonly available in nowadays AUVs. While being corrected, the navigation is used to build an Occupancy Grid Map (OGM), where path planning is performed.
+Despite path planning literature is extensive, most of solutions only generate a path to the goal and do not provide information about how this path avoids the obstacles, which is interesting for surveilling applications. The solution to this problem can be achieved though topological restrictions provided by homotopy classes. Essentially, two paths that share the start point and the goal point belong to the same homotopy class if one can be deformed into the other without encroaching any obstacle. Homotopy classes are considered in problems such as VLSI and network routing, where given an input path, it is required to
+This research was sponsored by the Spanish government (DPI2011-27977-C03-02), the TRIDENT EU FP7-Project under the Grant agreement No: ICT-248497 and PERG-GA-2010-276778 (Surf3DSLAM)
+
+compute its homotopic shortest one (Efrat et al. [2002]). However, very few of them are focused on robotic applications (Schmitzberger et al. [2002]).
+The application proposed in this paper addresses path planning by means of homotopy classes, which provide topological information to guide path planners (Hern´andez et al. [2011a]). Using this topological information, the path planner does not have to explore the whole space but the space conﬁned in a homotopy class. Our method generates the homotopy classes and sort them according to a lower bound (Hern´andez et al. [2011c]), which let us to know those classes that most-probably contain the lower cost solutions. Therefore, it is possible to generate some good solutions very fast. Moreover, homotopy classes allow to reach a goal position by avoiding obstacles in diﬀerent manners, which has interest when the robot is surveilling a particular area. In order to explore eﬃciently the homotopy classes, we propose a new path planner, called Homotopic Bug (HBug), which is inspired on the Bug family algorithms (Ng and Braunl [2007]). The HBug starts looking for a path in a homotopy class that has a high probability of containing the optimal solution. The method is proved to be complete because in case the goal is not reachable, no homotopy classes will exist and, consequently, no paths will be generated. The method also ensures that the homotopy class of the global optimal path is generated.
+The feasibility of the work has been tested on an AUV in a water tank. The robot was teleoperated in a controlled unknown scenario. While navigating, the MSISpIC improved the dead-reckoning to generate a more reliable OGM. Then, the homotopy classes were obtained and the HBug computed a path for each class.
+The paper is structured as follows. Section 2 describes the scan matching algorithm. Section 3 reports the method to generate the homotopy classes. Section 4 describes
+
+the path planner that we propose. Section 5 reports the experimental results and section 6 exposes the conclusions and future work.
+
+2. SCAN MATCHING
+
+Scan matching techniques estimate the robot relative displacement between two conﬁgurations by registering the overlap between two consecutive range scans. Usually, these techniques consist of a two steps iterative process. The ﬁrst step is an association process in which each single data of the second scan looks for its correspondence in the ﬁrst scan. The second step is a minimization process that estimates the solution according to the correspondences of the previous step. This process is repeated until convergence.
+In this work, the navigation is improved using the MSISpIC algorithm (Hern´andez et al. [2009b]), an extension to the pIC method (Montesano et al. [2005]) adapted to be used with mechanically scanned imaging or proﬁling sonars. The pIC algorithm is a statistical extension of the ICP algorithm (Besl and McKay [1992]), which is able to deal with sparse sonar data. It was designed to be used with range scans gathered in one shot and hence, it cannot be applied to slow mechanically scanned sonars, commonly used in underwater applications. The MSISpIC compounds the robot trajectory with the range and bearing data of all the beams, represents them with their uncertainty in a unique reference frame using a scan grabbing procedure and then applies the standard pIC algorithm.
+
+2.1 Scan Grabbing
+
+The scan grabbing procedure builds a static scan refer-
+
+enced to a single frame to be used by the pIC algorithm.
+
+Whenever a sonar beam is read and segmented using a
+
+predeﬁned threshold, an Extended Kalman Filter (EKF)
+
+similar to the one used in Ribas et al. [2008] estimates the
+
+robots’s pose. The information of the system at step k is
+
+stored
+
+in
+
+the
+
+state
+
+vector
+
+x k
+
+with
+
+estimated
+
+mean
+
+xˆ k
+
+and
+
+covariance Pk :
+
+xˆk = ηˆB , νˆR T Pk = E xk− xˆk xk− xˆk T
+
+(1)
+
+with: ηB = [x, y, z, φ, θ, ψ]T ; νR = [u, v, w, p, q, r]T (2)
+
+The vehicle’s movement prediction is performed using the
+
+6DOF kinematic model:
+
+ηB
+
+x =f k
+
+(x , k−1
+
+w )= k
+
+k
+νR
+
+k
+
+=
+
+ηB +J (ηB ) νR ∆T +
+
+k−1
+
+k−1 k−1
+
+νR k−1
+
++ wk ∆T
+
+1 2
+
+wk
+
+∆T
+
+2
+
+(3)
+
+cψcθ cψsθsφ−sψcφ cψsθcφ+sψsφ 0 0
+
+0
+
+sψcθ sφsψsθ+cψcφ sψsθcφ−sφcψ 0 0
+
+
+J (η) =−0sθ
+
+cθsφ 0
+
+cθcφ 0
+
+00 1 sφtθ
+
+0
+
+0
+
+0
+
+0 cφ
+
+0
+
+
+0
+
+cφtθ
+
+ 
+
+(4)
+
+−sφ 
+
+0
+
+0
+
+0
+
+0 sφ/cθ cφ/cθ
+
+Although in this model the velocity is considered to be constant, in order to allow for slight changes, a velocity perturbation modeled as the integral of a stationary white
+
+noise wk is introduced. The covariance matrix Qk of this acceleration noise is diagonal and in the order of
+magnitude of the maximum acceleration increment that
+the robot may experience over a sample period.
+
+E[wk ] = 0;
+
+E[wk
+
+wT j
+
+]
+
+=
+
+δk j
+
+Qk
+
+(5)
+
+Hence, wk is an acceleration noise which is ﬁrst integrated and then added in velocity, being nonlinearly propagated
+to the position.
+
+Since we are only interested in the robot’s relative displacement (and uncertainty) with respect to the beginning of the scan, a reset in position is performed (setting x, y, z to 0 in the vector state xˆk ) whenever a new scan is started. On the other side, φ, θ and ψ angle values are kept since a reset would mean unreal high rotations during the scan. The reset process also aﬀects the x, y, and z terms of the covariance matrix P. The modiﬁed ﬁlter provides the robot’s relative position where the beams are gathered with their uncertainty accumulated during the scan. Hence, using a similar procedure than in Ribas et al. [2008], it is possible to reference all the ranges computed from the beams to the initial frame I, removing the distortion induced by the robot’s motion.
+
+Fig. 1 illustrates the scan grabbing process while the algorithmic notation is shown in Algorithm 1. First, the function P 2C transforms the range and bearing data ρ from Polar to Cartesian space. The result is the observed point referenced to the sensor frame S. Then, by means of a rigid body transformation, the point is referenced to the robot’s frame R using xRS . Next, the robot’s relative position xBR obtained with the EKF is compounded with the robot’s referenced point to get the data referenced to B frame, which is aligned to the north. Finally, the last compounding operation rotates the point to reference it to the initial frame I getting nˆ, which is aligned with the initial heading of the robot at the beginning of the scan. Finally, the uncertainty Pn of the point nˆ is computed and the point is introduced in the new scan S.
+
+Algorithm 1 Scan grabbing
+ScanGrabbing()
+1: ResetDeadReckoningXY Z() 2: {xˆIB , PIB } ← GetDeadReckoning() 3: S ← ∅
+4: while |S| < beamsP erScan do
+5: beam ← Get&SegmentBeam()
+6: {ρˆ, Pρ} ← LocalM aximaF inder(beam) 7: {xˆBR , PBR} ← GetDeadReckoning() 8: nˆ ← xˆIB ⊕ xˆBR ⊕ xRS ⊕ P 2C(ρˆ) {ρˆ from local frame I} 9: PB ← JB1⊕PBRJBT 1⊕ + JB2⊕JR⊕JS⊕PρJST⊕JRT⊕JBT 2⊕ 10: Pn ← JI1⊕PIB JIT1⊕ + JI2⊕PB JIT2⊕ {Pρ from frame I} 11: S ← S ∪ {nˆ, Pn} 12: qˆ ← xˆBR ; Pq ← PBR 13: return {S, qˆ, Pq}
+
+2.2 The pIC algorithm
+As stated before, the pIC algorithm is a statistical extension of the ICP algorithm that deals with sparse sonar data. Detailed in Algorithm 2, the inputs are the reference scan Sref , the new scan Snew and the initial relative displacement estimation qˆ between them with its covariance
+
+{R} x
+
+x {S}
+
+N
+
+y
+
+y
+
+{B}
+
+Fig. 1. Scan forming process: any beam k of the scan is represented with respect the position of the robots pose when the ﬁrst beam I was gathered.
+Pq. The following procedure is iteratively executed until convergence. First, the points of Snew are compounded with the robot displacement qk. The result are the points of the new scan referenced to the reference frame (cj). Then, for each cj, a set Aj of all the compatible points in Sref is established using a compatibility test over the Mahalanobis distance. Next, it is computed the virtual association point aj as the expectancy over the random variable deﬁned by the set Aj. After computing its uncertainty Paj , it is possible to obtain the uncertainty Pej of the matching error (ˆaj−ˆcj). Then, it is possible to estimate the displacement qˆmin, which minimizes the mean square error of the Mahalanobis distance between ˆaj and ˆcj. This is done using Least Squares minimization method. If there is convergence the function returns, otherwise another iteration is required.
+
+Algorithm 2 Probabilistic Iterative Correspondance
+
+pIC(Sref , Snew, qˆ, Pq)
+
+1: k ← 0; qˆk ← qˆ 2: repeat
+
+3: for j ← 1 to |Snew| do
+
+4:
+
+cˆj ← qˆk ⊕ nˆj
+
+5:
+
+Aj ← {ri ∈ Sref /DM 2 (ri, cj ) ≤ χ22,α}
+
+6:
+
+aˆj ← ri∈Aj rˆip(ri = cj )
+
+7:
+
+Paj ← ri∈Aj [(rˆi − aˆj )(rˆi − aˆj )T ]p(ri = cj )
+
+8:
+
+Pej ← Paj + Jq Pq JqT + JnPnj JnT
+
+9: qˆmin ← arg minq
+
+j (aˆj − cˆj )T Pe−j1(aˆj − cˆj )
+
+10: if Convergence() then
+
+11:
+
+qˆpIC ← qˆmin
+
+12: else
+
+13:
+
+qˆk+1 ← qˆmin; k + +
+
+14: until Convergence() or k ≥ maxIterations
+
+15: return qˆpIC
+
+3. HOMOTOPY CLASSES OF THE WORKSPACE
+Two paths that share the start point and the end point belong to the same homotopy class if one can be deformed into the other without encroaching any obstacle. Therefore, homotopy classes provide topological information of how paths that belong to a class would avoid the obstacles. In Hern´andez et al. [2011c] we presented a method to compute all the homotopy classes of any 2D workspace, whose steps are summarized in the following sections.
+3.1 The reference frame
+The reference frame determines in the metric space the topological relationships between obstacles and it is used
+
+g
+
+b 21
+
+a 1- 1
+
+b2
+
+a 20
+
+a 10
+
+a 10 c a 20 p
+
+b 11
+
+b1
+
+l1
+
+s
+
+a 2-1 l2
+
+a) Reference frame
+
+b 21 4.1
+b 11
+
+g 3.2
+
+b2
+
+3.1
+
+a 20
+
+a 10
+
+c
+
+a 10
+
+a 20
+
+1.1
+
+a 1- 1 2.1
+
+b1 a 2-1
+1.2 s
+
+b) Topological graph
+
+Fig. 2. Topological path represented in the reference frame as p = β11 α10 α20 α10 α20 α20 α10 α1−1 and its canonical sequence (β11 α10 α20 α1−1 ) in the topological graph.
+to name the homotopy classes. To build it, every obstacle is represented by a single point bk. Then, a set of lines join each bk point and a cental point c placed in the free space. The lines are partitioned into segments according the intersections with the obstacles and labeled αks or βks depending on the side of the obstacle they rely on, where k is the obstacle index and s is the segment index within the line.
+The reference frame allows to represent any path as the sequence of labels of the segments being crossed in order from the starting to the ending point. For instance, Fig. 2a depicts a reference frame for a scenario with two obstacles. The path that traverses it is labeled β11 α10 α20 α10 α20 α20 α10 α1−1 . Notice that this path is topologically equivalent to β11 α10 α20 α1−1 , which is the canonical sequence of the homotopy class, since is the simplest representation of a path without changing its topology (Hern´andez et al. [2011c]).
+
+3.2 Topological Graph
+
+The topological graph, whose construction is based on the reference frame, provides a model to describe the topological relationships between regions of the metric space. The reference frame divides the workspace into several regions. Each region represents a node of the topological graph. The nodes are interconnected according to the number of segments they share in the reference frame. Each edge of the graph is labeled with the same label of the segment that crosses in the reference frame.
+In the reference frame, a path is deﬁned according to the segments it crosses whereas in the topological graph it turns into traversing the graph from the starting node to the ending node. Fig. 2a depicts a path in the reference frame and Fig. 2b its equivalent description in the topological graph.
+
+3.3 Generation of Homotopy Classes
+
+The topological graph is is traversed with a modiﬁed version of the Breadth-First Search (BFS) algorithm used in Hern´andez et al. [2011a,c], which incrementally builds the candidate homotopy classes according to the edges traversed during the graph search. The algorithm stops when there are no more homotopy class candidates to explore or the length of the last homotopy class candidate is larger than a given threshold. Those homotopy classes which either self-intersect or whose canonical sequence is duplicated are not considered.
+
+3.4 Lower Bound
+Depending on the number of homotopy classes generated by the BFS algorithm, it is not possible to compute all their correspondent paths in the workspace in realtime. Therefore, we have modiﬁed the funnel algorithm (Chazelle [1982]) to obtain a quantitative measure for each homotopy class estimating their quality. This algorithm computes the shortest path within a channel, which is a polygon formed by the vertexes of the segments of the reference frame that are traversed in the topological graph. The modiﬁcation consists of accumulating the Euclidean distance between the points while they are being added to the shortest path. Hence, the result of the funnel algorithm is a lower bound of the optimal path in the workspace of the selected homotopy class, which is used to set up a preference order to compute the homotopy classes path in the workspace when operating under time restrictions. Fig. 3a depicts an example where the funnel algorithm computes the lower bound for the homotopy class β11 α10 α20 α1−1 . The solid lines represents the channel and the dashed line is the path after applying the algorithm. Notice that our variant of the funnel algorithm takes into account that some subsegments may self-intersect when creating the channel (α10 and α20 in Fig. 3a).
+4. HOMOTOPIC PATH PLANNING
+Once the homotopy classes are computed and sorted according to their lower bound, we propose a bug-based path planner called Homotopic Bug (HBug) to generate paths in the workspace according to a given homotopy class. The algorithm tries to follow directly the lower bound path obtained with the funnel algorithm, which ensures that the homotopy class is being followed. However, the segments of the reference frame constrain the region where the paths can go through, but do not take into account the shape of the obstacles. For this reason, the lower bound path may intersect with the obstacles. In such case, the obstacle boundary is followed in clockwise or counterclockwise direction according to the homotopy class until the lower bound path leaves the obstacle. This process is repeated for all the intersected obstacles by the lower bound path.
+The HBug, detailed in Algorithm 3, receives as an input the lower bound path P , a candidate homotopy class to follow H and the reference frame F . Notice that the ﬁrst and the last elements of P are the start (s) and goal (g) nodes respectively. The algorithm is a three step process. First, the function BoundaryN odes checks the intersections of P with the obstacles in the workspace. Every time that P hits or leaves an obstacle, a boundary node is created. Each node contains the contact point c and the obstacle label k, which is the subindex of the point bk that represents the obstacle in the reference frame. These data is accessible through the functions Q and Obst respectively. Then, ObstacleN odes computes the nodes O based on the boundary nodes N previously computed. Each obstacle node contains the ﬁrst boundary node that hits the obstacle nh, the last node that is in its boundary without changing the obstacle nl, and the direction d to surround the obstacle while following H (line 18). Finally, the function BuildP ath creates the path
+
+P in the workspace joining the boundary of each obstacle oi ∈ O from nh to nl with the direction d.
+The direction d to surround an obstacle is set according to the direction of a hit node nh towards its successor nh+1 respect to the point bk, that represents the obstacle of the workspace in the reference frame. Notice that nh and nh+1 are ensured to belong to the same obstacle since for any point that hits an obstacle there has to be another one that releases it. The perpendicular dot product between (Q(nh) − bk) and (Q(nh+1) − bk) computes the direction (line 12). If the result is less than 0 the direction from nh to nh+1 is counterclockwise; if it is greater than 0 the direction is clockwise.
+The result of the perpendicular dot product can be 0 if the vectors (Q(nh) − bk) and (Q(nh+1) − bk) are parallel, which means that nh, nh+1 and bk belong to the same lk in the reference frame (line 13). In such case, d is obtained according to the initial direction selected to cross lk from the start point and the number of times that lk is crossed until the αk or βk –denoted by χk– of the homotopy class, where nh+1 relies on, is reached. The initial direction is obtained with the perpendicular dot product form the start s to the ﬁrst χk with the same subindex than lk 1 (line 14). The number of times that lk is crossed depends on the number of χk found in the homotopy class from the beginning to the index ik, which indicates the position of the χk that contains nh+1 (line 16).
+Fig. 3b depicts an example for homotopy class β11 α10 α20 α1−1 . The lower bound path (dashed line) intersects with the ﬁrst obstacle generating two boundary nodes n1 and n2, both located on the line l1 of the reference frame. The point that represents the obstacle is b1, also on l1, which makes perpendicular dot product between (Q(n1) − b1) and (Q(n2) − b1) unable to set the direction (d = 0). Therefore, using the s point and a point of the edge β11 , the initial direction is set clockwise (cw). The last edge involved in this situation is α10 , which is located in the second position in the homotopy class. The number of edges with subindex 1 till this position is 2. Thus, the direction is not changed. Then, the lower bound path intersects with the second obstacle in n3 and n4. Using the base point b2 the perpendicular dot product sets the direction as counterclockwise (ccw). Finally, the path is composed from s to g with the boundaries of the obstacle 1 (from n1 to n2) and the obstacle 2 (from n3 to n4) joint by straight lines.
+4.1 Theoretical properties
+Although the HBug has been designed to be used with the automated generation of homotopy classes, the algorithm itself has several properties:
+• Complete. As a Bug-based algorithm, when there is a solution, the HBug ﬁnds it. On the other side, when there is no solution, the function BuildP ath tries to follow the boundary of the obstacle that does not allow the solution to exists. However, by doing this, it crosses segments of the reference frame that do
+1 Notice that the start point cannot be in a line lk of the reference frame since the perpendicular dot product would be also 0. This requirement also stands for the generation of the homotopy classes.
+
+Algorithm 3 Homotopic Bug
+
+BoundaryNodes(P )
+
+1: N ← ∅
+
+2: for i ← 1 to |P | − 1, pi ∈ P do
+
+3: C ← ContourPoints(pi, pi+1)
+
+4: for all j ← 1 to |C|, cj ∈ C do
+
+5:
+
+k ← Label(cj )
+
+6:
+
+N ← N ∪ {cj , k}
+
+7: return N
+
+ObstacleNodes(N, H, F )
+
+8: O ← ∅; h ← 1
+
+9: while nh ∈ N/h < |N | − 1 do
+
+10: nl ← last nj ∈ N/j > h without changing Obst(nh)
+
+11: bk ← point of Obst(nh) in F 12: d ← (Q(nh) − bk)⊥ · (Q(nh+1) − bk)
+
+13: if d = 0 then {parallel}
+
+14:
+
+d ← (s − bk)⊥ · (point of 1st χk ∈ H − bk)
+
+15:
+
+ik ← index of χk ∈ H where nh+1 relies on
+
+16:
+
+if |χk| ∈ H1..ik is even then
+
+17:
+
+switch d
+
+18: O ← O ∪ {nh, nl, d} 19: h ← l + 1 20: return O
+
+BuildPath(O)
+21: P ← ∅ 22: for i ← 1 to |O|, oi ∈ O do 23: P ← P ∪ Boundary(oi) 24: return P
+
+HBug(P, H, F )
+25: N ← BoundaryNodes(P ) 26: O ← ObstacleNodes(N , H, F ) 27: P ← BuildPath(O)
+
+b 21 b2
+
+g a 1- 1
+
+a 20 a 10
+b1
+
+b 11
+
+s
+
+a 2-1
+
+a) Channel and lower bound path
+
+g
+
+b 21
+
+a 1- 1
+
+n4 :{c4 ,2}
+
+b2
+
+ccw
+
+a 20
+
+n3 :{c3,2}
+
+n2 :{c2 ,1} a 10
+
+b1
+
+n1 :{c1,1}
+
+b 11
+
+cw s
+
+a 2-1
+
+b) Path computed with the HBug
+
+Fig. 3. Generation of the lower bound path and the HBug path for the homotopy class β11 α10 α20 α1−1 .
+
+not describe the speciﬁc homotopy class that it has to follow. To avoid checking the intersections with the reference frame, it is possible to known that no solution exists when the algorithm reaches again the hit point after surrounding the whole obstacle. • Performance. Approaches based on the A* (Hern´andez et al. [2011b]) and Rapidly-exploring Random Trees (RRTs) (Hern´andez et al. [2011c]) consider the whole free regions of the workspace that can be reached within an speciﬁc homotopy class. However, the HBug only considers the lower bound path, which is already computed, while does not traverse an obstacle of the workspace. In such situation, the algorithm only looks into the free space that surrounds the intersected obstacle. • Upper bound. For every homotopy class, the ideal path would be the lower bound path, whose length is
+
+b 11
+
+g
+
+4.1 b1
+
+s
+
+a 10
+
+a 20 1.1
+
+3.1
+
+b 21
+
+b2 a 20
+
+g 2.1
+
+a 10 s
+
+a) Underwater environment
+
+b) OGM
+
+Fig. 4. Underwater environment and a detail of the OGM with its reference frame and topological graph.
+
+denoted by LB. The lower bound path can only be
+
+reached when it does not intersect with any obstacle
+
+in the workspace. However, most of the homotopy
+
+classes requires to circumnavigate the n obstacles of
+
+the environment that crosses with the lower bound
+
+path. Depending on the shape of the obstacles, the
+
+worst possible case would be to follow almost the
+
+whole perimeter p of the involved obstacles. Thus,
+
+the upper bound U B is
+
+n
+
+U B ≤ LB + pi
+
+(6)
+
+i=1
+
+5. EXPERIMENTAL RESULTS
+
+The method described in this paper has been tested with the Sparus AUV, a 35Kg torpedo shaped vehicle of 1.22x0.23m whose motion is controlled by three Seabotix thrusters. It is equipped with an embedded computer with an Intel CoreTM Duo Processor U2500@1.2GHz. Among its sensor suit, the robot has a MTi Motion Reference Unit (MRU) from XSens Technologies, a Micron Mechanical Scan Imaging Sonar (MSIS) from Tritech, and Doppler Velocity Log (DVL) from LinkQuest.
+The experiment took place in the Underwater Robotics Lab. of the University of Girona. For the experiment, a triangular obstacle and a squared obstacle composed of roof insulator panels covered with concrete where set up. Each panel was stack at 3m depth using weights (Fig. 4a). The MSIS was conﬁgured to scan the whole 360◦ sector and it was set to ﬁre up to a 5m range with a 0.1m resolution and a 1.8◦ angular step. The dead-reckoning trajectory of the robot is computed using the velocity readings coming from the DVL and the heading data obtained from the MRU sensor, both merged with an EKF using a constant velocity model acceleration noise.
+During the experiment, the robot was teleoperated through the obstacles at 3m depth. Fig. 5 shows an improved raw map obtained with the trajectory computed with the MSISpIC compared with the dead-reckoning trajectory.
+Fig. 4b depicts a detail of a 0.1m resolution OGM obtained with the MSISpIC trajectory with the inverse sensor model of the MSIS implemented as a proﬁler sonar sensor with an overture of 3◦ (Hern´andez et al. [2009a]). During its construction, obstacles were expanded according to the robot’size in order to use the OGM as a Conﬁguration Space (C-space), ensuring the generation of paths that would be feasible to follow with the vehicle. Fig. 4b also depicts the reference frame with its topological graph.
+
+Dead−reckoning MSISpIC
+−8
+
+−6
+
+−4
+
+Y (m)
+
+−2
+
+0
+
+2
+
+4
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+X (m)
+
+Fig. 5. Trajectory estimated with scan matching against dead-reckoning. Range data is plotted according to the MSISpIC trajectory.
+
+Idx Homotopy class Lower bound(m) Length(m)
+
+1
+
+α20 α10
+
+7.00
+
+9.89
+
+2
+
+α20 β11
+
+7.11
+
+10.81
+
+4
+
+β21 β11
+
+7.50
+
+10.53
+
+3
+
+β21 α10
+
+7.75
+
+11.14
+
+Table 1. Homotopy classes with their path
+
+length sorted according to the lower bound.
+
+β1 1
+g
+b1
+
+α2
+
+c
+
+0
+
+β2 1
+b2 s
+α1 0
+
+β1 g1
+b1
+
+α2
+
+c
+
+0
+
+β2 1
+b2 s
+α1 0
+
+α20 α10
+
+β1 g1
+b1
+
+α2
+
+c
+
+0
+
+β2 1
+b2 s
+α1 0
+
+α20 β11
+
+β1 1
+g
+b1
+
+α2
+
+c
+
+0
+
+β2 1
+b2 s α1
+0
+
+β21 β11
+
+β21 α10
+
+Fig. 6. Paths generated with HBug using homotopy classes from Table 1.
+
+In this scenario four homotopy classes were generated. Table 1 shows the homotopy classes classiﬁed according to their lower bound and path length. Fig. 6 depicts each path generated with the HBug algorithm. Our method executed all the required steps to compute the four homotopy classes and their respective paths in the C-space using the HBug in just 157.85ms
+
+6. CONCLUSIONS AND FUTURE WORK
+
+In this paper we show a map building and a path planning application for an AUV. Given a controlled unknown scenario, our method ﬁrst builds an OGM of the area traversed by the robot using the navigation computed with the MSISpIC, a probabilistic sonar scan matching
+
+algorithm designed to work with mechanically scanned proﬁling or imaging sonars. Then, our path planning method generates the homotopy classes sorted according to their lower bound, providing topological information about how paths avoid the obstacles. Next, the HBug algorithm generates paths in the workspace following the homotopy classes previously found. The path planner oﬀers very good performance since the path search for a homotopy class is guided by its lower bound. Our proposal has been tested with an AUV in a controlled unknown environment showing that is fast enough to achieve our real-time speciﬁcations.
+Future work will consist in improving the paths generated by the HBug taking into account the non-holonomic restrictions of the robot. These paths will be used to guide the robot autonomously. The method will also allow generating new paths each time that substantial changes will be detected in the OGM.
+REFERENCES
+P. J. Besl and N. D. McKay. A method for registration of 3-d shapes. IEEE Trans. Pattern Anal. Mach. Intell., 14(2):239–256, 1992. ISSN 0162-8828.
+B. Chazelle. A theorem on polygon cutting with applications. In 23rd Annual Symposium on Foundations of Computer Science, pages 339 –349, November 1982.
+A. Efrat, S. Kobourov, and A. Lubiw. Computing homotopic shortest paths eﬃciently. In Algorithms, volume 2461, pages 277–288. Springer Berlin / Heidelberg, 2002.
+E. Hern´andez, P. Ridao, A. Mallios, and M. Carreras. Occupancy grid mapping in an underwater structured environment. In Proc. of the 8th IFAC Int. Conf. on Manoeuvring and Control of Marine Craft, 2009a.
+E. Hern´andez, P. Ridao, D. Ribas, and A. Mallios. Probabilistic sonar scan matching for an AUV. In Proc. of Int. Conf. on Intelligent Robots and Systems, 2009b.
+E. Hern´andez, M. Carreras, J. Antich, P. Ridao, and A.Ortiz. A topologically guided path planner for an AUV using homotopy classes. In Proc. of Int. Conf. on Robotics and Automation, pages 2337 –2343, 2011a.
+E. Hern´andez, M. Carreras, J. Antich, P. Ridao, and A. Ortiz. A search-based path planning algorithm with topological constraints. Application to an AUV. In Proceedings of the 18th IFAC World Congress, 2011b.
+E. Hern´andez, M. Carreras, and P. Ridao. A path planning algorithm for an AUV guided with homotopy classes. In Int. Conf. on Automated Planning and Scheduling, 2011c.
+L. Montesano, J. M´ınguez, and L. Montano. Probabilistic scan matching for motion estimation in unstructured environments. In Int. Conf. on Intelligent Robots and Systems, pages 3499 – 3504, 2005.
+J. Ng and T. Braunl. Performance comparison of bug navigation algorithms. Journal of Intelligent & Robotic Systems, 50:73–84, 2007. ISSN 0921-0296.
+D. Ribas, P. Ridao, J.D. Tard´os, and J. Neira. Underwater SLAM in man made structured environments. Journal of Field Robotics, 25:898–921, 2008. ISSN 1556-4967.
+E. Schmitzberger, J.L. Bouchet, M. Dufaut, D. Wolf, and R. Husson. Capture of homotopy classes with probabilistic road map. In Int. Conf. on Intelligent Robots and Systems, volume 3, pages 2317–2322, 2002.
+

@@ -1,0 +1,851 @@
+2012 IEEE/RSJ International Conference on Intelligent Robots and Systems October 7-12, 2012. Vilamoura, Algarve, Portugal
+Camera-Based Navigation of a Low-Cost Quadrocopter
+Jakob Engel, Ju¨rgen Sturm, Daniel Cremers
+
+Abstract— In this paper, we describe a system that enables a low-cost quadrocopter coupled with a ground-based laptop to navigate autonomously in previously unknown and GPSdenied environments. Our system consists of three components: a monocular SLAM system, an extended Kalman ﬁlter for data fusion and state estimation and a PID controller to generate steering commands. Next to a working system, the main contribution of this paper is a novel, closed-form solution to estimate the absolute scale of the generated visual map from inertial and altitude measurements. In an extensive set of experiments, we demonstrate that our system is able to navigate in previously unknown environments at absolute scale without requiring artiﬁcial markers or external sensors. Furthermore, we show (1) its robustness to temporary loss of visual tracking and signiﬁcant delays in the communication process, (2) the elimination of odometry drift as a result of the visual SLAM system and (3) accurate, scale-aware pose estimation and navigation.
+I. INTRODUCTION In recent years, research interest in autonomous microaerial vehicles (MAVs) has grown rapidly. Signiﬁcant progress has been made, recent examples include aggressive ﬂight maneuvers [1, 2], ping-pong [3] and collaborative construction tasks [4]. However, all of these systems require external motion capture systems. Flying in unknown, GPSdenied environments is still an open research problem. The key challenges here are to localize the robot purely from its own sensor data and to robustly navigate it even under potential sensor loss. This requires both a solution to the so-called simultaneous localization and mapping (SLAM) problem as well as robust state estimation and control methods. These challenges are even more expressed on low-cost hardware with inaccurate actuators, noisy sensors, signiﬁcant delays and limited onboard computation resources. For solving the SLAM problem on MAVs, different types of sensors such laser range scanners [5], monocular cameras [6, 7], stereo cameras [8] and RGB-D sensors [9] have been explored in the past. In our point of view, monocular cameras provide two major advantages above other modalities: (1) the amount of information that can be acquired is immense compared to their low weight, power consumption, size and cost, which are unmatched by any other type of sensor and (2) in contrast to depth measuring devices, the range of a monocular camera is virtually unlimited – allowing a monocular SLAM system to operate both in small, conﬁned and large, open environments. The drawback however is, that the scale of the environment cannot be determined from monocular vision alone, such that additional sensors (such as an IMU) are required.
+J. Engel, J. Sturm and D. Cremers are with the Department of Computer Science, Technical University of Munich, Germany {engelj,sturmju,cremers}@in.tum.de
+
+Fig. 1. A low-cost quadcopter navigates in unstructured environments using the front camera as its main sensor. The quadrocopter is able to hold a position, ﬂy ﬁgures with absolute scale, and recover from temporary tracking loss. Picture taken at the TUM open day.
+The motivation behind our work is to showcase that robust, scale-aware visual navigation is feasible and safe on low-cost robotic hardware. As a platform, we use the Parrot AR.Drone which is available for $300 and, with a weight of only 420 g and a protective hull, safe to be used in public places (see Fig. 1). As the onboard computational resources are utterly limited, all computations are performed externally.
+The contribution of this paper is two-fold: ﬁrst, we derive a maximum-likelihood estimator to determine the map scale in closed-form from metric distance measurements. Second, we provide a robust technique to deal with large delays in the controlled system, which facilitates the use of a ground station in the control loop. Two videos demonstrating the robustness of our approach, its ability to eliminate drift effectively and to estimate the absolute scale of the map are available online:
+http://youtu.be/tZxlDly7lno http://youtu.be/eznMokFQmpc
+II. RELATED WORK Previous work on autonomous ﬂight with quadrocopters can be categorized into different research areas. One part of the community focuses on accurate quadrocopter control and a number of impressive results have been published [10, 1, 3]. These works however rely on advanced external tracking systems, restricting their use to a lab environment. A similar approach is to distribute artiﬁcial markers in the environment, simplifying pose estimation [11]. Other approaches learn a map ofﬂine from a previously recorded, manual ﬂight and thereby enable a quadrocopter to again ﬂy the same trajectory [12]. For outdoor ﬂights where GPS-based pose estimation is possible, complete solutions are available as commercial products [13].
+
+978-1-4673-1736-8/12/S31.00 ©2012 IEEE
+
+2815
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+In this work we focus on autonomous ﬂight without previous knowledge about the environment nor GPS signals, while using only onboard sensors. First results towards this goal have been presented using a lightweight laser scanner [5], a Kinect [9] or a stereo rig [8] mounted on a quadrocopter as primary sensor. While these sensors provide absolute scale of the environment, their drawback is a limited range and large weight, size and power consumption when compared to a monocular setup [14, 7].
+In our work we therefore focus on a monocular camera for pose estimation. Stabilizing controllers based on optical ﬂow were presented in [15], and similar methods are integrated in commercially available hardware [16]. Such systems however are subject to drift over time, and hence not suited for long-term navigation.
+To eliminate drift, various monocular SLAM methods have been investigated on quadrocopters, both with off-board [14, 5] and on-board processing [7]. A particular challenge for monocular SLAM is, that the scale of the map needs to be estimated from additional metric sensors such as IMU or GPS, as it cannot be recovered from vision alone. This problem has been addressed in recent publications such as [17, 18]. The current state of the art is to estimate the scale using an extended Kalman ﬁlter (EKF), which contains scale and offset in its state. In contrast to this, we propose a novel approach which is based on direct computation: Using a statistical formulation, we derive a closed-form, consistent estimator for the scale of the visual map. Our method yields accurate results both in simulation and practice, and requires less computational resources than ﬁltering. It can be used with any monocular SLAM algorithm and sensors providing metric position or velocity measurements, such as an ultrasonic or pressure altimeter or occasional GPS measurements.
+In contrast to the systems presented in [14, 7], we deliberately refrain from using expensive, customized hardware: the only hardware required is the AR.Drone, which comes at a costs of merely $300 – a fraction of the cost of quadrocopters used in previous work. Released in 2010 and marketed as high-tech toy, it has been used and discussed in several research projects [19, 20, 21]. To our knowledge, we are the ﬁrst to present a complete implementation of autonomous, camera-based ﬂight in unknown, unstructured environments using the AR.Drone.
+III. HARDWARE PLATFORM
+As platform we use the Parrot AR.Drone, a commercially available quadrocopter. Compared to other modern MAV’s such as Ascending Technology’s Pelican or Hummingbird quadrocopters, its main advantage is the very low price, its robustness to crashes and the fact that it can safely be used indoor and close to people. This however comes at the price of ﬂexibility: Neither the hardware itself nor the software running onboard can easily be modiﬁed, and communication with the quadrocopter is only possible over wireless LAN. With battery and hull, the AR.Drone measures 53 cm × 52 cm and weights 420 g.
+
+wireless LAN
+
+video @ 18 Hz 320 × 240 ∼ 130 ms delay
+
+IMU @ 200 Hz altimeter @ 25 Hz
+
+control @ 100 Hz
+
+∼ 30-80 ms delay
+
+∼ 60 ms delay
+
+monocular SLAM
+
+extended Kalman ﬁlter
+
+PID control
+
+Fig. 2. Approach Outline: Our navigation system consists of three major components: a monocular SLAM implementation for visual tracking, an EKF for data fusion and prediction, and PID control for pose stabilization and navigation. All computations are performed offboard, which leads to signiﬁcant, varying delays which our approach has to compensate.
+
+A. Sensors The AR.Drone is equipped with a 3-axis gyroscope and
+accelerometer, an ultrasound altimeter and two cameras. The ﬁrst camera is aimed forward, covers a ﬁeld of view of 73.5◦ × 58.5◦, has a resolution of 320 × 240 and a rolling shutter with a delay of 40 ms between the ﬁrst and the last line captured. The video of the ﬁrst camera is streamed to a laptop at 18 fps, using lossy compression. The second camera aims downward, covers a ﬁeld of view of 47.5◦ × 36.5◦ and has a resolution of 176 × 144 at 60 fps. The onboard software uses the down-looking camera to estimate the horizontal velocity. The quadcopter sends gyroscope measurements and the estimated horizontal velocity at 200 Hz, the ultrasound measurements at 25 Hz to the laptop. The raw accelerometer data cannot be accessed directly.
+
+B. Control
+
+The onboard software uses these sensors to control the roll Φ and pitch Θ, the yaw rotational speed Ψ˙ and the vertical
+
+velocity z˙ of the quadrocopter according to an external
+
+reference value. control command
+
+This u=
+
+(rΦ¯ef,eΘ¯re,nz¯˙,cΨe¯˙ )is∈
+
+set by [−1, 1]4
+
+sending a new every 10 ms.
+
+IV. APPROACH Our approach consists of three major components running on a laptop connected to the quadrocopter via wireless LAN, an overview is given in Fig. 2. 1) Monocular SLAM: For monocular SLAM, our solution is based on Parallel Tracking and Mapping (PTAM) [22]. After map initialization, we rotate the visual map such that the xy-plane corresponds to the horizontal plane according to the accelerometer data, and scale it such that the average keypoint depth is 1. Throughout tracking, the scale of the map λ ∈ R is estimated using a novel method described in Section IV-A. Furthermore, we use the pose estimates from the EKF to identify and reject falsely tracked frames.
+
+2816
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+vis. pose: x˙, y˙, z:
+Φ, Θ, Ψ:
+prediction:
+
+∼ 100 ms ∼ 25 ms ∼ 125 ms
+
+t − Δtvis
+
+t t + Δtcontrol
+
+Fig. 3. Pose Prediction: Measurements and control commands arrive with signiﬁcant delays. To compensate for these delays, we keep a history of observations and sent control commands between t − Δtvis and t + Δtcontrol and re-calculate the EKF state when required. Note the large timespan with no or only partial odometry observations.
+
+2) Extended Kalman Filter: In order to fuse all available data, we employ an extended Kalman ﬁlter (EKF). We derived and calibrated a full motion model of the quadrocopter’s ﬂight dynamics and reaction to control commands, which we will describe in more detail in Section IV-B. This EKF is also used to compensate for the different time delays in the system, arising from wireless LAN communication and computationally complex visual tracking.
+We found that height and horizontal velocity measurements arrive with the same delay, which is slightly larger than the delay of attitude measurements. The delay of visual pose estimates Δtvis is by far the largest. Furthermore we account for the time required by a new control command to reach the drone Δtcontrol. All timing values given subsequently are typical values for a good connection, the exact values depend on the wireless connection quality and are determined by a combination of regular ICMP echo requests sent to the quadrocopter and calibration experiments.
+Our approach works as follows: ﬁrst, we time-stamp all incoming data and store it in an observation buffer. Control commands are then calculated using a prediction for the quadrocopter’s pose at t + Δtcontrol. For this prediction, we start with the saved state of the EKF at t − Δtvis (i.e., after the last visual observation/unsuccessfully tracked frame). Subsequently, we predict ahead up to t + Δtcontrol, using previously issued control commands and integrating stored sensor measurements as observations. This is illustrated in Fig. 3. With this approach, we are able to compensate for delayed and missing observations at the expense of recalculating the last cycles of the EKF.
+3) PID Control: Based on the position and velocity estimates from the EKF at t + Δtcontrol, we apply PID control to steer the quadrocopter towards the desired goal location p = (xˆ, yˆ, zˆ, Ψˆ )T ∈ R4 in a global coordinate system. According to the state estimate, we rotate the generated control commands to the robot-centric coordinate system and send them to the quadrocopter. For each of the four degrees-offreedom, we employ a separate PID controller for which we experimentally determined suitable controller gains.
+A. Scale Estimation
+One of the key contributions of this paper is a closedform solution for estimating the scale λ ∈R+ of a monocular SLAM system. For this, we assume that the robot is able to make noisy measurements of absolute distances or veloci-
+
+ties from additional, metric sensors such as an ultrasound altimeter.
+As a ﬁrst step, the quadrocopter measures in regular intervals the d-dimensional distance traveled both using only the visual SLAM system (subtracting start and end position) and using only the metric sensors available (subtracting start and end position, or integrating over estimated speeds). Each interval gives a pair of samples xi, yi ∈ Rd, where xi is scaled according to the visual map and yi is in metric units. As both xi and yi measure the motion of the quadrocopter, they are related according to xi ≈ λ yi.
+More speciﬁcally, if we assume Gaussian noise in the sensor measurements with constant variance1, we obtain
+
+xi ∼ N (λ µi, σx2 I3×3)
+
+(1)
+
+yi ∼ N (µi, σy2 I3×3)
+
+(2)
+
+where the µi ∈ Rd denote the true (unknown) distances covered and σx2, σy2 ∈ R+ the variances of the measurement errors. Note that the individual µi are not constant but depend on the actual distances traveled by the quadrocopter in the measurement intervals.
+One possibility to estimate λ is to minimize the sum of squared differences (SSD) between the re-scaled measurements, i.e., to compute one of the following:
+
+∑ ∑ λ∗x
+
+:=
+
+λ∗y := arg �
+arg min
+λ
+
+min
+λ
+�λ
+i
+
+i
+xi
+
+�xi − λ yi�2 =
+
+�−1
+
+− yi�2
+
+=
+
+∑i xTi yi ∑i yTi yi
+
+∑i ∑i
+
+xTi xTi
+
+xi yi
+
+.
+
+(3) (4)
+
+The difference between these two lines is whether one aims
+
+at scaling the xi to the yi or vice versa. However, both
+
+approaches lead to different results, none of which converges
+
+to the true scale λ when adding more samples. To resolve
+
+this, we propose a maximum likelihood (ML) approach, that
+
+is estimating λ by minimizing the negative log-likelihood
+
+�
+
+�
+
+∑ L(µ1 . . . µn, λ )
+
+∝
+
+1 2
+
+n i=1
+
+�xi
+
+− λ µi�2 σx2
+
++
+
+�yi
+
+− µi�2 σy2
+
+(5)
+
+By ﬁrst minimizing over the µi and then over λ , it can be shown analytically that (5) has a unique, global minimum at
+
+µ∗i
+
+=
+
+λ∗σy2xi + σx2yi λ∗2σy2 + σx2
+
+�
+
+(6)
+
+λ∗
+
+=
+
+sxx
+
+− syy
+
++ sign(sxy) (sxx 2σx−1σysxy
+
+− syy)2
+
++ 4s2xy
+
+(7)
+
+with σyσx
+
+sxx := ∑ni=1 xTi
+
+σy2 ∑ni=1 xTi xi, syy yi. Together, these
+
+:= σx2 ∑ni=1 yTi yi equations give a
+
+and sxy := closed-form
+
+solution for the ML estimator of λ , assuming the measure-
+
+ment error variances σx2 and σy2 are known. By analyzing
+
+this result, it can be concluded that
+
+1) λ∗ always lies in between λ∗x and λ∗y, and
+
+1The noise in xi does not depend on λ as it is proportional to the average keypoint depth, which is normalized to 1 for the ﬁrst keyframe.
+
+2817
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+λ∗
+
+λ∗
+x
+
+λ∗
+y
+
+arith. mean
+
+geo. mean
+
+median
+
+3
+
+estimated scale
+
+2.5
+
+2
+
+1.5
+
+100
+
+101
+
+102
+
+103
+
+104
+
+number of samples
+
+Fig. 4. Comparison of λ∗ with Other Estimators: The plot shows the estimated scale as more samples are added. It can be seen that the proposed estimator λ∗ is the only consistent estimator, i.e., the only one converging to the correct value. For this plot we used λ = 2, σx = 1, σy = 0.3 and µi ∼ N (03, 13×3).
+
+2) λ∗ → λ∗x for σx2 → 0, and λ∗ → λ∗y for σy2 → 0, i.e., these na¨ıve estimators correspond to the case when one of the measurement sources is noise-free.
+
+We extensively tested our approach on artiﬁcially generated
+
+data according to (2) and compared it to other, simple
+
+estimators, that is the arithmetic mean, geometric mean and
+
+the that
+
+median of the set of quotients out of all presented possibilities,
+
+��oxyuii��r.
+
+It can be observed approach is the only
+
+consistent estimator, i.e., the only one converging to the true
+
+scale for all dimensions d, values µi. An example is shown in Fig.
+
+for σx2, σy2 and 4. Furthermore,
+
+values λ∗ can
+
+for be
+
+computed efﬁciently, as each new sample pair only requires
+
+one update of the three sums, and the re-evaluation (7). Note
+
+athsatthienirpirnaﬂctuiceencaeppornoxλ∗imdaetciorenassefosrraσpx2idalnydthσey2
+
+are sufﬁcient, more accurate
+
+the measured distances are. More results on the accuracy of
+
+this method will be presented in Section V-A.
+
+B. State Prediction and Observation In this section, we describe the state space, the observation
+models and the motion model used in the EKF. The state space consists of a total of ten state variables
+xt := (xt , yt , zt , x˙t , y˙t , z˙t , Φt , Θt , Ψt , Ψ˙ t )T ∈ R10, (8)
+where (xt , yt , zt ) denotes the position of the quadrocopter in m and (x˙t , y˙t , z˙t ) the velocity in m/s, both in world coordinates. Further, the state contains the roll Φt , pitch Θt and yaw Ψt angle of the drone in deg, as well as the yaw-rotational speed Ψ˙ t in deg/s. In the following, we deﬁne for each sensor an observation function h(xt ) and describe how the respective observation vector zt is composed from the sensor readings.
+1) Odometry Observation Model: The quadrocopter measures its horizontal speed vˆx,t and vˆy,t in its local coordinate system, which we transform into the global frame x˙t and y˙t . The roll and pitch angles Φˆ t and Θˆ t measured by the accelerometer are direct observations of Φt and Θt . To account for yaw-drift and uneven ground, we differentiate the height measurements hˆt and yaw measurements Ψˆ t and treat them as observations of the respective velocities. The resulting observation function hI(xt ) and measurement vector
+
+zI,t is hence given by
+
+x˙t cos Ψt − y˙t sin Ψt 
+
+hI(xt
+
+)
+
+:=
+
+x˙t
+
+sin
+
+Ψt
+
++ y˙t z˙t Φt ΨΘ˙ tt
+
+cos
+
+Ψt
+
+
+
+(9)
+
+zI,t := (vˆx,t , vˆy,t , (hˆt − hˆt−1), Φˆ t , Θˆ t , (Ψˆ t − Ψˆ t−1))T (10)
+
+2) Visual Observation Model: When PTAM successfully tracks a video frame, we scale the pose estimate by the current estimate for the scaling factor λ∗ and transform it from the coordinate system of the front camera to the coordinate system of the quadrocopter, leading to a direct observation of the quadrocopter’s pose given by
+
+hP(xt ) := (xt , yt , zt , Φt , Θt , Ψt )T
+
+(11)
+
+zP,t := f (EDCEC,t )
+
+(12)
+
+where EC,t ∈ SE(3) is the estimated camera pose (scaled with λ ), EDC ∈ SE(3) the constant transformation from the camera to the quadrocopter coordinate system, and f : SE(3) → R6 the transformation from an element of SE(3) to our roll-
+
+pitch-yaw representation.
+
+3) Prediction Model: The prediction model describes
+
+how the state vector xt evolves from one time step to the next.
+
+In particular, we approximate the quadrocopter’s horizontal
+
+acceleration x¨, y¨ based its vertical acceleration
+
+on z¨,
+
+yiatsw-cruortraetniotnsatlataeccxetl,eraantdionesΨt¨imaantde
+
+roll/pitch rotational speed Φ˙ , Θ˙ based on the state xt and the
+
+active control command ut .
+
+The horizontal acceleration is proportional to the horizon-
+
+tal force acting upon the quadrocopter, which is given by
+
+�x¨� y¨
+
+∝
+
+facc
+
+−
+
+fdrag
+
+(13)
+
+where fdrag denotes the drag and facc denotes the accelerating force. The drag is approximately proportional to the horizontal velocity of the quadrocopter, while facc depends on the tilt angle. We approximate it by projecting the quadrocopter’s z-axis onto the horizontal plane, which leads to
+
+x¨(xt ) = c1 (cos Ψt sin Φt cos Θt − sin Ψt sin Θt ) − c2 x˙t (14) y¨(xt ) = c1 (− sin Ψt sin Φt cos Θt − cos Ψt sin Θt ) − c2 y˙t (15)
+
+We estimated the proportionality coefﬁcients c1 and c2 from
+
+data collected in a series of test ﬂights. Note that this model
+
+assumes that the overall thrust generated by the four rotors
+
+icsonctornosltacnotm. mFuarntdhserumt o=re(,Φ¯wt ,eΘ¯dt ,ezs¯˙tc,rΨi¯˙bte)
+
+the by
+
+inﬂuence of sent a linear model:
+
+Φ˙ (xt , ut ) = c3 Φ¯ t − c4 Φt
+
+(16)
+
+Θ˙ (xt , ut ) = c3 Θ¯ t − c4 Θt
+
+(17)
+
+Ψ¨ (xt , ut ) = c5 Ψ¯˙ t − c6 Ψ˙ t
+
+(18)
+
+z¨(xt , ut ) = c7 z¯˙t − c8 z˙t
+
+(19)
+
+2818
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+Again, we estimated the coefﬁcients c3, . . . , c8 from test ﬂight
+
+data. The overall state transition function is now given by
+
+ xt+1   xt 
+
+ x˙t 
+
+ΨΨΦΘxyyzz˙˙˙˙ttttttttt+++++++++111111111 ← ΨΨΦΘxyyzz˙˙˙˙ttttttttt  + δt ΨΦΘz˙˙¨¨(((xy(¨¨xxxx((Ψyzt˙˙˙xxttt,tt,,,tttuuuu))tttt))))
+
+(20)
+
+using the model speciﬁed in (14) to (19). Note that, due to the many assumptions made, we do not claim the physical correctness of this model. It however performs very well in practice, which is mainly due to its completeness: the behavior of all state parameters and the effect of all control commands is approximated, allowing “blind” prediction, i.e., prediction without observations for a brief period of time (∼ 125 ms in practice, see Fig. 3).
+
+V. EXPERIMENTS AND RESULTS
+We conducted a series of real-world experiments to analyze the properties of the resulting system. The experiments were conducted in different environments, i.e., both indoor in rooms of varying size and visual appearance as well as outdoor under the inﬂuence of sunlight and wind. A selection of these environments is depicted in Fig. 5.
+In the following, we present our results on the convergence behavior and accuracy of scale estimation in Section IVA, the accuracy of the motion model in Section V-B, the responsiveness and accuracy of pose control in Section V-C, and the long-term stability and drift elimination in Section VD.
+As ground truth at time t we use the state of the EKF after all odometry and visual pose information up to t have been received and integrated. It can only be calculated at t + Δtvis, and therefore is not used for drone control – in practice it is available ∼ 250 ms after a control command for t has been computed and sent to the quadrocopter.
+
+A. Scale Estimation Accuracy To analyze the accuracy of the scale estimation method
+derived in IV-A, we instructed the quadrocopter to ﬂy a ﬁxed ﬁgure, while every second a new sample is taken and the scale re-estimated. In the ﬁrst set of ﬂights, the quadrocopter was commanded to move only vertically, such that the samples mostly consist of altitude measurements. In the second set, the quadrocopter was commanded to ﬂy a horizontal rectangle, such that primarily the IMU-based velocity information is used. After each ﬂight, we measured the ground truth λˆ by manually placing the quadrocopter at two measurement points, and comparing the known distance between these points with the distance measured by the visual SLAM system. Note that due to the initial scale normalization, the values for λˆ roughly correspond to the
+
+vertical motion 2.5
+
+horizontal motion 2.5
+
+estimated length of 1 m [m]
+
+2
+
+2
+
+1.5
+
+1.5
+
+1
+
+1
+
+0
+
+5
+
+10 15 20 0
+
+5
+
+10 15 20
+
+time [s]
+
+time [s]
+
+Fig. 6. Scale Estimation Accuracy: The plots show the mean and standard deviation of the the estimation error e, corresponding to the estimated length of 1 m, from horizontal and vertical motion. It can be seen that the scale can be estimated accurately in both cases, it is however more accurate and converges faster if the quadrocopter moves vertically.
+
+ground truth 2
+
+delayed ground truth
+
+prediction
+
+x [m]
+
+0
+
+−20
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+1
+
+0
+
+x˙ [m/s]
+
+−1
+
+−2
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+time [s]
+
+Fig. 7. Comparison of Predicted and Real State. The black curve shows the ground truth, it can only be computed with a delay of ∼ 250 ms (dashed curve). At t = 5 s, the quadrocopter is manually pushed away which cannot be predicted – hence the brief deviation. This plot shows (1) that the prediction approximates the ground truth well and in particular without notable delay and (2) that using visual information, the EKF rapidly recovers from large external disturbances – however with a small delay.
+
+mean feature depth in meters of the ﬁrst keyframe, which in
+
+our experiments ranges from 2 m to 10 m. To provide better
+
+comparability, we analyze and visualize the estimation error
+
+e
+
+:=Figλλˆ∗.
+
+, corresponding to the estimated length 6 gives the mean error as well as
+
+of 1 m. the standard
+
+deviation spread over 10 ﬂights. As can be seen, our method
+
+quickly and accurately estimates the scale from both types
+
+of motion. Due to the superior accuracy of the altimeter
+
+compared to the horizontal velocity estimates, the estimate
+
+converges faster and is more accurate if the quadrocopter
+
+moves vertically, i.e., convergence after 2 s versus 15 s, and
+
+to a ﬁnal accuracy ±1.7 % versus ±5 %. Note that in practice,
+
+we allow for (and recommend) arbitrary motions during scale
+
+estimation so that information from both sensor modalities
+
+can be used to improve convergence. Large, sudden changes
+
+in measured relative height can be attributed to uneven
+
+ground, and removed automatically from the data set.
+
+B. State Prediction Accuracy In this section we give a qualitative evaluation of the
+accuracy of the predicted state of the quadrocopter, used for control. Fig. 7 shows both the predicted state for time t as well as the ground truth, i.e., the state computed after
+
+2819
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+small ofﬁce
+
+kitchen
+
+large ofﬁce
+
+large indoor area
+
+outdoor
+
+Fig. 5. Testing Environments: The top row shows an image of the quadrocopter ﬂying, the bottom row the corresponding image from the quadrocopter’s frontal camera. This shows that our system can operate robustly in different, real-world environments.
+
+x [m] // sent control
+
+TABLE I CONVERGENCE SPEED IN POSITION CONTROL
+
+2
+
+1
+
+relative motion (x, y, z) [m] (1,0,0)
+
+(4,0,0)
+
+(0,0,1)
+
+(1,1,1)
+
+tconv [s]
+
+3.1 ± 1.3 4.5 ± 0.8 3.1 ± 0.1 3.9 ± 0.5
+
+0
+
+−1
+
+setpoint
+state sent control P control D control
+
+all sensor measurements have been evaluated. This is only possible ∼ 250 ms after the respective control command has been issued. It can be observed that the prediction approximates the ground truth very well and without notable delay, which is crucial for oscillation-free control.
+C. Positioning Accuracy and Convergence Speed In this Section, we evaluated the performance of the
+complete system in terms of position control. In particular, we measured the average time to approach a given goal location and the average positioning error while holding this position. Considering the large delay in our system, the pose stability of the quadrocopter heavily depends on an accurate prediction from the EKF: the more accurate the pose estimates and in particular the velocity estimates are, the higher the gains can be set without leading to oscillations.
+To determine the stability, we instructed the quadrocopter to hold a target position over 60 s in different environments and measure the root mean square error (RMSE). The results are given in Fig. 10: the measured RMSE lies between 4.9 cm (indoor) and 18.0 cm (outdoor).
+To evaluate the convergence speed, we repeatedly let the quadrocopter ﬂy a given distance and measure the convergence time tconv, corresponding to the time required to reach the target position and hold it for at least 5 s. We consider the quadrocopter to be at the target position if the Euclidean distance is less than 10 cm. An example of ﬂying a long distance in x-direction is shown in Fig. 8: the plot clearly shows that the quadrocopter accelerates initially with maximum pitch, and de-accelerates before reaching the target location at t = 3.5 s. Fig. 9 shows an example trajectory in all three dimensions. We repeated this experiment ten times and summarized the results in Tab. I. Reaching a target location at a distance of 4 m took on average 4.5 s.
+
+−2
+
+−1
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+time [s]
+
+Fig. 8. Flying a Large Distance: The plot shows the behavior of the controller for a large distance. As can be seen, the quadrocopter accelerates with maximum pitch for the ﬁrst second and decelerates before converging on the setpoint.
+
+setpoint
+
+state
+
+sent control
+
+1
+
+x [m]
+
+0
+
+tconv
+
+−10
+
+5
+
+1
+
+tconv
+
+10
+
+15
+
+20
+
+25
+
+y [m]
+
+0
+
+tconv
+
+tconv
+
+−10
+
+5
+
+10
+
+15
+
+20
+
+25
+
+1
+
+z [m]
+
+0
+−10
+ﬂy to (1,0,0)
+
+5
+
+10
+
+ﬂy to (1,1,0)
+
+tconv
+15
+ﬂy to (1,1,1)
+
+tconv
+
+20
+ﬂy to (0,0,0)
+
+25 time [s]
+
+Fig. 9. Example Flight: Flying a simple ﬁgure consisting of four waypoints. This plot illustrates the typical behavior of the quadrocopter when holding and approaching waypoints (tconv is indicated, see also Tab. I).
+
+kitchen RMSE = 4.9 cm
+
+large indoor area RMSE = 7.8 cm
+
+outdoor RMSE = 18.0 cm
+
+y [m]
+
+0.4 0.2
+0 −0.2 −0.4
+0.4 0
+y [m] −0.4
+
+0.4
+
+0.2
+
+0
+
+−0.2
+
+−0.4
+
+−0.4
+
+0
+x
+
+0.4
+[m]
+
+0.4 0
+y [m] −0.4
+
+0.4
+
+0.2
+
+0
+
+−0.2
+
+−0.4
+
+0
+
+0.4 0.4 0
+
+−0.4 x [m] y [m] −0.4
+
+0.4 0
+−0.4 x [m]
+
+Fig. 10. Flight Stability: Path taken and RMSE of the quadrocopter when instructed to hold a target position for 60 s, in three of the environments depicted in Fig. 5. It can be seen that the quadrocopter can hold a position very accurately, even when perturbed by wind (right).
+
+2820
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+
+EKF trajectory
+
+raw odometry
+
+target trajectory
+
+3 2
+
+2
+
+0
+
+y [m]
+
+1
+
+−2
+
+0
+
+−4
+
+−1
+
+−6
+
+−8
+
+−1 0 1 2 3 −8 −6 −4 −2 0 2
+
+x [m]
+
+x [m]
+
+Fig. 11. Elimination of Odometry Drift: Horizontal path taken by the quadrocopter as estimated by the EKF compared to the raw odometry (i.e., the integrated velocity estimates). Left: when ﬂying a ﬁgure; right: when being pushed away repeatedly from its target position. The odometry drift is clearly visible, in particular when the quadrocopter is being pushed away. When incorporating visual pose estimates, it is eliminated completely.
+
+D. Drift Elimination To verify that the incorporation of a visual SLAM sys-
+tem eliminates odometry drift, we compare the estimated trajectory with and without the visual SLAM system. Fig. 11 shows the resulting paths, both for ﬂying a ﬁxed ﬁgure (left) and for holding a target position while the quadrocopter is being pushed away (right). Both ﬂights took approximately 35 s, and the quadrocopter landed no more than 15 cm away from its takeoff position. In contrast, the raw odometry accumulated an error of 2.1 m for the ﬁxed ﬁgure and 6 m when being pushed away. This experiment demonstrates that the visual SLAM system efﬁciently eliminates pose drift during maneuvering.
+E. Robustness to Temporary Loss of Visual Tracking The system as a whole is robust to temporary loss of
+visual tracking, e.g. due to occlusions or large rotations, as it continues to navigate based only on odometry measurements. As soon as visual tracking recovers, the EKF state is updated with the absolute pose estimate, eliminating accumulated estimation error. This is demonstrated in the attached video.
+VI. CONCLUSION In this paper, we presented a visual navigation system for a low-cost quadrocopter using offboard processing. Our system enables the quadrocopter to visually navigate in unstructured, GPS-denied environments and does not require artiﬁcial landmarks nor prior knowledge about the environment. The contribution of this paper is two-fold: ﬁrst, we presented a robust solution for visual navigation with a low-cost quadrocopter. Second, we derived a maximum-likelihood estimator in closed-form to recover the absolute scale of the visual map, providing an efﬁcient and consistent alternative to predominant ﬁltering-based methods. Our system was able to estimate the map scale up to ±1.7% of its true value, with which we achieved an average positioning accuracy of 4.9 cm (indoor) to 18.0 cm (outdoor). Furthermore, our approach is able to robustly deal with communication delays of up to 400 ms. We tested our system in a set of extensive
+
+experiments in different real-world indoor and outdoor environments. With these experiments, we demonstrated that accurate, robust and drift-free visual navigation is feasible even with low-cost robotic hardware.
+REFERENCES
+[1] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2011.
+[2] S. Lupashin, A. Scho¨llig, M. Sherback, and R. D’Andrea, “A simple learning strategy for high-speed quadrocopter multi-ﬂips.” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2010.
+[3] M. Mu¨ller, S. Lupashin, and R. D’Andrea, “Quadrocopter ball juggling,” in Proc. IEEE Intl. Conf. on Intelligent Robots and Systems (IROS), 2011.
+[4] Q. Lindsey, D. Mellinger, and V. Kumar, “Construction of cubic structures with quadrotor teams,” in Proceedings of Robotics: Science and Systems (RSS), Los Angeles, CA, USA, 2011.
+[5] S. Grzonka, G. Grisetti, and W. Burgard, “Towards a navigation system for autonomous indoor ﬂying,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2009.
+[6] M. Blo¨sch, S. Weiss, D. Scaramuzza, and R. Siegwart, “Vision based MAV navigation in unknown and unstructured environments,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2010.
+[7] M. Achtelik, M. Achtelik, S. Weiss, and R. Siegwart, “Onboard IMU and monocular vision based control for MAVs in unknown in- and outdoor environments,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2011.
+[8] M. Achtelik, A. Bachrach, R. He, S. Prentice, and N. Roy, “Stereo vision and laser odometry for autonomous helicopters in GPS-denied indoor environments,” in Proc. SPIE Unmanned Systems Technology XI, 2009.
+[9] A. S. Huang, A. Bachrach, P. Henry, M. Krainin, D. Maturana, D. Fox, and N. Roy, “Visual odometry and mapping for autonomous ﬂight using an RGB-D camera,” in Proc. IEEE International Symposium of Robotics Research (ISRR), 2011.
+[10] D. Mellinger, N. Michael, and V. Kumar, “Trajectory generation and control for precise aggressive maneuvers with quadrotors,” in Proceedings of the Intl. Symposium on Experimental Robotics, Dec 2010.
+[11] D. Eberli, D. Scaramuzza, S. Weiss, and R. Siegwart, “Vision based position control for MAVs using one single circular landmark,” Journal of Intelligent and Robotic Systems, vol. 61, pp. 495–512, 2011.
+[12] T. Krajn´ık, V. Vona´sek, D. Fisˇer, and J. Faigl, “AR-drone as a platform for robotic research and education,” in Proc. Research and Education in Robotics: EUROBOT 2011, 2011.
+[13] “Ascending technologies,” 2012. [Online]: http://www.asctec.de/ [14] M. Blo¨sch, S. Weiss, D. Scaramuzza, and R. Siegwart, “Vision based
+MAV navigation in unknown and unstructured environments,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2010. [15] S. Zingg, D. Scaramuzza, S. Weiss, and R. Siegwart, “MAV navigation through indoor corridors using optical ﬂow,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2010. [16] “Parrot AR.Drone,” 2012. [Online]: http://ardrone.parrot.com/ [17] S. Weiss, M. Achtelik, M. Chli, and R. Siegwart, “Versatile distributed pose estimation and sensor self-calibration for an autonomous mav,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2012. [18] G. Nu¨tzi, S. Weiss, D. Scaramuzza, and R. Siegwart, “Fusion of IMU and vision for absolute scale estimation in monocular SLAM,” Journal of Intelligent Robotic Systems, vol. 61, pp. 287 – 299, 2010. [19] C. Bills, J. Chen, and A. Saxena, “Autonomous MAV ﬂight in indoor environments using single image perspective cues,” in Proc. IEEE Intl. Conf. on Robotics and Automation (ICRA), 2011. [20] T. Krajn´ık, V. Vona´sek, D. Fisˇer, and J. Faigl, “AR-drone as a platform for robotic research and education,” in Proc. Communications in Computer and Information Science (CCIS), 2011. [21] W. S. Ng and E. Sharlin, “Collocated interaction with ﬂying robots,” in Proc. IEEE Intl. Symposium on Robot and Human Interactive Communication, 2011. [22] G. Klein and D. Murray, “Parallel tracking and mapping for small AR workspaces,” in Proc. IEEE Intl. Symposium on Mixed and Augmented Reality (ISMAR), 2007.
+
+2821
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on April 20,2022 at 11:18:25 UTC from IEEE Xplore. Restrictions apply.
+

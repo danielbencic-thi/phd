@@ -1,0 +1,746 @@
+2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) Macau, China, November 4-8, 2019
+
+Volumetric Tree∗: Adaptive Sparse Graph for Effective Exploration of Homotopy Classes
+Donghyuk Kim1, Mincheul Kang1 and Sung-Eui Yoon2
+
+Abstract— We present volumetric tree∗, a hybridization of sampling-based and optimization-based motion planning. Volumetric tree∗ constructs an adaptive sparse graph with volumetric vertices, hyper-spheres encoding free conﬁgurations, using a sampling-based motion planner for a homotopy exploration. The coarse-grained paths computed on the sparse graph are reﬁned by optimization-based planning during the execution, while exploiting the probabilistic completeness of the samplingbased planning for the initial path generation. We also suggest a dropout technique probabilistically ensuring that the samplingbased planner is capable of identifying all possible homotopies of solution paths. We compare the proposed algorithm against the state-of-the-art planners in both synthetic and practical benchmarks with varying dimensions, and experimentally show the beneﬁt of the proposed algorithm.
+I. INTRODUCTION
+Path and motion planning problem is a fundamental research area in robotics and has been widely studied for autonomous systems with mobility and manipulability. Among various categories of planning algorithms, sampling-based approaches have attracted considerable attention thanks to its probabilistic completeness [1], [2] and almost-sure asymptotic optimality [3]. Their key concept is to construct a random geometric graph or tree to identify the connection of feasible motions in the conﬁguration-free (C-free) space.
+It has been well-known that when applied to practical problems, sampling-based motion planners require a considerable amount of computation cost to check collision for vertices and edges, especially for computing the optimal solution in high dimensions [4], [5]. To this end, there have been a plethora of researches to alleviate the overhead of collision checking. Hauser [4] proposed a lazy collision checking with DSPT (Dynamic Shortest Path Tree [6]) to delay the explicit checking until it is necessary, while preserving the asymptotic optimality and anytime properties. Bialkowski et al. [5] presented a graph associated with safety certiﬁcates, i.e., a set of collision-free balls to reduce the amortized complexity of collision checking. Gammell et al. [7] combined samplingbased motion planning and Lifelong Planning A∗ (LPA∗) with a batch sampling technique. Their approach expands the graph using LPA∗-style incremental search techniques, performing graph expansion and collision checking on a partial subset of graph components.
+Meanwhile, optimization-based planners and the hybridization of sampling and optimization also has been
+1Donghyuk Kim and Mincheul Kang are with the School of Computing ({donghyuk.kim, mincheul.kang}@kaist.ac.kr) and 2Sung-Eui Yoon is with the Faculty of School of Computing (Corresponding author, sungeui@kaist.edu), Korea Advanced Institute of Science and Technology (KAIST) at Daejeon, South Korea 34141.
+
+Fig. 1: A heatmap-style visualization of the vertex set V , constructed by a conventional planner (top, |V | = 14384) and that of volumetric tree∗ (bottom, |V | = 540) in the same time budget. We can observe the volumetric tree∗ constructs a sparse graph, while capturing the samples around narrow passages or boundaries. The vertices close to the obstacles are encoded red; otherwise blue.
+suggested to get synergy in various manner. CHOMP (Covariant Hamiltonian Optimization for Motion Planning) [8], its variants [9], [10] and TrajOpt [11] formulate the trajectory optimization as a convex problem to minimize the local approximation of the objective function sequentially.
+As a hybridization of sampling and optimization, Choudhury et al. [12] suggested RABIT∗ (Regionally Accelerated Batch Informed Trees), where a sampling-based planner runs as a global planner, and an optimization-based planner takes over the local planning. Kim et al. [13] proposed a similar hybridization, Dancing PRM∗, whose obstacle potential computation is solely done in the conﬁguration space. It directly approximates the C-free space by utilizing the empirical collisions found during the execution. Kuntz et al. [14] presented another hybrid algorithm, which locally reﬁnes solution paths using lazy interior point optimization to compute high-quality solutions quickly.
+
+978-1-7281-4004-9/19/$31.00 ©2019 IEEE
+
+1496
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+When it comes to a scalability issue, recent researches have also pointed out the signiﬁcance of nearest-neighbor search [15], [16]. Kleinbort et al. [15] analyzed the asymptotic computational bottleneck in sampling-based motion planning. To be speciﬁc, the complexity of collision detection is proportional to that of the given workspace, while nearest-neighbor search asymptotically dominates the entire computation time as the number of samples goes to inﬁnity. Varricchio and Frazzoli [16] proposed pruning techniques for the k-d tree to reduce the computational cost of nearest neighbor search. Main Contributions. In this work, we present Volumetric Tree∗, a hybridization of sampling-based and optimizationbased motion planning for effectively exploring the homotopy class of solution paths and identifying local optimums in each homotopy class (Sec. III-A). In volumetric tree∗, the role of a sampling-based motion planner is used for a homotopy exploration. To be speciﬁc, it is designed to construct an adaptive sparse graph, where wide-open areas are covered by a fewer number of volumetric vertices (hyperspheres) while maintaining ﬁne-grained vertices around a boundary of free space or narrow passage (Sec. III-B), instead of constructing a dense graph. On top of that, we can represent a set of paths homotopic to each other into a sequence of volumetric vertices as a compact representation. To complement the coarse-grained paths computed on the sparse graph, we combine an optimization-based motion planner (Sec. III-C) to reﬁne the solution paths with a dedicated shortest path computation technique, dropout (Sec. III-D). As a result, volumetric tree∗ efﬁciently identiﬁes initial paths in multiple homotopy classes in a sampling-based manner for the optimization-based planning by complementing each other.
+According to conducted experiments, we observe up to 3 times speedup over other tested methods in terms of convergence to the optimum on rigid body and manipulation planning problems (Sec.IV). These results are mainly obtained by the adaptive sparse graph integrated with the optimization-based planning, which allows volumetric tree∗ to explore the conﬁguration space efﬁciently.
+II. ALGORITHMIC BACKGROUND
+We ﬁrst formulate the problem we would like to address and review preliminaries of sampling-based motion planning.
+A. Problem Deﬁnition
+Let X = Rd be the conﬁguration space, where d is the dimension of a given problem. Let the conﬁguration-obstacle (C-obs) space be Xobs, which is a set of states in collision with obstacles. The complement of Xobs, X f ree (= X \ Xobs), becomes the conﬁguration-free (C-free) space. For a given pair of an initial and goal conﬁgurations, xinit and xgoal ∈ X f ree, respectively, let σ ∈ Σ : [0, 1] → X f ree be a feasible (e.g., collision-free) path, where Σ is a set of all possible paths satisfying σ (0) = xinit and σ (1) = xgoal.
+
+Fig. 2: The left ﬁgure illustrates two solution paths, shown red and blue solid lines, in two different homotopy classes with their local optimal paths (dotted). The right ﬁgure shows a solution path (solid black) covered by a sequence of collision-free balls and paths homotopic to the solution path (red and blue). These observations suggest that such a coarse-grained graph can be a sufﬁcient representation if we can optimize each path toward the local optimum.
+
+The optimal motion planning problem then can be formu-
+
+lated as:
+
+σ ∗ = argmin (c(σ )),
+
+(1)
+
+σ ∈Σ
+
+where c(·) is a cost function such that c : Σ → R≥0. For a sampling-based planner, it is said to be almost-sure
+asymptotic optimal if the probability that a path computed by the planner at an iteration number i, σi, converges to the optimal path is 1, as the number of iteration goes to inﬁnity:
+
+P lim c(σi) = c(σ ∗) = 1
+
+(2)
+
+i→∞
+
+B. Sampling-based Motion Planning
+
+There have been proposed various optimal sampling-based motion planning algorithm such as RRT∗, PRM∗ [3], and BIT∗ [7]. They sample a set of conﬁgurations, Xsample ∈ X , to construct a search graph G = {V, E}, where each vertex v ∈ V represents a collision-free conﬁguration and e = (v, w) ∈ E is a feasible motion for a pair of conﬁgurations v and w ∈ V .
+V is initialized with {xinit , xgoal} and E is set to empty, then we sample a random conﬁguration at each iteration until the termination condition is satisﬁed, e.g., time limit or a maximum number of iterations.
+For a sample conﬁguration xsample, the edge connection process is done with its near neighbors found by Near(·). Near(x) returns a set of near vertices in V such that those vertices lie inside of an implicit ball centered at x with a connection radius r. This type of NN search is also called ε-NN search. k-nearest neighbor search can be used alternatively; in either case, both connection radius r and k are determined proportionally to the cardinality of V to achieve the almost-sure asymptotic optimality [3]. Each vertex and edge is then checked for a collision, and only valid components are inserted into G for the graph expansion. Finally, a path connecting xinit and xgoal becomes a discrete solution path σ ∈ Σ, and its cost c(σ ) can be computed by summing up the cost of all edges over the path.
+
+1497
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+III. ALGORITHM
+A. Motivations
+We would like to explain motivations of volumetric tree∗, a hybridization of sampling and optimization-based planning, with the following two aspects. Firstly, Fig. 2(a) shows two exemplar paths shown in the solid lines that connect xinit and xgoal in different homotopy classes. Once a solution path is computed, we can apply a local optimal planner such as an iterative optimization-based planners [8] to reﬁne the path toward the local optimal path (dotted lines in Fig. 2(a)) in the same homotopy class. Based on this observation, we suggest using a sampling-based motion planner, which guarantees probabilistic completeness, for a homotopy exploration to identify solution paths in all possible homotopy classes. On top of that, an optimization-based planner then locally optimizes the initial paths computed by the sampling-based planner toward the local optimum.
+Once we realize the hybridization of sampling-based and optimization-based approaches, it is unnecessary to construct a dense graph. This is mainly because the cost of an initial path is not that important for the optimization-based planning. Instead, it is more important to ﬁnd different homotopic classes of initial paths. Moreover, constructing such a dense graph would require a massive computational cost due to graph manipulation operations such as NN-search. As a result, the sparse representation of the given space can be a reasonable choice for our objective.
+In particular, we associate each vertex of a graph with a collision-free hyper-sphere volume for locally representing the C-free space, while rejecting samples inside volumes, resulting in a sparse graph. The idea of using the hypersphere volume is inspired by the previous literature [5], [13], [17], [18]. Fig. 2(b) shows an exemplar solution path over a sparse graph constructed in the proposed manner, where a set of collision-free hyper-spheres are associated with vertices.
+We then utilize the following observation. For a collisionfree hyper-sphere S, we can assume that any two given conﬁgurations located within S can be connected directly without having any collision. More importantly, it implies that for a given discrete path σ = {v0, ..., vn−1} ∈ Σ, associated with collision-free hyper-spheres Svi , centered at vi, we can then expect any path through the same sequence of vertices located in the hyper-spheres, σ = {v0 ∈ Sv0 , ..., vn−1 ∈ Svn−1 } is homotopic to σ . We can hence represent plenty of paths homotopic to each other into a single path over the adaptive sparse graph. Our volumetric tree∗ utilizes this observation for creating a sparse graph and computes the optimal paths with the graph. Fig. 1 shows two different types of graphs, a dense graph computed by the conventional approach and ours in an example scene.
+B. Adaptive Sparse Tree Construction
+Volumetric tree∗ constructs a random geometric graph G = {V, E}, where a vertex v ∈ V also encodes a collisionfree conﬁguration; depending on the context, we can just use v to denote its conﬁguration, and at that case, v ∈ X f ree. An
+
+Algorithm 1: VOLUMETRIC TREE∗
+
+1 V ← {xinit , xgoal}; T ← {xinit }; E ← 0/
+
+2 while Termination condition is not satis f ied do
+
+3 xsample ← Sample()
+
+4 if IsCollisionFree(xsample) then
+
+5
+
+Vnear ← Near(xsample,V )
+
+6
+
+if ¬IsInside(xsample,Vnear) then
+
+7
+
+Insert xsample to V
+
+8
+
+foreach vnear ∈ Vnear do
+
+9
+
+Insert (vnear, xsample) to E
+
+10
+
+Pro pagat eCFreeS pace(xsam ple , Vnear )
+
+11
+
+σnew ← U pdateDSPT (xsample, T )
+
+12 else
+
+13
+
+Vnear ← Near(xsample,V )
+
+14
+
+U pdateCFreeSpace(Vnear, xsample)
+
+15 if BetterPathFound(σnew) then
+
+16
+
+OptimizePath(T , G)
+
+17 return SolutionPath(T )
+
+edge e = (v ∈ V, w ∈ V ) ∈ E represents a continuous motion connecting two conﬁgurations. We also deﬁne Sv(∀v ∈ V ) to represent a hyper-sphere centered at a conﬁguration v, associated with a radius of rv, a distance to the closest empirical collision ov ∈ Xobs. They are additionally stored in each v.
+Our hyper-sphere based representation is designed for approximately encoding X f ree, and its construction is inspired by the approximate C-free representation proposed in [13]. The main idea of C-free approximation is to associate each vertex with the closest empirical collision found during the execution, resulting in a set of approximate collisionfree hyper-spheres, reducing the approximation error over iterations probabilistically.
+For Near(·), we use a distance function specialized for considering radii of vertices to measure a distance between two hyper-spheres associated with those two vertices:
+
+distNN(v ∈ V, w ∈ V ) = v − w − rv − rw,
+
+(3)
+
+where · is the Euclidean norm of a vector. The reason why we use a specialized distNN(·) is to enable a vertex with a large radius to be better connected to other samples for Near(·), either r-NN or k-NN, during the graph expansion. Note that the cost of an edge e = (v, w) is still deﬁned as conventional, i.e., c(e) = v − w .
+We can recognize that distNN(·) violates non-negativity and triangle inequality, which should be held for the metric space. For this reason, the conventional k-d tree or GNAT [19] can show sub-optimal performance for near neighbor search in volumetric tree∗. We hence use NMSlib [20], a proximity-graph based approximate near neighbor search library for generic non-metric spaces for efﬁcient performance.
+Fig. 1 shows an example of the constructed graph. We can observe that the volumetric tree∗ covers X f ree adaptively with
+
+1498
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+a fewer number of vertices, while the conventional planner maintains a set of tremendous vertices in the same time budget. We further discuss the comparison of the cardinality of graph components in Sec. IV with Table I.
+We also maintain a subset of G, T = {V T , ET ⊂ E} for the shortest path computation, where e ∈ ET is a set of edges on the shortest paths to all v ∈ V T from xinit that is constructed by DSPT (Dynmic Shortest Path Tree) [6]. The search tree T consisting of volumetric vertices V T in the end contains the solution path we are seeking, and is also used for the homotopy exploration with the dropout technique explained in Sec. III-D. Overall process. The overall process is depicted in Alg. 1. The proposed volumetric tree∗ is based on Dancing PRM∗ [13] in terms of the graph construction and conﬁguration-free space approximation. To be speciﬁc, volumetric tree∗ inherits the lazy collision checking with DSPT and witness propagation with radius compensation from Dancing PRM∗ for the precomputation-free approximation. Accordingly, we allow G to have edges in collision to reduce unnecessary edge collision checkings and check lazily if they are necessary.
+During the iteration in Alg. 1, a collision-free xsample is checked for a inclusion test with its near neighbor set Vnear, not to fall inside of the hyper-sphere volumes associated with V (Alg. 1, Line: 6). On the other hand, for a xsample ∈ Xobs, we exploit the sample to improve the conﬁguration-free approximation (Alg. 1, Line: 13-14). In U pdatecFreeSpace, we update rvnear if vnear − xsample is smaller than rvnear to trim the volumes by updating oxsample . Likewise, PropagateCFreeSpace(·) initializes rxsample to be argminv∈Vnear ( ov − xsample ) and then updates rv to be min( oxsample − vnear , rvnear ) for all v ∈ Vnear to propagate the empirical collision information locally. For the details, refer to the original work [13].
+U pdateShortestPath(·) updates T to maintain shortest paths for all possible destinations, i.e., (v ∈ V T , xgoal) dynamically. Finally, BetterPathFound (Alg. 1, Line: 15) checks whether the cost of the best-so-far path c(σnew) is updated in U pdateDSPT (·) at this iteration. If so, we lazily check the feasibility of σnew and then OptimizePath(·) (Alg 1, Line: 16) reﬁnes the σnew towards the local optimal path, which is discussed in the subsequent subsection.
+C. Path Optimization
+Our path optimization is based on CHOMP [8], which uses gradient descent techniques to optimize a motion trajectory iteratively.
+The original objective function related to the obstacle cost, fobs, contains so-called obstacle potential terms, which can be expressed as a vector to the closest obstacle or the obstacle proximity, usually obtained by the Euclidean distance transformation in the workspace. It however requires additional precomputation and model simpliﬁcation such as swept-sphere technique and kinematic Jacobian [8]. For this reason, our objective function is designed to be free from
+
+such dependencies to achieve a higher applicability and
+seamless integration with existing sampling-based planners.
+At a high level, our objective function used for volumetric tree∗ is identical to the original form [8]:
+
+U (ξ ) = fprior(ξ ) + fobs(ξ ),
+
+(4)
+
+where ξ : [1, n ∈ N] → X is a discrete path consisting of
+
+n equidistant intermediate conﬁgurations along σnew, i.e.,
+
+ξ ∈ Rn×d, and fprior is a sum of squared derivatives, i.e.,
+
+1 2
+
+ξ
+
+T
+
+Aξ
+
++ ξ T b.
+
+A ∈ Rn×n
+
+and
+
+b ∈ Rn×d
+
+are
+
+available
+
+in
+
+[8].
+
+The obstacle cost for our work is formulated as follows:
+
+∑n
+fobs(ξ ) = ω( ξ ∗(i) − ξ (i) )
+i=1
+
+d dt ξ (i)
+
+,
+
+(5)
+
+where ω(·) is a user-deﬁned weighting function; we simply use the identify function ω(x) = x and ξ ∗(t) is the last conﬁguration of ξ (i) without collision. Unlike the problem
+CHOMP and its variants aim to solve, we can assume that
+the given initial path σnew is collision-free, and thus that ξ ∗(i) exists by initializing ξ ∗ as σnew during the iteration; therefore, ξ ∗(i) can be considered as the closest empirical collision-free state of ξ (i).
+The update rule follows the iterative quasi-Newton ap-
+proach like CHOMP, which can be written as:
+
+ξi+1 = ξi − ∇U (ξi),
+
+(6)
+
+where ∇U (·) ∈ Rn×d is:
+
+∇U (ξ ) = ηA−1(λ (Aξ + B) + ∇ fobs(ξ )).
+
+(7)
+
+In the above equation, η is a user-deﬁned convergence rate,
+
+set to be 1, (Aξ + B) is ∇ fprior in the expanded form, and
+
+λ is a trade-off parameter for the smoothness against the
+
+obstacle
+
+avoidance,
+
+set
+
+to
+
+be
+
+n 2
+
+,
+
+where
+
+n = 50
+
+is
+
+the
+
+number
+
+of intermediate nodes. The number of iterative optimization
+
+of Eq. 6 is ﬁxed to 50 in our implementation. Lastly, ∇ fobs
+
+is formulated as:
+
+T
+∇ fobs(ξ (i)) = ξ (i) (I − ξ (i) ξ (i) )(ξ (i)∗ − ξ (i)) (8) − ξ (i)∗ − ξ (i) κ,
+
+where ξ (i) is the derivative of ξ (i), ξ (ˆi) stands for the
+
+normalizing function, i.e., xˆ =
+
+ξ (i) ξ (i)
+
+,
+
+and
+
+κ
+
+is
+
+the
+
+curvature
+
+of ξ at ξ (i). We also replace the obstacle potential terms
+
+used for CHOMP with a function of ξ (i)∗ −ξ (i), accordingly
+
+to Eq. 5. The underlying meaning of Eq. 8 is that when
+
+ξ (i) ∈ Xobs, we push ξ (i) with collision toward its last empirical C-free state ξ (i)∗ as a roll-back. In CHOMP, this
+
+type of approach is not applicable since a given initial path
+
+is assumed in collision, which demands a local workspace
+
+obstacle analysis in advance, e.g., the signed distance ﬁeld,
+
+to compute the obstacle potentials efﬁciently. Our approach,
+
+therefore, gets rid of such dependencies and makes the opti-
+
+mization process even intuitive, while combining sampling-
+
+based and optimization-based planning seamlessly. Note that
+
+ξ (i) ∈ X f ree makes ∇ fobs = 0.
+
+1499
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+Fig. 3: Na¨ıve shortest path computation can miss to explore a solution path even homotopic to the optimal solution path (the blue dotted one), due to a sparse graph structure. We address this issue by using the dropout of vertices in solution paths observed during the execution. The dotted-ﬁlled ball in the right ﬁgure stands for an excluded vertex, vdropout . The search tree constructed without Vdropout allows our approach to ﬁnd other solution paths (the blue dotted one) that can be homotopic to the optimal solution, the solid black line.
+
+For feasibility of the updated path, it is necessary to check ξ for collision and update ξ ∗ prior to performing the gradient update in Eq. 6 at each iteration. For each ξ (i) ∈ Xobs found during the optimization process is also used to improve our conﬁguration-free space approximation (Sec. III-B). For a set of vertices along the path, i.e., Vσ = {v|v ∈ σ }, we perform U pdateCFreeSpace(Vσ , ξ (i)) (Alg. 1, Line: 14), which assures that each ov∈σ is set to the closest empirical collision found locally.
+D. Shortest Path Computation with Dropout
+As the number of iteration increases, volumetric tree∗ attempts to optimize multiple best-so-far paths as this method is also based on the sampling-based approach. Nonetheless, we found a technical challenge that arises due to the sparse graph structure with hyper-sphere volumes.
+The left ﬁgure in Fig. 3 shows two different paths; one containing a vertex associated with a large volume, σblue (dotted blue), and the other, σred (dotted red), with a relatively lower cost, i.e., c(σred) < c(σblue). If the σred is found prior to the σblue, U pdateDSPT (·) (Alg. 1, Line: 14) can fail to return σblue, which is homotopic to the optimal solution path (the solid black line).
+To ensure that volumetric tree∗ ﬁnds all possible homotopy classes of solution paths given the aforementioned challenge, we propose to use a path optimization with dropout, which is a randomized vertex exclusion procedure. The core concept is motivated by the Yen’s algorithm [21] designed for ﬁnding the loop-less k-th shortest path for a graph.
+Our dropout technique is summarized as follows:
+1) Whenever a solution path σnew is to be optimized in OptimizePath(·) (Alg. 1, Line: 16), insert σnew to Σnew, a set of all solution paths found so far, and insert all vertices in σnew to VΣnew , a set of all vertices in Σnew.
+
+2) In U pdateDSPT (·) (Alg. 1, Line: 11), compute a set of excluded vertices, Vdropout ⊂ V , at a probability (Eq. 9) from V prior to updating T .
+3) Update T with V \Vdropout to compute a new shortest path, σnew from xinit to xgoal.
+4) With dropout, BetterPathFound(·) (Alg. 1, Line: 15) behaves differently; it returns true if σnew has not been observed previously, i.e., σnew ∈/ Σnew.
+5) Empty Vdropout and repeat the iteration.
+Note that our approach is to ﬁnd a solution paths in unrevealed homotopy classes, while the original Yen’s algorithm is for ﬁnding the next, i.e., k +1-th shortest path by excluding an edge in k-th shortest path.
+Fig. 3(b) shows an example of the shortest path computation with dropout. Suppose that a vertex associated with the dotted-ﬁlled ball is excluded out by dropout, which allows the planner to ﬁnd σnew as the blue dotted path. Consequently, volumetric tree∗ with dropout is capable of ﬁnding a solution path homotopic to the optimum even with the coarse-grained search graph G.
+To realize the dropout approach, we record vertices that have been involved in any σnew previously found, and then randomly exclude recorded ones, followed by updating our search tree T with remaining vertices, The dropout probability for a vertex v can be deﬁned as follows:
+
+P[v ∈ Vdropout ] =
+
+cd ro pout
+
+1 |VΣnew
+
+|
+
+if v ∈ VΣnew ,
+
+(9)
+
+0
+
+otherwise,
+
+where cdropout is a user-tuned dropping-out parameter and set to be 1.
+As an alternative to our dropout approach, one can consider prioritizing a candidate path σ over G. However, this alternative is difﬁcult to be realized, since for an arbitrary vertex v ∈ V , both cost-to-come from xinit and cost-to-go to xgoal are unknown in advance. Moreover, using an admissible estimator, e.g., the Euclidean distance in the simplest form, can require an excessive amount of computations due to its weak bound.
+
+IV. EXPERIMENT
+We compare the performance of volumetric tree∗ against the other almost-sure asymptotic optimal sampling-based planners: RRT∗ [1], Lazy PRM∗ [4], BIT∗ [7], and Dancing PRM∗ [13]. Volumetric tree∗ is implemented using OMPL (Open Motion Planning Library) [22] including CHOMPbased path optimizer and DSPT (Dynamic Shortest Path Tree). Volumetric tree∗ uses NMSlib [20] for nearest neighbor search (Sec. III-B). Other planners use G-NAT [19], which is available in OMPL.
+We test our method with a 2-DoF rigid body planning (Fig. 4) and 6-DoF manipulation problem (Fig. 5) using VREP simulator [23]. We also perform evaluations in two synthetic environments (R2 and R8) shown in Fig. 6 to illustrate different behaviors clearly, and a real robot experiment using Hubo with 7-DoF Manipulator [24], which can be found in the video attachment to show the practical beneﬁts.
+
+1500
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+Solution Cost
+
+2.5
+
+RRT*
+
+2.4
+
+BIT*
+
+Lazy PRM*
+
+2.3
+
+Dancing PRM*
+
+Volumetric Tree*
+
+2.2
+
+2.1
+
+2
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+Computation Time[sec]
+
+(a)
+
+(b)
+
+Fig. 4: A 2-DoF mobile robot planning problem in a conference room with narrow passages under the chairs, resulting in difﬁcult-to-sample homotopies and surrounding wide-open areas. xinit and xgoal are depicted in the green and red boxes, respectively.
+
+Solution Cost
+
+24
+RRT*
+
+22
+
+BIT*
+
+Lazy PRM*
+
+20
+
+Dancing PRM*
+
+Volumetric Tree*
+
+18
+
+16
+
+14
+
+0
+
+5 10 15 20 25 30
+
+Computation Time[sec]
+
+(a)
+
+(b)
+
+Fig. 5: A 6-DoF manipulation planning problem. xgoal (in the red box) is a pose of grasping the cup in the middle of the table, avoiding the other cups and the ceiling from xinit (in the green box).
+
+Our results are averaged over 30 trials and the time budgets are set to 5, 30, 1 and 10 seconds for 2-DoF rigid body, 6DoF manipulation problem, R2, and R8, respectively. The detail of the problem settings can be seen in the attached video.
+Fig. 4 and 5 show 2-DoF rigid body and 6-DoF manipulation planning problems, respectively. In these scenes, planners spend much time, 20% to 80% of the total computation, on collision checking. For our method, collision checking takes about 30% to 50% of the total computation time. For the 2-DoF rigid body problem, the computation time on optimization, T (OPT ), becomes the major computation bottleneck in volumetric tree∗ due to a number of explicit collision checkings during the optimizations. On the other hand, for the 6-DoF manipulation problem, collision checking, T (CC), becomes the main computation bottleneck for all the planners, which is caused by the higher complexity of workspace, i.e., the number of triangles.
+Volumetric tree∗, nevertheless, outperforms the other plan-
+
+ners by reducing the number of vertices (|V |) by an order of magnitude. It can be interpreted as that our adaptive sparse graph efﬁciently captures the homotopy of solution paths, while achieving a better quality of solution paths by the integration with optimization-based planning.
+In 6-DoF manipulation planning (Fig. 5), the computational portion of T (NN) becomes comparable to T (CC) in both Lazy PRM∗ and Dancing PRM∗, which also use lazy collision checking. On the other hand, volumetric tree∗ achieves a noticeable improvement with the fewer number of vertices and the reduced overhead of NN, despite its higher T (OPT ). It is because that volumetric tree∗ efﬁciently exploits the solution path using optimization-based planning rather than constructing a dense graph to explore the conﬁguration space. Its beneﬁt is expected to go higher as we have a higher dimensional problem since it is required to have denser graphs in that higher space for other methods. Discussion. We also provide results with synthetic scenes for in-depth analysis. The synthetic benchmarks are designed to
+
+1501
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 6: 2D synthetic benchmark with 10 narrow gaps located in the middle of the hyper-cube. In the left ﬁgure, green squares indicate the obstacles and the black lines are the optimal solution path. The right ﬁgure shows intermediate conﬁgurations (colored differently) during the optimization iterations. The dots indicate vertices of our sparse graph, colored according to their radii (red for smaller values).
+
+Solution Cost
+
+3 2.98 2.96 2.94 2.92 2.9
+0
+9
+8
+
+RRT* BIT* Lazy PRM* Dancing PRM* Volumetric Tree*
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+Computation Time[sec]
+
+(a) R2
+
+RRT* BIT* Lazy PRM* Dancing PRM* Volumetric Tree*
+
+Solution Cost
+
+have the narrow passage with multiple homotopy classes of
+
+the solution path. It can also be considered NN-sensitve [15];
+
+the computational cost of nearest neighbor search is not
+
+negligible, since that of collision checking is relatively lighter
+due to the simple geometry. In both R2 and R8, xinit and xgoal are set to [−1, ... − 1]d and [1, ..., 1]d, respectively, in a
+
+hyper-cube of width 2, and the narrow gaps are equidistantly
+
+located
+
+in
+
+the
+
+middle
+
+wall;
+
+the
+
+gap
+
+has
+
+a
+
+height
+
+of
+
+1 6
+
+and
+
+i-th
+
+obstacle is deﬁned by two diagonal points, [−0.15, i(gap +
+
+ga p 10
+
+),
+
+−1,
+
+.
+
+.
+
+.
+
+,
+
+−1]
+
+and
+
+[0.15, i × (gap +
+
+ga p 10
+
+,
+
+1,
+
+.
+
+.
+
+.
+
+,
+
+1)]
+
+∈
+
+Rd .
+
+Fig. 7 shows the solution cost as a function of computation
+
+time measured in synthetic benchmarks and the corresponding statistics are organized in Table I. In R2, we can observe some of the other planners outperform volumetric tree∗. While volumetric tree∗ identiﬁes the homotopy class of the
+
+optimal solution path and optimizes solution paths toward
+
+a local optimum within the ﬁnite number of optimization
+
+iterations, it may result in near-optimal paths depending on
+
+the optimizer parameters, yet the performance gap is <1%
+
+in terms of the ﬁnal solution cost. This issue can show a
+
+slowdown for our method, especially for simple, lower di-
+
+mensional problems. Adopting advanced optimization tech-
+
+niques or automatically tuning the parameters depending on
+
+the problem are left for future work. For the case of R8, volumetric tree∗ shows exceptional
+
+performance improvement. As we can observe in Table I, volumetric tree∗ checks more vertices (|VC|), which can
+
+provide a better understanding of the given space, while
+
+keeping a fewer number of vertices thanks to our adaptive
+
+sparse graph construction with C-free approximation. Fur-
+
+thermore, the hybridization with optimization-based planning allows volumetric tree∗ not to rely only on sampling for
+
+the convergence of solution paths, resulting in a better
+
+performance, especially in a higher dimensional problem.
+
+V. CONCLUSION
+In this work, we have presented a hybridization of sampling-based and optimization-based planning named volumetric tree∗. Our approach constructs a random geomet-
+
+7
+
+6
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+Computation Time[sec]
+
+(b) R8
+
+Fig. 7: Performance comparison over computation time for different algorithms in synthetic benchmarks.
+
+ric graph, where each vertex is associated with a hypersphere volume with the C-free approximation, while rejecting other samples falling into the space occupied by the existing volumes, resulting in a sparse graph. Volumetric tree∗ identiﬁes all possible homotopy classes of solution paths with the dropout technique and reﬁnes solution paths found during the execution toward the local optimum using optimization-based planning. Our experiment results have shown meaningful performance improvement in most tested environments, showing higher robustness compared to the other tested methods.
+There are many interesting research directions. When it comes to sampling, volumetric tree∗ simply relies on the sample rejection for the adaptive sparse graph construction, which can be inefﬁcient, especially in a higher dimensional space [25]. For this reason, it is worth studying to design a dedicated sampler that explores a promising area efﬁciently.
+ACKNOWLEDGEMENT
+We appreciate the anonymous reviewers for constructive comments and insightful suggestions, and the researchers whose contributions have inspired our work. This work was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT, No. 2019R1A2C3002833).
+REFERENCES
+[1] J. Kuffner and S.M. LaValle, “RRT-connect: An efﬁcient approach to single-query path planning”, in IEEE Int’l. Conf. on Robotics and Automation, 2000, pp. 995–1001.
+
+1502
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+
+TABLE I: Statistics of experiment results.
+
+Benchmark 2D Rigid body
+
+Planner RRT* BIT*
+Lazy PRM* Dancing PRM* Volumetric Tree*
+
+Final Cost 2.164 2.156 2.081 2.062 2.040
+
+|V | 5363 10102 16274 14834 540
+
+|E | 185276 34220 621267 560427 11808
+
+|V C| 7239 12604 20297 18553 13688
+
+|EC| 22163 4506 3825 3562 1195
+
+T (CC) 97% 47% 24% 20% 29%
+
+T (NN) <1% 52% 8% 7% 2%
+
+T (SP) N/A N/A 55% 46% <1%
+
+T (OPT ) N/A N/A N/A 11% 67%
+
+6D Manipulation
+
+RRT* BIT* Lazy PRM* Dancing PRM* Volumetric Tree*
+
+16.799 16.315 16.058 13.646
+
+1316 33588 24259 22401 6242
+
+29051 6336 771850 706865 169534
+
+2543 53064 38309 35400 40788
+
+5314 1179 265 335 306
+
+99% <1% N/A 83% 16% N/A 50% 48% <1% 47% 39% <1% 48% 27% <1%
+
+N/A N/A N/A
+1% 22%
+
+2D Hyper-cube
+
+RRT* BIT* Lazy PRM* Dancing PRM* Volumetric Tree*
+
+2.914 44493 1958254 51846 144975 13% 72% N/A
+
+N/A
+
+2.922 4102 23656 4926 7531
+
+2% 82% N/A
+
+<1%
+
+2.916 16550 634554 19200 1885
+
+1% 27% 56% N/A
+
+2.913 11057 404458 12810 1618
+
+2% 15% 50%
+
+11%
+
+2.917 353
+
+6862 62406
+
+935
+
+3% 86% <1%
+
+3%
+
+8D Hyper-cube
+
+RRT* BIT* Lazy PRM* Dancing PRM* Volumetric Tree*
+
+7.525 7.750 7.326 7.156 6.243
+
+29536 10791 25227 24737 5050
+
+938437 64296 779203 762916 128114
+
+35548 12502 29262 28670 61409
+
+132745 16637 1404
+801 1547
+
+4% <1% <1% <1%
+4%
+
+95% N/A 97% N/A 97% <1% 86% <1% 90% <1%
+
+N/A N/A N/A
+3% <1%
+
+|V | and |E| are the cardinality of the vertex set V and edge set E, respectively. |VC| and |EC| stand for the number of vertex
+
+and edge collision checking, and T (·) is a computation time ratio of each component: CC = Collision Checking, NN = Nearest
+
+Neighbor search, SP = Shortest Path computation in DSPT and OPT = OPTimization. Note that the collision checking time during the optimization is also included in T (OPT ) and the number of NN-query is identical to |VC| in volumetric tree∗. In 6D manipulation problem, the result of RRT∗ is not reported due to a high ratio (> 90%) of unsuccessful attempts.
+
+[2] LE Kavraki, P Svestka, J-C Latombe, and MH Overmars, “Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces”, IEEE Transactions on Robotics and Automation, vol. 12, no. 4, pp. 566–580, 1996.
+[3] Sertac Karaman and Emilio Frazzoli, “Sampling-based algorithms for optimal motion planning”, Int’l. Journal of Robotics Research, vol. 30, no. 7, pp. 846–894, 2011.
+[4] Kris Hauser, “Lazy collision checking in asymptotically-optimal motion planning”, in IEEE Int’l. Conf. on Robotics and Automation, 2015.
+[5] Joshua Bialkowski, Michael Otte, Sertac Karaman, and Emilio Frazzoli, “Efﬁcient collision checking in sampling-based motion planning via safety certiﬁcates”, Int’l. Journal of Robotics Research, vol. 35, no. 7, pp. 767–796, 2016.
+[6] Daniele Frigioni, Alberto Marchetti-Spaccamela, and Umberto Nanni, “Fully dynamic algorithms for maintaining shortest paths trees”, Journal of Algorithms, vol. 34, no. 2, pp. 251–281, 2000.
+[7] Jonathan D Gammell, Siddhartha S Srinivasa, and Timothy D Barfoot, “Batch informed trees (BIT*): Sampling-based optimal planning via the heuristically guided search of implicit random geometric graphs”, in IEEE Int’l. Conf. on Robotics and Automation, 2015, pp. 3067– 3074.
+[8] Matt Zucker, Nathan Ratliff, Anca D Dragan, Mihail Pivtoraiko, Matthew Klingensmith, Christopher M Dellin, J Andrew Bagnell, and Siddhartha S Srinivasa, “CHOMP: Covariant hamiltonian optimization for motion planning”, Int’l. Journal of Robotics Research, vol. 32, no. 9-10, pp. 1164–1193, 2013.
+[9] Mrinal Kalakrishnan, Sachin Chitta, Evangelos Theodorou, Peter Pastor, and Stefan Schaal, “STOMP: Stochastic trajectory optimization for motion planning”, in IEEE Int’l. Conf. on Robotics and Automation, 2011, pp. 4569–4574.
+[10] Chonhyon Park, Jia Pan, and Dinesh Manocha, “ITOMP: Incremental trajectory optimization for real-time replanning in dynamic environments.”, in Int’l. Conf. on Automated Planning and Scheduling, 2012.
+[11] John Schulman, Jonathan Ho, Alex X Lee, Ibrahim Awwal, Henry Bradlow, and Pieter Abbeel, “Finding locally optimal, collision-free trajectories with sequential convex optimization.”, in Robotics: science and systems, 2013.
+[12] Sanjiban Choudhury, Jonathan D Gammell, Timothy D Barfoot, Siddhartha S Srinivasa, and Sebastian Scherer, “Regionally accelerated batch informed trees (RABIT*): A framework to integrate local
+
+information into optimal path planning”, in IEEE Int’l. Conf. on Robotics and Automation, 2016, pp. 4207–4214. [13] Donghyuk Kim, Youngsun Kwon, and Sung-Eui Yoon, “Dancing PRM∗: Simultaneous planning of sampling and optimization with conﬁguration free space approximation”, in IEEE Int’l. Conf. on Robotics and Automation, 2018, pp. 7071–7078. [14] Alan Kuntz, Chris Bowen, and Ron Alterovitz, “Fast anytime motion planning in point clouds by interleaving sampling and interior point optimization”, Int’l. Symposium on Robotics Research, 2017. [15] Michal Kleinbort, Oren Salzman, and Dan Halperin, “Collision detection or nearest-neighbor search? on the computational bottleneck in sampling-based motion planning”, Int’l. Workshop on the Algorithmic Foundations of Robotics, 2016. [16] Valerio Varricchio and Emilio Frazzoli, “Asymptotically optimal pruning for nonholonomic nearest-neighbor search”, in IEEE Conf. on Control and Decision, 2018, pp. 4459–4466. [17] A. Shkolnik and R. Tedrake, “Sample-based planning with volumes in conﬁguration space”, arXiv preprint arXiv:1109.3145, 2011. [18] Sean Quinlan and Oussama Khatib, “Elastic bands: Connecting path planning and control”, in IEEE Int’l. Conf. on Robotics and Automation, 1993, pp. 802–807. [19] Sergey Brin, “Near neighbor search in large metric spaces”, in International Conference on Very Large Data Bases, 1995. [20] Leonid Boytsov and Bilegsaikhan Naidan, “Engineering efﬁcient and effective non-metric space library”, in Int’l Conf. on Similarity Search and Applications, 2013, pp. 280–293. [21] Jin Y Yen, “Finding the k shortest loopless paths in a network”, management Science, vol. 17, no. 11, pp. 712–716, 1971. [22] Ioan A. S¸ ucan, Mark Moll, and Lydia E. Kavraki, “The Open Motion Planning Library”, IEEE Robotics & Automation Magazine, vol. 19, no. 4, pp. 72–82, 2012, http://ompl.kavrakilab.org. [23] M. Freese E. Rohmer, S. P. N. Singh, “V-REP: a versatile and scalable robot simulation framework”, in IEEE/RSJ Int’l. Conf. on Intelligent Robots and Systems, 2013. [24] M. Lee, Y. Heo, J. Park, H. Yang, P. Benz, H. Jang, H. Park, I. Kweon, and J. Oh, “Fast perception, planning, and execution for a robotic butler: Wheeled humanoid m-hubo”, in IEEE/RSJ Int’l. Conf. on Intelligent Robots and Systems, 2019. [25] Jonathan D Gammell, Siddhartha S Srinivasa, and Timothy D Barfoot, “Informed RRT∗: Optimal sampling-based path planning focused via direct sampling of an admissible ellipsoidal heuristic”, in IEEE/RSJ Int’l. Conf. on Intelligent Robots and Systems, 2014, pp. 2997–3004.
+
+1503
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:37:46 UTC from IEEE Xplore. Restrictions apply.
+

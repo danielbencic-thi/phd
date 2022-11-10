@@ -1,0 +1,1930 @@
+IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED FEBRUARY 2021
+
+1
+
+Interleaving Graph Search and Trajectory Optimization for Aggressive Quadrotor Flight
+Ramkumar Natarajan1, Howie Choset1 and Maxim Likhachev1
+
+arXiv:2101.12548v2 [cs.RO] 29 Apr 2021
+
+Abstract—Quadrotors can achieve aggressive ﬂight by tracking complex maneuvers and rapidly changing directions. Planning for aggressive ﬂight with trajectory optimization could be incredibly fast, even in higher dimensions, and can account for dynamics of the quadrotor, however, only provides a locally optimal solution. On the other hand, planning with discrete graph search can handle non-convex spaces to guarantee optimality but suﬀers from exponential complexity with the dimension of search. We introduce a framework for aggressive quadrotor trajectory generation with global reasoning capabilities that combines the best of trajectory optimization and discrete graph search. Speciﬁcally, we develop a novel algorithmic framework that interleaves these two methods to complement each other and generate trajectories with provable guarantees on completeness up to discretization. We demonstrate and quantitatively analyze the performance of our algorithm in challenging simulation environments with narrow gaps that create severe attitude constraints and push the dynamic capabilities of the quadrotor. Experiments show the beneﬁts of the proposed algorithmic framework over standalone trajectory optimization and graph search-based planning techniques for aggressive quadrotor ﬂight.
+I. I
+Quadrotors’ exceptional agility and ability to track and execute complex maneuvers, ﬂy through narrow gaps and rapidly change directions make motion planning for aggressive quadrotor ﬂight an exciting and important area of research [1], [2], [3]. In order to enable such agile capabilities, motion planning should consider the dynamics and the control limits of the robot. The three distinct approaches for motion planning with dynamics are: (a) optimal control techniques, like trajectory optimization [4], [5], [6], (b) kinodynamic variants of sampling based planning [7] and (c) search based planning over lattice graphs [8]. LQR trees explores the combination of sampling methods (i.e. (b)) with trajectory optimization (i.e. (a)) and successfully demonstrates in real-world dynamical systems [9]. However, it is an oﬄine method to ﬁll the entire state space with lookup policies that takes extremely long time to converge even for low-dimensional systems. In part inspired by LQR trees, in this paper, we explore an eﬀective approach to combining trajectory optimization (i.e. (a)) with search-based planning (i.e. (c)) to develop an online planner and demonstrate it on a quadrotor performing aggressive ﬂight.
+To appreciate the potential of interleaving graph search and trajectory optimization, it is important to understand the tradeoﬀs. Search-based planning has global reasoning capabilities
+Manuscript received: July, 28, 2020; Revised November, 19, 2020; Accepted December, 21, 2021.
+This paper was recommended for publication by Editor Jonathan Roberts upon evaluation of the Associate Editor and Reviewers’ comments.
+The authors are with The Robotics Institute at Carnegie Mellon University, Pittsburgh, PA 15213, USA {rnataraj, choset, maxim}@cs.cmu.edu
+Digital Object Identiﬁer (DOI): see top of this page.
+
+Fig. 1: Inertial (blue, superscript 𝑊) and the body ﬁxed frame (red, superscript 𝐵) of the quadrotor. Origin of body ﬁxed frame is at the quadrotor’s center of mass. The direction of roll 𝜙, pitch 𝜃 and yaw 𝜓 and the corresponding angular velocities are shown in green.
+
+and has proven successful in solving numerous robot motion planning problems [10], [11]. Despite that, planning for complex dynamical systems using search-based techniques still remains an uncharted area due to the challenge of discretizing an inherently continuous class of systems. For instance, when planning for a quadrotor with attitude constraints, the state space should contain all the pose variables and their ﬁnite derivatives to ensure kinodynamic feasibility. One way to deal with this high-dimensional search is to sparsely discretize the action space which impedes the planner’s completeness guarantees. Consequently, trajectory optimization is a standard choice to deal with continuous actions and exploit the dynamic capabilities of the system but these are local methods and do not solve the full planning problem [4], [5], [12].
+
+Our contribution in this work is the novel framework called INSAT: INterleaved Search And Trajectory optimization for fast, global kinodynamic planning for aggressive quadrotor ﬂight with completeness guarantees. The key idea behind our framework is (a) to identify a low-dimensional manifold, (b) perform a search over a grid-based graph that discretizes this manifold, (c) while searching the graph, utilize highdimensional trajectory optimization to compute the cost of partial solutions found by the search. As a result, the search over the lower-dimensional graph decides what trajectory optimizations to run and with what seeds, while the cost of solution from the trajectory optimization drives the search in the lowerdimensional graph until a feasible high-dimensional trajectory from start to goal is found.
+
+This paper is structured as follows: we discuss the related
+
+work in Sec. II and summarize the diﬀerential ﬂatness property
+
+of the quadrotor which helps us to lift the low-dimensional
+
+discrete trajectory to high dimension in Sec. III. We formally
+
+deﬁne our problem in Section IV and describe our proposed
+
+method with its guarantees on completeness in Sec. V. Finally,
+
+we show the experimental results in Sec. VI, and conclude
+
+with future directions in Sec. VII. The code used in this work
+
+is open-sourced at
+
+://
+
+./
+
+93/ .
+
+2
+
+IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED FEBRUARY 2021
+
+II. R
+
+W
+
+Polynomial trajectory planning [6] jointly optimizes the pieces of a piecewise polynomial trajectory for ﬂat systems [13] in a numerically robust and unconstrained fashion. It is a sequential method that uses a piecewise linear path as a seed for polynomial trajectory generation. Consequently, they do not handle attitude constraints for narrow gaps or perform global reasoning in case a part of the seed plan is invalid. Several prior works have demonstrated aggressive maneuvers for quadrotors that pass through narrow gaps [4], [5], [12] but, instead of solving the planning problem, those works focus on trajectory optimization with given attitude constraints. Those constraints are often hand-picked beforehand or obtained using gap detection algorithms which only works for speciﬁc cases.
+Aggressive quadrotor planning for large environments typically involves building a safe corridor [14] such as convex decomposition of the free space [15], [16]. These methods do not deal with attitude constraints and hence there is no guarantee on planner’s completeness when the robot has to aggressively negotiate a narrow gap. Liu’s work [8], [17] on lattice search with predeﬁned primitives for aggressive ﬂight is the ﬁrst method that attempts to incorporate quadrotor shape and dynamics in planning for large environments. It uses search-based methods to synthesize a plan over the lattice. However, lattice search suﬀers from the curse of dimensionality and their performance signiﬁcantly depends on the choice of discretization for the state and the action space. Barring the interplay of low and high-dimensional search, our work is reminiscent of Theta* [18] as both the methods proceed by rewiring each successor to the best ancestor possible. However, Theta* is a planning algorithm designed speciﬁcally for 2D and 3D grid search and not applicable to higher dimensional planning like ours.
+Sampling-based robot motion planning has a rich history owing to their simplicity and scalability to higher dimensions [19], [20]. But for kinodynamic planning, they rely on the “steer” operator which is often not eﬃcient to compute [7]. They also suﬀer from the narrow passage problem [21], take longer time to converge to a good quality path and have unreliable intermediate path quality [20]. Despite that, sampling-based trajectory optimization methods like LQR trees [9] with very high convergence time have enjoyed success and even been applied to hybrid systems [22]. These methods focus on the conditions for guaranteed execution based on the geometry of the trajectory funnels and the obstacles and even demonstrate it on a spherical quadrotor [23]. However, deriving such relations become extremely hard or almost impossible if the quadrotor is approximated as an ellipsoid.
+
+III. D
+
+F
+
+C
+
+Q
+
+The quadrotor dynamics with four inputs (net thrust and the body moment about each axis) is diﬀerentially ﬂat [24]. In other words, the states and inputs can be written as algebraic functions of the so-called ﬂat outputs, 𝑥, 𝑦, 𝑧, and 𝜓 (yaw) and their derivatives. However, since the yaw is decoupled and does not aﬀect the system dynamics, we do not consider it during planning. The Newton’s equation of motion governing
+
+the acceleration of center of mass and the angular velocity of
+
+a standard quadrotor in terms of the ﬂat outputs are
+
+𝑚x = −𝑚𝑔z𝑊 + 𝑓 𝐵z𝐵
+
+(1)
+
+ 𝜔2  𝝎𝐵 = −𝜔1 =
+
+
+1 𝑓𝐵
+
+1 
+0 
+
+0 1
+
+0
+
+ 0
+
+R−1x
+
+
+
+(2)
+
+ 𝜔3 
+
+0 0 0
+
+
+
+
+
+
+
+where x is the position vector of the robot’s center of mass
+
+in the inertial frame, 𝑚 is its mass, 𝑔 is the acceleration due
+
+to gravity, R describes the rotation of the body frame 𝐵 with respect to the inertial frame 𝑊, 𝝎𝐵 and 𝑓 𝐵 are the angular
+
+velocity vector and net thrust in the body-ﬁxed coordinate frame (Fig. 1). z𝐵 is the unit vector aligned with the axis
+
+of the four rotors and indicates the direction of thrust, while −z𝑊 is the unit vector expressing the direction of gravity.
+
+The ﬂatness property lets us calculate the quadrotor’s ori-
+
+entation from the ﬂat outputs and its derivatives. We make
+
+a useful observation from Eq. 1 that the quadrotor can only
+
+accelerate in the direction of thrust and hence the attitude (roll
+
+and pitch) is constrained given the thrust vector. This constraint
+
+mapping is invertible and hence we can recover the direction
+
+of acceleration from attitude. In Sec. V-A, we will describe
+
+and explicitly derive how the magnitude of acceleration is calculated by getting rid of the free variable 𝑓 𝐵 in Eq. 1.
+
+Following [25], we use triple integrator dynamics with jerk
+
+input for quadrotor planning. Trajectory segments consisting
+
+of three polynomial functions of time, each specifying the
+
+independent evolution of 𝑥, 𝑦, 𝑧, is used for quadrotor planning
+
+between two states in the ﬂat output space [26], [6], [25].
+
+As the desired trajectory and its derivatives are suﬃcient to
+
+compute the states and control inputs in closed form, they
+
+serve as a simulation of the robot’s motion in the absence
+
+of disturbances. This powerful capability is enabled by diﬀer-
+
+ential ﬂatness that eliminates the need for iterated numerical
+
+integration of equations of motion, or a search over the space
+
+of inputs during each iteration of the planning algorithm.
+
+IV. P
+
+S
+
+Let 𝝈 denote the translational variables of the quadrotor
+
+including its position, velocity, acceleration and jerk, 𝝈 =
+
+[xT, x˙T, x¨T, xT]T ∈ R12. The 3D pose of the quadrotor is given
+
+by the position of its center of mass x = [𝑥, 𝑦, 𝑧]T and orienta-
+
+tion (in Euler angles) 𝚯 = [𝜙, 𝜃, 𝜓]T in the inertial frame.
+
+Given
+
+(a)
+
+an initial
+
+state
+
+s0
+
+=
+
+[𝝈T
+
+0,
+
+𝚯0
+
+T
+
+,
+
+(
+
+𝝎𝐵
+0
+
+)
+
+T
+
+,
+
+(
+
+𝜶𝐵
+0
+
+)T]
+
+T
+
+where 𝝎𝐵 and 𝜶𝐵 are the angular velocity and angular accel-
+
+eration of the body frame 𝐵, (b) a goal region X𝑔𝑜𝑎𝑙, (c) the
+
+planning space X with the obstacles X𝑜𝑏𝑠, the task is to ﬁnd an optimal trajectory 𝝈∗ (𝑡) = [x∗ (𝑡)T, x˙∗ (𝑡)T, x¨∗ (𝑡)T, x∗ (𝑡)T]T
+according to Eq. 3, where x∗ (𝑡) ∈ X \ X𝑜𝑏𝑠, 𝑡 ∈ [0, 𝑇] or the
+
+corresponding control inputs u∗ (𝑡), 𝑡 ∈ [0, 𝑇]. X𝑜𝑏𝑠 represents
+
+all the conﬁgurations of the robot that are in collision (Sec.
+
+V-D2) with its shape taken into consideration.
+
+For aggressive ﬂight, the dynamical constraints of the
+
+quadrotor in terms of thrust and torques that can be supplied
+
+by the motors have to be satisﬁed while planning. Using
+
+the diﬀerential ﬂatness property, these control saturation can
+
+be converted to componentwise box constraints on velocity,
+
+acceleration and jerk on each axis independently [27] as
+
+NATARAJAN et al.: INTERLEAVING GRAPH SEARCH AND TRAJECTORY OPTIMIZATION FOR AGGRESSIVE QUADROTOR FLIGHT
+
+3
+
+|x˙ (𝑡)| x˙ 𝑚𝑎𝑥, |x¨ (𝑡)| x¨ 𝑚𝑎𝑥, |x(𝑡)| x𝑚𝑎𝑥. Thus the time-
+
+optimal path-planning for aggressive quadrotor ﬂight can be
+
+cast as the following optimization problem:
+
+∫𝑇
+
+min 𝐽𝑡𝑜𝑡𝑎𝑙 =
+
+x(𝑡) 2 + 𝛾𝑇
+
+x(𝑡),u(𝑡) ,𝑇
+
+0
+
+s.t. x˙ = 𝐹 (x, u),
+
+x(0) = x0,
+
+(3)
+
+x(𝑇 ) ∈ X𝑔𝑜𝑎𝑙,
+
+|x˙ (𝑡)| x˙ 𝑚𝑎𝑥, |x¨ (𝑡)| x¨ 𝑚𝑎𝑥, |x(𝑡)| x𝑚𝑎𝑥
+
+x(𝑡) ∈ X \ X𝑜𝑏𝑠, u ∈ U ∀𝑡 ∈ [0, 𝑇]
+
+where 𝐹 and U denote the quadrotor dynamics and the set of all
+
+attainable control vectors, 𝐽𝑡𝑜𝑡𝑎𝑙 is total cost of the trajectory
+
+and 𝛾 is the penalty to prioritize control eﬀort over execution
+
+time 𝑇. It is suﬃcient to ﬁnd the optimal trajectory purely in
+
+terms of translational variables as the reminder of state can be
+
+recovered using the results of diﬀerential ﬂatness.
+
+V. M P
+
+FA
+
+F
+
+Our trajectory planning framework consists of two overlapping modules: a grid-based graph search planner and a trajec-
+
+tory optimization routine. These two methods are interleaved
+
+to combine the beneﬁts of former’s ability to search non-
+
+convex spaces and solve combinatorial parts of the problem
+
+and the latter’s ability to obtain a locally optimal solution
+
+not constrained to the discretized search space. We provide
+
+analysis (Sec. V-C) and experimental evidence (Sec. VI) that
+
+interleaving provides a superior alternative in terms of quality
+
+of the solution and behavior of the planner than the naive
+
+option of running them in sequence [6].
+
+We begin by providing a brief overview of the polynomial
+
+trajectory optimization setup. This will be followed by the
+
+description of the INSAT framework and how it utilizes graph
+
+search and polynomial trajectory generation. We then analyse
+
+INSAT’s guarantees on completeness.
+
+A. Attitude Constrained Joint Polynomial Optimization
+
+To generate a minimum-jerk and minimum-time trajectory,
+
+the polynomial generator should compute a thrice diﬀerentiable
+
+trajectory that guides the quadrotor from an initial state to
+
+a partially deﬁned ﬁnal state by respecting the spatial and
+
+dynamic constraints while minimizing the cost function given
+
+in Eq. 3. For quadrotors, it is a common practice to con-
+
+sider triple integrator dynamics and decouple the trajectory
+
+generation [25], [8] into three independent problems along
+
+each axis. However, for attitude constrained ﬂight, although
+
+the dynamic inversion provided by the ﬂatness property aids
+
+in determining the direction of acceleration from the desired
+
+attitude, the corresponding magnitude cannot be computed by
+
+axis independent polynomial optimization. We note from Eq. 1 that the thrust supplied by the motors 𝑓 𝐵 is a free variable
+
+which can be eliminated to deduce a constraint relationship
+
+between the components of the acceleration vector x and the
+
+direction of thrust in body frame z𝐵 as follows
+
+x𝑥 = x𝑦 = x𝑧 − 𝑔
+
+(4)
+
+z𝐵𝑥 z𝐵𝑦
+
+z𝑧𝐵
+
+where x𝑖 and z𝑖𝐵 are the axis-wise components of acceleration
+
+and thrust vector. Rearranging the terms in Eq. 4 provides a
+
+linear constraint on acceleration independent of the thrust
+
+−z𝐵𝑦 z𝐵𝑥 0  x𝑥  0 
+
+−z𝑧𝐵
+
+0
+
+z𝐵𝑦
+
+ 
+
+ x𝑦 
+
+=
+
+𝑔z𝐵𝑥
+
+ 
+
+(5)
+
+ 0
+
+−z𝑧𝐵
+
+z𝐵𝑦
+
+ 
+
+ x𝑧 
+
+𝑔z𝐵𝑦
+
+ 
+
+
+
+   
+
+W
+
+d
+
+Wx = d
+
+(6)
+
+We incorporate the constraint derived above in the joint
+
+polynomial optimization method introduced in [6] to ﬁnd a
+
+sequence of polynomials through a set of desired attitude
+
+constrained waypoints. Thus, the ﬁrst term of the cost function
+
+in Eq. 3 can be transformed into product of coeﬃcients of 𝑀
+
+polynomials and their Hessian with respect to 𝑁 coeﬃcients
+
+per polynomial thereby forming a quadratic program (QP)
+
+∫𝑇
+
+𝐽𝑐𝑜𝑛𝑡𝑟𝑜𝑙 =
+
+x(𝑡) 2 = pTHp
+
+(7)
+
+0
+where p∈ R𝑀 𝑁 represents all the polynomial coeﬃcients
+
+grouped together and H is the block Hessian matrix with
+
+each block corresponding to a single polynomial. Note that
+
+the integrand encodes the sequence of polynomial segments as
+
+opposed to just one polynomial and each block of the Hessian
+
+matrix is a function of time length of the polynomial segment.
+
+We omit the details for brevity and defer the reader to [6]
+
+for a comprehensive treatment. Following [6], the requirement
+
+to satisfy the position constraints and derivative continuity is
+
+achieved by observing that the derivatives of the trajectory
+
+are also polynomials whose coeﬃcients depend linearly on the
+
+coeﬃcients of the original trajectory. In our case, in addition to
+
+position and continuity constraints we have to take the attitude
+
+constraints into account via acceleration using Eq. 6.
+
+x
+
+Ap
+
+=
+
+ x
+
+
+
+=⇒
+
+Ap =
+
+b W−1d
+
+=⇒ p = A−1c
+
+(8)
+
+x
+
+
+
+c
+
+where the matrix A maps the coeﬃcients of the polynomials
+
+to their endpoint derivatives and b contains all other derivative
+
+values except acceleration which is obtained using Eq. 6. Using
+
+Eq. 8 in Eq. 7
+
+𝐽𝑐𝑜𝑛𝑡𝑟 𝑜𝑙 = cTA−THA−1c
+
+(9)
+
+Note that due to the interdependent acceleration constraint
+
+(Eq. 5) imposed at the polynomial endpoints, we lost the
+
+ability to solve the optimization independently for each axis.
+
+Nevertheless, the key to the eﬃciency of our approach lies in
+
+the fact that solving a QP like Eq. 7 subject to linear constraints
+
+in Eq. 8 or in their unconstrained format in Eq. 9 is incredibly
+
+fast and robust to numerical instability. Thus the total jerk and
+
+time cost 𝐽𝑡𝑜𝑡𝑎𝑙 to be minimized becomes
+
+𝑀
+
+𝐽𝑡𝑜𝑡 𝑎𝑙
+
+=
+
+cTA−THA−1c
+
++
+
+𝛾
+
+∑︁ 𝑇𝑖
+
+(10)
+
+𝑖=1 𝐽𝑐𝑜𝑛𝑡𝑟 𝑜𝑙
+
+𝐽𝑡 𝑖 𝑚𝑒
+where 𝑇𝑖 expresses the time length of the 𝑖th polynomial. As
+
+mentioned before, the Hessian depends on the choice of time
+
+length of the polynomial segment and hence the overall cost is
+
+minimized by running a gradient descent on 𝑇𝑖 and evaluating
+
+𝐽𝑐𝑜𝑛𝑡𝑟𝑜𝑙 corresponding to a particular 𝑇𝑖.
+
+4
+
+IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED FEBRUARY 2021
+
+B. INSAT: Interleaving Search And Trajectory Optimization
+
+To plan a trajectory that respects system dynamics and
+
+controller saturation, and simultaneously reason globally over
+
+large non-convex environments, it is imperative to maintain the
+
+combinatorial graph search tractable. To this end, we consider a low-dimensional space X𝐿 (5D) comprising {xT , 𝜙, 𝜃}. The
+discrete graph search runs in X𝐿 which typically contains
+
+variables of the state whose domain is non-convex. It then
+
+seeds the trajectory optimization, such as the one in Sec. V-A, in the high-dimensional space X𝐻 (12D) comprising {xT, x˙T, x¨T, xT}, to in turn obtain a better estimate of the cost-to-come
+
+value of a particular state for the graph search. The subscripts
+
+𝐿 and 𝐻 refer to the low and high-dimensional states. Alg. 1 presents the pseudocode of INSAT. Let s𝐿 ∈ X𝐿
+and s𝐻 ∈ X𝐻 be the low-dimensional and high-dimensional
+
+state. The algorithm takes as input the high-dimensional start
+
+and
+
+goal
+
+states
+
+s𝑠𝐻𝑡 𝑎𝑟𝑡 ,
+
+𝑔𝑜𝑎𝑙
+s𝐻
+
+and
+
+recovers
+
+their
+
+low-dimensional
+
+counterparts
+
+s𝑠𝐿𝑡
+
+𝑎𝑟
+
+𝑡
+
+,
+
+𝑔𝑜𝑎𝑙
+s𝐿
+
+(lines
+
+20-22).
+
+The
+
+low-dimensional
+
+free space X𝐿 \ X𝑜𝑏𝑠 is discretized to build a graph G𝐿 to
+
+search. To search in G𝐿, we use weighted A* (WA*)[28] which
+
+maintains a priority queue called OPEN that dictates the order
+
+of expansion of the states and the termination condition based
+
+on K ( 𝐿) value (lines 1, 25). Alg. 1 maintains two functions: cost-to-come 𝑔(s𝐿) and a heuristic ℎ(s𝐿). 𝑔(s𝐿) is the cost of the current path from the start state to s𝐿 and ℎ(s𝐿) is an
+
+underestimate of the cost of reaching the goal from s𝐿. WA* initializes OPEN with s𝑠𝐿𝑡𝑎𝑡𝑒 (line 24) and keeps track of the expanded states using another list called CLOSED (line 29).
+
+A graphical illustration of the algorithm is provided in Fig.
+
+2. Each time the search expands a state s𝐿, it removes s𝐿 from
+
+OPEN and generates the successors as per the discretization
+
+(lines 26-28). For every low-dimensional successor n𝐿, we
+
+solve a trajectory optimization problem described in Sec. V-A
+
+to ﬁnd a corresponding high-dimensional trajectory from start
+
+to goal via n𝐻 (lines 6-7, Fig 2). Note that the trajectory op-
+
+timization is performed in the space of translational variables
+
+but n𝐿 speciﬁes an attitude requirement. So prior to trajectory
+
+optimization, we utilize the diﬀerential ﬂatness property to
+
+transform the attitude of the quadrotor to an instantaneous direction and magnitude of acceleration nx𝐻 to be satisﬁed (line 5, Eq. 5). The trajectory optimization output n𝐻 (𝑡) is checked
+
+for collision and control input feasibility (line 8, Sec. V-D). If the optimized trajectory n𝐻 (𝑡) is in collision or infeasible (Fig.
+
+2-Left), the algorithm enters the repair phase (lines 10-17).
+
+The repair phase is same as the ﬁrst call to the optimizer
+except that instead of the start state s𝑠𝐻𝑡𝑎𝑟𝑡 , we iterate over the waypoints m𝐻 (line 11) of the parent state’s trajectory s𝐻 (𝑡)
+
+in order (lines 11-14, Fig. 2-Center). It has to be noted that
+
+the computational complexity of trajectory optimization QP is
+
+same for both the initial attempt and the repair phase as the sequence of polynomials from s𝑠𝐻𝑡𝑎𝑟𝑡 to m𝐻 is unmodiﬁed. Upon ﬁnding the state m𝐻 which enables a high-dimensional
+
+feasible trajectory from start to goal via n𝐻 , the full trajectory n𝐻 (𝑡) is constructed by concatenating m𝐻 (𝑡) up to m𝐻 and the newly repaired trajectory, r𝐻 (𝑡), starting from m𝐻 (line
+
+15). The ﬁnal trajectory is obtained by warm starting the optimization with the trajectory n𝐻 (𝑡) as the seed and relaxing
+
+Algorithm 1 INSAT
+
+1: procedure K (s𝐿) 2: return 𝑔(s𝐿) + 𝜖 ∗ ℎ(s𝐿)
+
+3: procedure G
+
+T
+
+(s𝐿, n𝐿)
+
+4: z𝐵 = [𝑠𝑖𝑛(n𝐿𝜃 ), −𝑐𝑜𝑠(n𝐿𝜃 )𝑠𝑖𝑛(n𝐿𝜙), 𝑐𝑜𝑠(n𝐿𝜙)𝑐𝑜𝑠(n𝐿𝜃 )]
+
+5:
+
+nx𝐻 = W−1d
+
+⊲ Diﬀerential ﬂatness Eq. 5
+
+6:
+
+c
+
+=
+
+[(s𝑠𝐻𝑡 𝑎𝑟𝑡 )T,
+
+(n𝐻
+
+)T,
+
+(
+
+𝑔𝑜
+s𝐻
+
+𝑎𝑙
+
+)T
+
+]
+
+T
+
+⊲ Eq. 8
+
+7: n𝐻 (𝑡) = 𝑇𝑟𝑎 𝑗 𝑒𝑐𝑡𝑜𝑟 𝑦𝑂 𝑝𝑡𝑖𝑚𝑖𝑧𝑒𝑟 (c)
+
+⊲ Eq. 10
+
+8: if n𝐻 (𝑡n𝐻 ).𝐼 𝑠𝐶𝑜𝑙𝑙𝑖𝑠𝑖𝑜𝑛𝐹𝑟𝑒𝑒()
+
+⊲ Sec. V-D2
+
+n𝐻 (𝑡n𝐻 ).𝐼 𝑠𝐼𝑛𝑝𝑢𝑡𝐹𝑒𝑎𝑠𝑖𝑏𝑙𝑒() then ⊲ Sec. V-D1
+
+9:
+
+return n𝐻 (𝑡)
+
+10: else
+
+11:
+
+for m𝐻 ∈ 𝑊 𝑎𝑦 𝑝𝑜𝑖𝑛𝑡𝑠(s𝐻 (𝑡)) do
+
+12:
+
+c = [(m𝐻 )T, (n𝐻 )T, (s𝑔𝐻𝑜𝑎𝑙)T]T
+
+⊲ Eq. 8
+
+13:
+
+r𝐻 (𝑡) = 𝑇𝑟𝑎 𝑗 𝑒𝑐𝑡𝑜𝑟 𝑦𝑂 𝑝𝑡𝑖𝑚𝑖𝑧𝑒𝑟 (c)
+
+⊲ Eq. 10
+
+14:
+
+if r𝐻 (𝑡n𝐻 ).𝐼 𝑠𝐶𝑜𝑙𝑙𝑖𝑠𝑖𝑜𝑛𝐹𝑟𝑒𝑒()
+
+⊲ Sec. V-D2
+
+r𝐻 (𝑡n𝐻 ).𝐼 𝑠𝐼𝑛𝑝𝑢𝑡𝐹𝑒𝑎𝑠𝑖𝑏𝑙𝑒() then ⊲ Sec. V-D1
+
+15:
+
+n𝐻 (𝑡) = 𝐶𝑜𝑛𝑐𝑎𝑡𝑒𝑛𝑎𝑡𝑒(m𝐻 (𝑡), r𝐻 (𝑡))
+
+16:
+
+𝑅𝑒𝑙𝑎𝑥𝐶𝑜𝑛𝑠𝑡𝑟𝑎𝑖𝑛𝑡𝑠𝐴𝑛𝑑𝑊𝑎𝑟𝑚𝑆𝑡𝑎𝑟𝑡(n𝐻 (𝑡))
+
+17:
+
+return n𝐻 (𝑡)
+
+18: return Tunnel traj. w/ discrete ∞ cost ⊲ Sec. V-C
+
+19: procedure M
+
+(s𝑠𝐻𝑡
+
+𝑎𝑟
+
+𝑡
+
+,
+
+𝑔𝑜𝑎𝑙
+s𝐻
+
+)
+
+20:
+
+(s𝑠𝐿𝑡 𝑎𝑟𝑡 )x = (s𝑠𝐻𝑡 𝑎𝑟𝑡 )x; (s𝑔𝐿𝑜𝑎𝑙)x = (s𝑔𝐻𝑜𝑎𝑙)x
+
+21: (s𝑠𝐿𝑡𝑎𝑟𝑡 ) 𝜙, 𝜃 = Obtain from (s𝑠𝐻𝑡𝑎𝑟𝑡 )x
+
+22: (s𝑔𝐿𝑜𝑎𝑙) 𝜙, 𝜃 = Obtain from (s𝑔𝐻𝑜𝑎𝑙)x
+
+23: ∀s𝐿, 𝑔(s𝐿) = ∞; 𝑔(s𝑠𝐿𝑡𝑎𝑟𝑡 ) = 0
+
+24: Insert s𝑠𝐿𝑡𝑎𝑟𝑡 in OPEN with K (s𝑠𝐿𝑡𝑎𝑟𝑡 )
+
+25:
+
+while K
+
+𝑔𝑜𝑎𝑙
+(s𝐿 )
+
+<
+
+∞
+
+do
+
+26:
+
+s𝐿 = OPEN.𝑝𝑜 𝑝()
+
+⊲ Eq. 1 ⊲ Eq. 1
+
+27:
+
+for s𝐿 ∈ 𝑆𝑢𝑐𝑐(s𝐿) do
+
+28:
+
+n𝐿 = 𝑆𝑜 𝑓 𝑡𝐶𝑜𝑝𝑦(s𝐿)
+
+29:
+
+if n𝐿 ∈ CLOSED then
+
+30:
+
+n𝐿 = 𝐷𝑒𝑒 𝑝𝐶𝑜 𝑝𝑦(s𝐿); 𝑔(n𝐿) = ∞ ⊲ Sec. V-C
+
+31:
+
+n𝐻 (𝑡) = G
+
+T
+
+(s𝐿, n𝐿)
+
+32:
+
+if n𝐻 (𝑡).𝐼 𝑠𝐶𝑜𝑙𝑙𝑖𝑠𝑖𝑜𝑛𝐹𝑟𝑒𝑒()
+
+⊲ Sec. V-D2
+
+n𝐻 (𝑡).𝐼𝑠𝐼𝑛𝑝𝑢𝑡𝐹𝑒𝑎𝑠𝑖𝑏𝑙𝑒() then ⊲ Sec. V-D1
+
+33:
+
+𝑔
+
+(
+
+𝑔𝑜𝑎𝑙
+𝑠
+
+)
+
+𝐿
+
+=
+
+𝐽𝑡𝑜𝑡 𝑎𝑙 (n𝐻
+
+(𝑡))
+
+⊲ Eq. 3
+
+𝑔𝑜𝑎𝑙
+
+34:
+
+Insert/Update n𝐿 in OPEN with K (𝑠𝐿 )
+
+35:
+
+if 𝐽𝑡𝑜𝑡𝑎𝑙 (n𝐻 (𝑡n𝐻 )) < 𝑔(n𝐿) then
+
+⊲ Eq. 3
+
+36:
+
+𝑔(n𝐿) = 𝐽𝑡𝑜𝑡𝑎𝑙 (n𝐻 (𝑡n𝐻 ))
+
+⊲ Eq. 3
+
+37:
+
+Insert/Update n𝐿 in OPEN with K (n𝐿)
+
+all the waypoint and derivative constraints (Fig. 2-Right)
+
+until convergence or trajectory becoming infeasible, whichever
+
+occurs ﬁrst. We remark that, within G
+
+T
+
+(),
+
+the trajectory is checked for collision and feasibility only until
+
+the waypoint n𝐻 indicated by time 𝑡n𝐻 (lines 8, 14) although
+
+the trajectory connects all the way from start to goal via n𝐻 .
+
+The validity of the full trajectory is checked in M () (line
+
+32) to be considered as a potential goal candidate (line 32-34).
+
+C. Completeness Analysis of INSAT
+
+We import the notations X𝑜𝑏𝑠, G𝐿 from V-B. G𝐿 =
+
+(V𝐿, E𝐿) where V𝐿 and E𝐿 are set of vertices and edges,
+
+X 𝑓 𝑟𝑒𝑒
+𝐿
+
+=
+
+X𝐿
+
+\ X𝑜𝑏𝑠,
+
+𝝉G
+
+be
+
+any
+
+path
+
+in
+
+G𝐿 ,
+
+𝝉𝐿 (𝑡)
+
+be
+
+the
+
+low-dimensional trajectory and 𝝉𝐻 (𝑡) be the high-dimensional
+
+trajectory that is snap continuous.
+
+NATARAJAN et al.: INTERLEAVING GRAPH SEARCH AND TRAJECTORY OPTIMIZATION FOR AGGRESSIVE QUADROTOR FLIGHT
+
+5
+
+Fig. 2: Graphical illustration of the G
+
+T
+
+() function of INSAT (Alg 1). Here the state s𝐿 is expanded and a trajectory is
+
+optimized for its successor n𝐿. LEFT: At ﬁrst, the optimizer tries to ﬁnd a trajectory directly from start to goal via n𝐻 (n𝐿’s high-dimensional
+
+counterpart) as shown in red (lines 6-7). CENTER: If the portion of the trajectory from the ﬁrst attempt up to n𝐿 is input infeasible or
+
+in collision (as in LEFT), then instead of the start state the earliest possible waypoint m𝐻 (m𝐿’s high-dimensional counterpart) on the high-dimensional trajectory s𝐻 (𝑡) is selected and a new trajectory segment is incrementally optimized (shown in red) as in lines 11-14.
+
+RIGHT: Once a set of collision free and feasible trajectory segments are found, we reﬁne the trajectory by relaxing all the waypoint and
+
+derivative constraints (convergence shown with diﬀerent shades of red). Note that this stage can consist of several polynomials being jointly
+
+optimized, however, the convergence is extremely fast due to warm starting (line 16).
+
+Assumption
+
+(AS):
+
+If
+
+there
+
+exists
+
+𝝉𝐿 (𝑡)
+
+∈
+
+X𝑓
+𝐿
+
+𝑟 𝑒𝑒
+
+then
+
+there
+
+18). The tunnel trajectory between m𝑖𝐻 and n𝑖𝐻+1 (i) is collision-
+
+exists a corresponding path 𝝉G in G𝐿
+
+free under AS (ii) satisﬁes the boundary pose and derivative
+
+𝝉G = {(𝑣, 𝑣 ) | 𝑣, 𝑣
+
+∈
+
+V𝐿 ,
+
+(𝑣,
+
+𝑣
+
+)
+
+∈
+
+E𝐿,
+
+T
+
+(𝑣,
+
+𝑣
+
+)
+
+⊆
+
+X𝑓
+𝐿
+
+𝑟 𝑒𝑒 }
+
+where T (𝑣, 𝑣 ) is the tunnel around the edge (𝑣, 𝑣 ) (Fig. 3).
+
+Theorem 1.
+
+∃
+
+𝝉𝐻
+
+(𝑡)
+
+∈
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+=⇒
+
+∃
+
+𝝉𝐿 (𝑡)
+
+∈
+
+X𝑓
+𝐿
+
+𝑟 𝑒𝑒
+
+Proof. Using quadrotor’s diﬀerential ﬂatness all the variables
+
+of X𝐿 can be recovered from the variables in X𝐻 . So the map
+
+M𝐻
+𝐿
+
+:
+
+X𝐻
+
+↦→
+
+X𝐿
+
+is
+
+a
+
+surjection.
+
+But
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+=
+
+{x𝐻
+
+∈
+
+X𝐻
+
+|
+
+M
+
+𝐻 𝐿
+
+(x𝐻
+
+)
+
+∈
+
+X 𝑓 𝑟𝑒𝑒}
+𝐿
+
+and
+
+hence
+
+the
+
+map
+
+M 𝐻 ( 𝑓 𝑟𝑒𝑒)
+𝐿
+
+:
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+↦→
+
+X 𝑓 𝑟𝑒𝑒
+𝐿
+
+is
+
+also
+
+a
+
+surjection.
+
+constraints (iii) snap continuous. The existence of such a tunnel
+
+trajectory can be shown using trigonometric bases but it is
+
+beyond
+
+the
+
+scope
+
+of
+
+this
+
+proof.
+
+The
+
+“base
+
+case”
+
+of
+
+G𝑖 , 𝑖
+𝐿
+
+=
+
+0
+
+with
+
+1
+
+node
+
+(s𝑠𝐿𝑡 𝑎𝑟𝑡 )
+
+is
+
+collision-free
+
+s𝑠𝐻𝑡 𝑎𝑟𝑡 (𝑡)
+
+∈
+
+X𝑓
+𝐻
+
+𝑟
+
+𝑒𝑒
+
+.
+
+And
+
+INSAT
+
+ﬁnds
+
+𝝉𝑖+1 (𝑡)
+𝐻
+
+∈
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+even
+
+at
+
+(𝑖 + 1)th
+
+step.
+
+Hence,
+
+INSAT is a provably complete algorithm.
+
+D. Trajectory Feasibility
+To plan for aggressive trajectories in cluttered environments, we approximate the shape of the quadrotor as an ellipsoid to
+
+Theorem
+
+2
+
+(Completeness).
+
+If
+
+∃
+
+𝝉𝐻 (𝑡)
+
+∈
+
+X 𝑓 𝑟𝑒𝑒,
+𝐻
+
+then
+
+INSAT
+
+capture attitude constraints and check for collision. During a
+
+is guaranteed to ﬁnd a 𝝉 (𝑡) ∈ X 𝑓 𝑟𝑒𝑒.
+
+state expansion, once the high-dimensional polynomial trajec-
+
+𝐻
+
+𝐻
+
+tory is found from the start to goal via a successor, it is checked
+
+for any violation of dynamics and control input (thrust and
+
+angular velocity) limits. 1) Input Feasibility: We use a recursive strategy introduced
+
+in [27] to check jerk input trajectories for input feasibility
+
+by binary searching and focusing only on the parts of the
+
+polynomial that violate the input limits. The two control inputs
+
+to the system are thrust and the body rate in the body frame.
+
+Fig. 3: Part of the high-dimensional trajectory n𝐻 (𝑡) from s𝑠𝐿𝑡𝑎𝑟𝑡 to
+𝑔𝑜𝑎𝑙
+s𝐿 via the expanded node m𝐿 and its successor n𝐿. The portion of n𝐻 (𝑡) between m𝐿 and n𝐿 is guaranteed to lie within the tunnel
+(yellow) formed by m𝐿 and n𝐿 and is called as tunnel trajectory.
+
+For checking thrust feasibility, the maximum thrust along each axis is calculated independently from acceleration (Eq. 1), by performing root-ﬁnding on the derivative of the jerk input polynomial trajectory. The maximum/minimum value among all the axes is used to check if it lies within the thrust limits.
+
+Proof. Inference (IN): If AS holds, it is enough to search G𝐿
+
+instead
+
+of
+
+X𝑓
+𝐿
+
+𝑟 𝑒𝑒
+.
+
+Then
+
+from
+
+Theorem.
+
+1
+
+we
+
+can
+
+deduce
+
+that
+
+there
+
+exists
+
+a
+
+𝝉G
+
+in
+
+G𝐿
+
+if
+
+∃
+
+𝝉𝐻 (𝑡)
+
+∈
+
+X𝑓
+𝐻
+
+𝑟
+
+𝑒𝑒
+
+.
+
+Thus to prove the completeness of INSAT, we have to show
+
+that
+
+Alg.
+
+1
+
+ﬁnds
+
+a
+
+𝝉 (𝑡)
+𝐻
+
+∈
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+for
+
+any
+
+𝝉G
+
+in
+
+G𝐿
+
+(i.e
+
+converse of IN). We prove by induction. At 𝑖th step of INSAT,
+
+let
+
+G𝑖
+𝐿
+
+=
+
+(V𝑖 , E𝑖 )
+𝐿𝐿
+
+be
+
+the
+
+low-dimensional
+
+graph
+
+for
+
+which
+
+there
+
+exists
+
+a
+
+𝝉𝑖 (𝑡)
+𝐻
+
+∈
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+from
+
+s𝑠𝐿𝑡 𝑎𝑟 𝑡
+
+to
+
+any
+
+s𝑖𝐿
+
+∈
+
+V𝑖
+𝐿
+
+.
+
+The induction is to prove that, at (𝑖 + 1)th step, after adding
+
+any
+
+number
+
+of
+
+nodes
+
+to
+
+get
+
+G𝑖+1
+𝐿
+
+=
+
+( V 𝑖+1 ,
+𝐿
+
+E
+
+𝑖+1 𝐿
+
+),
+
+INSAT
+
+is
+
+guaranteed
+
+to
+
+ﬁnd
+
+𝝉𝑖+1 (𝑡)
+𝐻
+
+∈
+
+X 𝑓 𝑟𝑒𝑒
+𝐻
+
+from
+
+s𝑠𝐿𝑡 𝑎𝑟 𝑡
+
+to
+
+every
+
+s𝑖𝐿+1
+
+∈
+
+V𝐿𝑖+1.
+
+Let
+
+m𝑖𝐿
+
+∈
+
+V𝑖
+𝐿
+
+be
+
+the
+
+node
+
+expanded
+
+at
+
+(𝑖 + 1) th
+
+step
+
+from
+
+G𝑖
+𝐿
+
+to
+
+generate
+
+a
+
+successor
+
+n𝑖𝐿+1
+
+∈
+
+V 𝑖+1
+𝐿
+
+and
+
+the
+
+graph
+
+G𝐿𝑖+1.
+
+We
+
+know
+
+that
+
+m𝑖𝐻
+
+(𝑡)
+
+∈
+
+X𝑓
+𝐻
+
+𝑟
+
+𝑒𝑒
+
+.
+
+So
+
+even
+
+if
+
+the
+
+basic
+
+(lines
+
+6-9)
+
+and
+
+the repair (lines 10-17) phases fail (Sec. V-B), Alg. 1 falls back
+
+to ﬁnding the tunnel trajectory to concatenate with m𝑖𝐻 (𝑡) (line
+
+For body rate, its magnitude can be bounded as a function of the jerk and thrust (Eq. 2). Using this relation, we calculate the body rate along the trajectory and check if it entirely lies within the angular velocity limits. Note that, in the implementation, these two feasibility tests are done in parallel.
+2) Collision Checking: We employ a two level hierarchical collision checking scheme. The ﬁrst level checks for a conservative validity of the conﬁguration and reﬁnes for an accurate collision check only if the ﬁrst level fails. In the ﬁrst level, we approximate the robot as a sphere and inﬂate the occupied cells of the voxel grid with its radius. This lets us treat the robot as a single cell and check for collision in cells along the trajectory. The second level follows the ellipsoid based collision checking that takes the actual orientation of the quadrotor into account [8]. By storing the points of the obstacle pointcloud in a KDtree, we are able to crop a subset of the points and eﬃciently check for collisions only in the neighborhood of the robot.
+
+6
+
+IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED FEBRUARY 2021
+
+(a) Side views. LEFT: #Walls: 2, #Holes/wall: 1. CENTER: #Walls: 3, #Holes/wall: 1. RIGHT: #Walls: 4, #Holes/wall: 11
+
+(b) L&R side views. LEFT: #Walls: 2, #Holes/wall: 11. CENTER: #Walls: 3, #Holes/wall: 11. RIGHT: Velocity magnitude
+
+Fig. 4: Visualization of trajectory planned by the proposed method in the walls and windows environment. The environment consists of
+
+parallel walls with narrow holes (windows) smaller than the size of the quadrotor. The trajectory is represented as a sequence of ellipsoid
+
+which approximates the quadrotor’s shape to plan in attitude constrained environments. The color gradient from green to red expresses the
+
+magnitude of instantaneous velocity while the arrows along the trajectory denote the magnitude and direction of acceleration. The dynamically
+
+stable agile behavior of the planner is analyzed in Sec. VI-A.
+
+#Walls 2 3
+
+#Windows per wall
+1
+5
+10 1 5 10
+
+Wall gap (m)
+5 9 5 9 5 9 5 5 5
+
+Planning Time (s)
+
+INSAT 19.37 ± 17.34 29.76 ± 28.41 46.58 ± 49.76 22.07 ± 38.89 19.13 ± 21.81 30.56 ± 24.08 83.33 ± 68.54
+62 ± 80.97 18.7 ± 18.9
+
+Base A 122.5 ± 88.44 180.47 ± 93.22 97.15 ± 70.01 77.64 ± 58.8 66.62 ± 56.51 60.81 ± 43.66 112.33 ± 87.24 224.60 ± 309.67 59.76 ± 56.73
+
+Success Rate (%)
+
+INSAT Base A
+
+100
+
+36
+
+100
+
+24
+
+100
+
+100
+
+100
+
+100
+
+100
+
+100
+
+100
+
+100
+
+100
+
+24
+
+100
+
+100
+
+100
+
+100
+
+Solution Cost (×105)
+
+INSAT Base A
+
+3.7
+
+7.18
+
+5.5
+
+7.48
+
+6
+
+6.16
+
+5.5
+
+6.9
+
+4.21
+
+6.9
+
+4.3
+
+6.14
+
+8.69
+
+9.38
+
+8
+
+7.3
+
+5.01
+
+6.99
+
+Execution Time (s)
+
+INSAT 9.12 ± 1.04 9.42 ± 1.54 6.93 ± 1.89
+8.88 ± 2 9.45 ± 1.42 6.87 ± 1.62 11.5 ± 3.21 9.88 ± 1.66 8.83 ± 1.84
+
+Base A 10.4 ± 1.18 10.81 ± 1.71 8.97 ± 2.25 9.49 ± 2.58 9.19 ± 2.53 8.45 ± 1.69 13.7 ± 2.74 10.8 ± 2.91 9.84 ± 2.15
+
+Map
+Willow Garage (2.5D) Willow Garage (3D) MIT Stata Center (3D)
+
+Planning Time (s)
+
+INSAT 40.05 ± 77.09 57.64 ± 97.24
+5 ± 7.18
+
+Base-A 18.73 ± 46.7 89.8 ± 88.31 83.2 ± 91.94
+
+Base-B 2.55 ± 1.18 6.53 ± 2.49 3.94 ± 1.2
+
+Success Rate (%)
+
+INSAT Base-A Base-B
+
+100
+
+100
+
+6
+
+100
+
+100
+
+10
+
+100
+
+14
+
+32
+
+Solution Cost (×105)
+
+INSAT
+
+Base-A
+
+Base-B
+
+3.33 ± 4.92 3.73 ± 2.54 4.34 ± 1.1
+
+5 ± 5.27 1.56 ± 0.91 7.38 ± 2.67
+
+6.68 ± 7.65 3.44 ± 2.33 2.24 ± 0.88
+
+Execution Time (s)
+
+INSAT 14.5 ± 6.14 10.11 ± 6.8 7.12 ± 3.44
+
+Base-A 7.78 ± 5.33 3.21 ± 1.4 5.7 ± 3.34
+
+Base-B 2.54 ± 2 4.5 ± 1.78 7.7 ± 2.93
+
+TABLE I: Comparison of INSAT with search-based planning for aggressive SE(3) ﬂight (Base-A) [8] and polynomial trajectory planning (Base-B) [6]. The top table displays the average and standard deviation of the results for walls and windows environment and the bottom table for indoor oﬃce environment. Note that INSAT consistently outperforms the baselines across diﬀerent types of environments.
+
+VI. E
+
+R
+
+polynomial trajectory planning (Base-B) [6]. We used the
+
+We evaluate the empirical performance of INSAT in sim- AscTec Hummingbird quadrotor [30] in the Gazebo simulator ulation against two baselines in two types of environments: [31] as our testing platform. All the methods are implemented 1) a walls and windows environment that mimics an array of in C++ on a 3.6GHz Intel Xeon machine.
+
+narrowly spaced buildings each containing several windows smaller than the radius of the quadrotor and 2) a cluttered A. Walls and Windows Environment indoor oﬃce environment, namely Willow Garage and MIT For the walls and windows environment, we randomly
+
+Stata Center [29] maps. Together the environments convey a generated several scenarios with arbitrary number of parallel
+
+story of a quadrotor aggressively ﬂying through several tall walls where each wall contains random number of windows
+
+raised oﬃce buildings. The baseline methods include search- (gaps smaller than quadrotor’s radius). The goal of the planner
+
+based planning for aggressive SE(3) ﬂight (Base-A) [8] and is to generate a trajectory to ﬂy from one end of the parallel
+
+NATARAJAN et al.: INTERLEAVING GRAPH SEARCH AND TRAJECTORY OPTIMIZATION FOR AGGRESSIVE QUADROTOR FLIGHT
+
+7
+
+B. Indoor Oﬃce Environment
+
+(a) Willow Garage oﬃce environment
+(b) MIT Stata Center Fig. 5: INSAT in indoor oﬃce environments in 3D mode. Trajectories are expressed in the same format as Fig. 4
+
+We also tested INSAT on the same maps and planning dimensions reported in the baseline papers i.e maps of Willow Garage (2.5D [8] and 3D) and MIT Stata Center (3D) [6]. These are large, cluttered, oﬃce environments that contain a number of narrow gaps smaller than the size of quadrotor. The ﬁnal trajectory from one example is shown in Fig. 5 and the statistics are provided in the bottom half of Table. I. Willow Garage map has tight spaces and high obstacle density but uniform obstacle distribution along its height compared to the MIT map that has scattered obstacles with varying distribution. Thus, Base-B performs well only in the MIT map as it does not necessitate attitude constrained planning.
+From the bottom half of Table I we see that INSAT has the highest success rate. For the baselines, we used the same parameters supplied by the authors. In 2.5D planning, BaseA is faster than INSAT as it has a low branching factor with precomputed motion primitives. However, this diﬀerence vanishes in 3D because of exponential complexity with longer times spent to escape local minimas in Base-A and relatively faster speeds of polynomial trajectory generation in INSAT. The parameters that determine INSAT’s performance including planning time, continuity and obeying dynamic constraints are:
+
+walls to the other by negotiating the windows and satisfying their corresponding attitude constraints. Note that the planner also has to ﬁgure out the right topology for the solution, i.e., the sequence of windows it can ﬂy through to get to its goal. For this environment, we compared only against Base-A [8] as the other baseline (Base-B) [6] does not explicitly handle attitude constraints needed to plan in these scenarios and therefore had a very low success rate.
+The planned trajectory from INSAT is visualized (Fig. 4) as a sequence of ellipsoids approximating the shape of quadrotor to handle SE(3) constraints. We evaluated INSAT and Base-A over 50 random start and goal states in each of the diﬀerent environment scenarios (top half of Table I). For the heuristic, we computed 3D (x, y, z) distances to the goal while accounting for obstacles and assuming a point robot. To compute it, we ran a single 3D Dĳkstra’s search backwards from the goal to obtain distances for all the cells. The results show that INSAT consistently outperforms Base-A in terms of the trajectory computation time and execution time. All the methods are timed out after 300s. The success rate shows that INSAT ﬁnds a solution in every scenario as opposed to BaseA’s varying levels of reliability. Speciﬁcally, we see that the Base-A struggles when the number of windows per wall is decreased making the planner vary altitude and ﬁnd a window at diﬀerent height to get through. This is because Base-A is a lattice search method whose performance strongly depends on parameters such as the density and the length of primitives in the lattice. While reproducing the results in their paper [8], we found that their planner used a 2.5D lattice (primitives are restricted to a single plane). Our scenario requires planning in 3D with varying altitude. Despite tuning the parameters to ﬁt 3D conﬁguration for Base-A, the exponential increase in computation combined with the discretization introduced by the lattice sacriﬁced their success rate.
+
+𝑑x
+
+𝑑𝚯 x˙ 𝑚𝑎𝑥 x¨ 𝑚𝑎𝑥
+
+x𝑚𝑎𝑥
+
+𝛾 𝑓𝑚𝑎𝑥 𝑑𝑡
+
+0.2m 0.1rad 10m/s 20𝑚/𝑠2 50𝑚/𝑠3 500 10N 0.05s
+
+where 𝑑x and d𝚯 are the linear and angular discretization used for low-dimensional search, 𝑓𝑚𝑎𝑥 is the maximum thrust, 𝑑𝑡 is the time step used for collision checking and 𝛾 is the penalty to prioritize control eﬀort over execution time. The execution and trackability of the generated trajectories are evaluated in Gazebo simulator . One critical parameter is the resolution of the low-dimensional grid that guarantees the planner’s completeness (refer Sec. V-C).
+
+C. INSAT vs Sequential (S) vs Lattice Search (L) methods
+
+S methods [6] like Base-A ﬁrst search for a path ignoring the
+
+dynamics and then reﬁne to ﬁnd the feasible trajectory using
+
+trajectory optimization. L methods [8] like Base-B discretize
+
+the entire full-dimensional space and precompute the lattice
+
+with motion primitives oﬄine. INSAT ﬁnds plans with superior
+
+behavior compared to S and L because:
+
+Computational Complexity: L methods have fundamental
+
+limitation as their performance signiﬁcantly depends on the
+
+choice of discretization for the state and action space, the
+
+primitive length along which the control input is constant
+
+and the lattice density itself [32]. Additionally, solving the
+
+boundary value problem to generate primitives that connect
+
+the discrete cell centers can be diﬃcult or impossible [32].
+
+In
+
+our
+
+method,
+
+albeit
+
+X 𝑓 𝑟𝑒𝑒
+𝐿
+
+is
+
+discretized,
+
+there
+
+is
+
+no
+
+such
+
+discretization
+
+in
+
+X𝑓
+𝐻
+
+𝑟
+
+𝑒𝑒
+,
+
+where
+
+we
+
+let
+
+the
+
+optimization
+
+ﬁgure
+
+out the continuous trajectory that minimizes the cost function
+
+(Eq. 3). As S methods decouple planning in X𝐿 and X𝐻 ,
+
+they cannot handle attitude constraints and is restricted to a path found in X𝐿 when planning in X𝐻 . In S, replacing the entire trajectory found in X𝐿 with tunnel trajectory (Fig. 3)
+
+A movie of INSAT in Gazebo simulator is available here.
+
+8
+
+IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED FEBRUARY 2021
+
+can violate the limits of velocity or jerk. Note that INSAT actively tries to minimize such violations (lines 11-14). Thus, as substantiated by our experiments, interleaving these schemes provide a superior alternative by minimizing the eﬀect of discretization and keeping the full dimensional search tractable.
+Energy Accumulation Maneuvers: In tight spaces, a quadrotor might have to perform a periodic swing or revisit a state to accumulate energy and satisfy certain pose constraints. So a high-dimensional trajectory solution might require revisiting a low-dimensional state with a diﬀerent value for the high-dimensional variables (i.e. same x but diﬀerent x or x). This is handled by duplicating the low-dimensional state if it is already expanded (lines 29-30). S methods cannot handle this case as they decouple planning in X𝐿 and X𝐻 . Consequently, observe in Fig. 4 that to negotiate a window in the wall, the quadrotor actively decides to ﬂy in either direction relative to the window to accumulate energy such that an attitude constraint via acceleration (Eq. 5) can be satisﬁed at the window. Another interesting behavior is the decision to ﬂy down or rise up helically (Fig. 4a-CENTER and Fig. 4b-CENTER) in between the tightly spaced walls in order to maintain stability or potentially avoid vortex ring states and simultaneously not reduce the speed by taking slower paths. Such a behavior leveraging the dynamic stability of the quadrotor along with the choice of windows to ﬂy through via global reasoning is a direct consequence of interleaving trajectory optimization with grid-based search.
+VII. C
+We presented INSAT, a meta algorithmic framework that interleaves trajectory optimization with graph search to generate kinodynamically feasible trajectories for aggressive quadrotor ﬂight. We show that interleaving allows a ﬂow of mutual information and help leverage the simplicity and global reasoning beneﬁts of heuristic search over non-convex obstacle spaces, and mitigate the bottleneck introduced by the number of search dimensions and discretization using trajectory optimization.
+The trajectory generation method and graph search algorithm can be easily replaced with alternatives depending on the application. We also analysed the completeness property of the algorithm and demonstrated it on two very diﬀerent environments. Finally, we note that our method is not just limited to quadrotor planning and can be easily applied to other systems like ﬁxed-wing aircraft or mobile robots that have diﬀerentially ﬂat representations [33]. To the best of our knowledge, INSAT is the ﬁrst to interleave graph search with trajectory optimization for robot motion planning.
+R
+[1] M. Cutler and J. P. How, “Analysis and control of a variable-pitch quadrotor for agile ﬂight,” J. Dyn. Sys., Meas., and Control, 2015.
+[2] D. Mellinger, N. Michael, and V. Kumar, “Trajectory generation and control for precise aggressive maneuvers with quadrotors,” Int. J. Robot. Research, vol. 31, no. 5, pp. 664–674, 2012.
+[3] M. Müller, S. Lupashin, and R. D’Andrea, “Quadrocopter ball juggling,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. IEEE, 2011, p. 5113.
+[4] D. Falanga, E. Mueggler, M. Faessler, and D. Scaramuzza, “Aggressive quadrotor ﬂight through narrow gaps with onboard sensing and computing using active vision,” in Proc. IEEE Int. Conf. Robot. Autom. IEEE, 2017, pp. 5774–5781.
+[5] T. Hirata and M. Kumon, “Optimal path planning method with attitude constraints for quadrotor helicopters,” in Proc. IEEE Int. Conf. Adv. Mechatronic Sys. IEEE, 2014, pp. 377–381.
+
+[6] C. Richter, A. Bry, and N. Roy, “Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments,” in Robot. Research. Springer, 2016, pp. 649–666.
+[7] S. M. LaValle and J. J. Kuﬀner Jr, “Randomized kinodynamic planning,” Int. J. Robot. Research, vol. 20, no. 5, pp. 378–400, 2001.
+[8] S. Liu, K. Mohta, N. Atanasov, and V. Kumar, “Search-based motion planning for aggressive ﬂight in se (3),” IEEE Robot. Autom. Lett., vol. 3,
+no. 3, pp. 2439–2446, 2018.
+[9] R. Tedrake, I. R. Manchester, M. Tobenkin, and J. W. Roberts, “Lqrtrees: Feedback motion planning via sums-of-squares veriﬁcation,” Int. J. Robot. Research, vol. 29, no. 8, pp. 1038–1052, 2010.
+[10] E. A. Hansen and R. Zhou, “Anytime heuristic search,” J. Artiﬁcial Intelligence Research, vol. 28, pp. 267–297, 2007.
+[11] M. Likhachev, G. J. Gordon, and S. Thrun, “Ara*: Anytime a* with provable bounds on sub-optimality,” in Advances in neural information processing systems, 2004, pp. 767–774.
+[12] G. Loianno, C. Brunner, G. McGrath, and V. Kumar, “Estimation,
+control, and planning for aggressive ﬂight with a small quadrotor with a single camera and imu,” IEEE Robot. Autom. Lett., pp. 404–411, 2016.
+[13] M. J. Van Nieuwstadt and R. M. Murray, “Real-time trajectory generation for diﬀerentially ﬂat systems,” Int. J. Robust Nonlinear Control: IFACAﬃliated Journal, vol. 8, no. 11, pp. 995–1020, 1998.
+[14] S. Liu, M. Watterson, K. Mohta, K. Sun, S. Bhattacharya, C. J. Taylor,
+and V. Kumar, “Planning dynamically feasible trajectories for quadrotors using safe ﬂight corridors in 3-d complex environments,” IEEE Robot. Autom. Lett., vol. 2, no. 3, pp. 1688–1695, 2017.
+[15] R. Deits and R. Tedrake, “Eﬃcient mixed-integer planning for uavs in cluttered environments,” in Proc. IEEE Int. Conf. Robot. Autom. IEEE,
+2015, pp. 42–49.
+[16] B. Landry, R. Deits, P. R. Florence, and R. Tedrake, “Aggressive
+quadrotor ﬂight through cluttered environments using mixed integer programming,” in Proc. IEEE Int. Conf. Robot. Autom. IEEE, 2016,
+pp. 1469–1475.
+[17] S. Liu, N. Atanasov, K. Mohta, and V. Kumar, “Search-based motion
+planning for quadrotors using linear quadratic minimum time control,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017, pp. 2872–2879.
+[18] K. Daniel, A. Nash, S. Koenig, and A. Felner, “Theta*: Any-angle path planning on grids,” J. Artiﬁcial Intelligence Research, vol. 39, 2010.
+[19] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Prob-
+abilistic roadmaps for path planning in high-dimensional conﬁguration spaces,” IEEE tran. on Robot. Autom., vol. 12, no. 4, pp. 566–580, 1996.
+[20] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” Int. J. Robot. Research, vol. 30, pp. 846–894, 2011.
+[21] D. Hsu, L. E. Kavraki, J.-C. Latombe, R. Motwani, S. Sorkin, et al.,
+“On ﬁnding narrow passages with probabilistic roadmap planners,” in Robotics: the algorithmic perspective: 1998 workshop on the algorithmic foundations of robotics, 1998, pp. 141–154.
+[22] S. Rajasekaran, R. Natarajan, and J. D. Taylor, “Towards planning and control of hybrid systems with limit cycle using lqr trees,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. IEEE, 2017, pp. 5196–5203.
+[23] A. Majumdar and R. Tedrake, “Funnel libraries for real-time robust feedback motion planning,” Int. J. Robot. Research, pp. 947–982, 2017.
+[24] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom., 2011,
+pp. 2520–2525.
+[25] M. Hehn and R. D’Andrea, “Quadrocopter trajectory generation and control,” IFAC proceedings Volumes, vol. 44, pp. 1485–1491, 2011.
+[26] I. D. Cowling, O. A. Yakimenko, J. F. Whidborne, and A. K. Cooke, “Direct method based control system for an autonomous quadrotor,” J. Intelligent & Robotic Systems, vol. 60, no. 2, pp. 285–316, 2010.
+[27] M. W. Mueller, M. Hehn, and R. D’Andrea, “A computationally eﬃcient motion primitive for quadrocopter trajectory generation,” IEEE Trans. Robot., vol. 31, no. 6, pp. 1294–1310, 2015.
+[28] I. Pohl, “Heuristic search viewed as path ﬁnding in a graph,” Artiﬁcial intelligence, vol. 1, no. 3-4, pp. 193–204, 1970.
+[29] M. Fallon, H. Johannsson, M. Kaess, and J. J. Leonard, “The mit stata center dataset,” Int. J. Robot. Research, vol. 32, pp. 1695–1699, 2013.
+[30] A. Technologies, “Ascending technologies, gmbh,” 2012.
+[31] N. Koenig and A. Howard, “Design and use paradigms for gazebo, an open-source multi-robot simulator,” in 2004 Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., vol. 3, pp. 2149–2154.
+[32] M. Pivtoraiko, I. A. Nesnas, and A. Kelly, “Autonomous robot navigation using advanced motion primitives,” in IEEE Aerospace Conf., 2009, pp.
+1–7.
+[33] R. M. Murray, M. Rathinam, and W. Sluis, “Diﬀerential ﬂatness of
+mechanical control systems: A catalog of prototype systems.” Citeseer.
+

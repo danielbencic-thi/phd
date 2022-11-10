@@ -1,0 +1,2299 @@
+414
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+Approximate Optimal Motion Planning to Avoid Unknown Moving Avoidance Regions
+Patryk Deptula , Hsi-Yuan Chen , Ryan A. Licitra , Joel A. Rosenfeld, and Warren E. Dixon , Fellow, IEEE
+
+Abstract—In this article, an inﬁnite-horizon optimal regulation problem is considered for a control-afﬁne nonlinear autonomous agent subject to input constraints in the presence of dynamic avoidance regions. A local model-based approximate dynamic programming method is implemented to approximate the value function in a local neighborhood of the agent. By performing local approximations, prior knowledge of the locations of avoidance regions is not required. To alleviate the a priori knowledge of the number of avoidance regions in the operating domain, an extension is provided that modiﬁes the value function approximation. The developed feedback-based motion planning strategy guarantees uniformly ultimately bounded convergence of the approximated control policy to the optimal policy while also ensuring the agent remains outside avoidance regions. Simulations are included to demonstrate the preliminary development for a kinematic unicycle and generic nonlinear system. Results from three experiments are also presented to illustrate the performance of the developed method, where a quadcopter achieves approximate optimal regulation while avoiding three mobile obstacles. To demonstrate the developed method, known avoidance regions are used in the ﬁrst experiment, unknown avoidance regions are used in the second experiment, and an unknown time-varying obstacle directed by a remote pilot is included in the third experiment.
+Index Terms—Data-based control, learning and adaptive systems, motion and path planning, neural and fuzzy control, optimization and optimal control.
+I. INTRODUCTION
+M ANY challenges exist for real-time navigation in uncertain environments. To operate safely in an uncertain
+Manuscript received February 7, 2019; accepted November 12, 2019. Date of publication December 10, 2019; date of current version April 2, 2020. This article was recommended for publication by Associate Editor S.-J. Chung and Editor P. Robuffo Giordano upon evaluation of the reviewers’ comments. This work was supported in part by National Science Foundation (NSF) under Award 1509516, in part by the Ofﬁce of Naval Research under Grant N00014-13-10151, and in part by the Air Force Ofﬁce of Scientiﬁc Research (AFOSR) under Award FA9550-19-1-0169. The work of P. Deptula was done prior to joining The Charles Stark Draper Laboratory, Inc. The work of H.-Y. Chen was done prior to joining Amazon Robotics. (Corresponding author: Patryk Deptula.)
+P. Deptula is with the Perception and Autonomy Group, The Charles Stark Draper Laboratory, Inc., Cambridge, MA 02139 USA (e-mail: pdeptula@draper.com).
+H.-Y. Chen is with the Amazon Robotics, North Reading, MA 01864 USA (e-mail: hsiyuc@amazon.com).
+R. A. Licitra and W. E. Dixon are with the Department of Mechanical and Aerospace Engineering, University of Florida, Gainesville, FL 32611 USA (e-mail: rlicitra@uﬂ.edu; wdixon@uﬂ.edu).
+J. A. Rosenfeld is with the Department of Mathematics and Statistics, University of South Florida, Tampa, FL 33620 USA (e-mail: rosenfeldj@usf.edu).
+This article has supplementary downloadable multimedia material available at http://ieeexplore.ieee.org provided by the authors.
+Color versions of one or more of the ﬁgures in this article are available online at http://ieeexplore.ieee.org.
+Digital Object Identiﬁer 10.1109/TRO.2019.2955321
+
+environment, an autonomous agent must identify and react to possible collisions. In practice, challenges come from limitations in computational resources, sensing, communication, and mobility. Hence, robot navigation, motion planning, and path planning continues to be an active research area (cf., [1] and references therein).
+Because motion and path-planning strategies need to account for environmental factors with various uncertainties, they can be divided into two groups—global and local approaches [2]. Global planners seek the best trajectory by using models of the entire environment, are computed before a mission begins, and tend to provide high-level plans (cf., [3]–[7]). Local planners (sometimes referred to as reactive methods) plan only a few time steps forward based on limited knowledge using sensory data; hence, they have the advantage of providing optimal feedback if the agent is forced off of its original path, but they may need to be recomputed online (cf., [7]–[10]). Since complex operating conditions present signiﬁcant navigation, guidance, and control challenges (i.e., agents’ dynamics, obstacles, disturbances, or even faults), online feedback-based control/guidance algorithms with online learning and adaptation capabilities are essential for replanning and execution in dynamically changing and uncertain environments. Constrained optimization methods can be leveraged to generate guidance/control laws for agents operating in complex environments. However, agents often exhibit nonlinear dynamics and navigate in environments with uncertain dynamics or constraints, which makes the determination of analytical solutions to constrained optimization problems difﬁcult. Traditional guidance/control solutions exploit numerical methods to generate approximate optimal solutions. For instance, approaches may use pseudoscpectral methods, they may solve the Hamilton–Jocobi–Bellman (HJB) equation ofﬂine via discretization and interpolation, or viscosity solutions can be solved ofﬂine before a mission begins (cf., [3], [11]–[14]). Such results may provide performance guarantees; however, numerical nonlinear optimization problems are typically computationally expensive (often preventing real-time implementation), especially as the dimension of the system increases. Generally, numerical methods are unable to consider uncertainty in the dynamics or environment, and are ill suited for dynamically changing environments because new guidance/control solutions would need to be recalculated ofﬂine in the event of a change in the environment. Such challenges motivate the use of approximate optimal control methods that use parametric function approximation techniques capable of approximating the solution to the HJB online (cf., [15]–[26]).
+
+1552-3098 © 2019 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+415
+
+Further complicating the task of optimal motion planning are agent actuator constraints and state constraints (e.g., static or mobile avoidance regions) often present en route to an objective. Certain avoidance regions may remain undiscovered until they fall into a given detection range. The concept of avoidance control was introduced in [7] for two-player pursuit-evasion games. However, results such as [9], [10], and [27]–[29] have used navigation functions for low-level control with collision avoidance in applications, such as multiagent systems. Other results, such as [30]–[32] have considered collision avoidance in multiagent systems with limited sensing by using bounded avoidance functions in the controller which are only active when agents are within a deﬁned sensing radius. The results in [9] and [28]–[32] do not consider optimal controllers, and in certain cases do not consider control constraints. Compared to such results which do not consider optimality, work such as [33] utilizes unbounded avoidance functions to explicitly compute optimal controllers for cooperative avoidance for multiagent systems. Moreover, results such as [34]–[36], develop sets of feasible states along with safe controllers using reachability methods such as [14] by developing differential games between two players. Moreover, results such as [37]–[41] approach collision avoidance problems through the use of collision cones in conjunction with other methods based on engagement geometry between two point objects. In such works, dynamically moving objects are modeled by quadric surfaces and collision conditions are derived for dynamic inversion-based avoidance strategies between agents. Despite the progress, the results in [33] rely on explicitly computed controllers, which are unknown when the optimal value function is unknown, and while results such as [37]–[40] establish a framework for providing collision cones, they are still combined with methods which may not necessarily be optimal, cf., [41]. However, although results such as [14] and [34]–[36] provide optimality guarantees, they rely on numerical techniques, which tend to be computationally intensive, and need to be resolved when conditions change.
+Over the last several years, model predictive control (MPC) has gained attention for its capability to solve ﬁnite horizon optimal control problems in real-time (cf., [8], [42]–[45]). Moreover, MPC has been applied in a plethora of optimization problems; MPC is known for handling complex problems, such as of multiobjective problems, point-to-point trajectory generation problems, and collision avoidance (cf., [8], [42]–[45]). Speciﬁcally, works such as [8] consider multiobjective MPC frameworks for autonomous underwater vehicles with different prioritized objectives where the main objective is path convergence, while the secondary objective is different (i.e., speed assignment, which can be sacriﬁced at times in lieu of better performance on path convergence), or the objective is purely trajectory generation, such as [42] and [43], where the goal is point-to-point trajectory generation (i.e., ofﬂine multiagent trajectory generation or trajectory generation for constrained linearized agent models). Unlike, the aforementioned MPC results, results such as [44] and [45] take advantage of MPC’s ability for fast optimization to combine it with other methods when considering collision avoidance problems. Although MPC has shown to be effective
+
+in motion/path planning and obstacle avoidance problems, the system dynamics are generally considered to be discretized and at each time-step, a ﬁnite horizon optimal control problem needs to be solved where a sequence of control inputs is generated. Even in the absence of obstacles, MPC methods generally do not yield an optimal policy over the complete trajectory since new solutions need to be recomputed at the end of each time horizon. Speciﬁcally, limited horizon methods, such as MPC, often require linear dynamics (cf., [42], [43]) or at least known dynamics (cf., [8], [42]–[45]). Since in practice, the environment and agents are prone to uncertainties, motivation exists to use parametric methods, such as neural-networks (NNs), to approximate optimal controllers online in continuous state nonlinear systems.
+In recent years, approximate dynamic programming (ADP) has been successfully used in deterministic autonomous controlafﬁne systems to solve optimal control problems [15]–[18], [46], [47]. By utilizing parametric approximation methods, ADP methods approximate the value function, which is the solution to the HJB and is used to compute the online forward-in-time optimal policy. Input constraints are considered in [19]–[21] by using a nonquadratic cost function [48] to yield a bounded approximate optimal controller.
+For general nonlinear systems, generic basis functions, such as Gaussian radial basis functions, polynomials, or universal kernel functions are used to approximate the value function. One limitation of these generic approximation methods is that they only ensure an approximation over a compact neighborhood of the origin. Once outside the compact set, the approximation error tends to either grow or decay depending on the selected functions. Consequently, in the absence of domain knowledge, a large number of basis functions, and hence, a large number of unknown parameters, are required for value function approximation. A recent advancement in ADP utilizes computationally efﬁcient state-following (StaF) kernel basis functions for local approximation of the value function around the current state, thereby reducing the number of basis functions required for sufﬁcient value function approximation [22], [49]–[51]. The authors in [49] utilized the StaF approximation method to develop an approximate optimal online path planner with static obstacle avoidance. However, the development in [49] used a transitioning controller which switched between the approximate controller and a robust controller when the obstacles where sensed.
+Inspired by advances in [22]–[26], [49], and [50], an approximate local optimal feedback-based motion planner is developed in this article that considers input and state constraints with mobile avoidance regions. The developed method differs from numerical approaches, such as [15]–[26], or MPC approaches, such as [42] and [43], because this article provides an online closed-loop feedback controller with computational efﬁciency provided by the local StaF approximation method. Moreover, the agent’s trajectory is not computed ofﬂine, but instead the agent adjusts its trajectory online when it encounters an obstacle. Compared to works such as [9] and [28]–[32], which do not consider optimality, the controller designed in this article is based on an optimal control formulation that provides an
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+416
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+approximate optimal control solution. In addition, unlike [49] and other path planners, this method tackles the challenge of avoiding dynamic avoidance regions within the control strategy without switching between controllers. Since the StaF method uses local approximations, it does not require knowledge of uncertainties in the state space outside an approximation window. Local approximations of the StaF kernel method can be applied when an agent is approaching avoidance regions represented as (n − 1)-spheres, not known a priori, in addition to state and system constraints. Because the avoidance regions become coupled with the agent in the HJB, their respective states must be incorporated when approximating the value function. Hence, a basis is given for each region which is zero outside of the sensing radius but is active when the avoidance region is sensed. In applications, such as station keeping of marine craft (e.g., [52]), knowledge of the weights for an avoidance region may provide useful information, as the approximation of the value function can be improved every time the region is encountered. To prevent collision, a penalizing term is added to the cost function which guarantees that the agent stays outside of the avoidance regions. A Lyapunov-based stability analysis is presented and guarantees uniformly ultimately bounded convergence while also ensuring that the agent remains outside of the avoidance regions. This work extends from the preliminary results in [53]. Unlike the preliminary work in [53], this article provides a unique value function representation and approximation, the actor update law is modiﬁed, and a more detailed stability analysis is included. The signiﬁcance of this work over [53], is the mathematical development that considers an uncertain number of avoidance regions by transforming the autonomous value function approximation into a nonautonomous approximation. Because time does not lie on a compact set, it cannot be used in the StaF NNs, a transformation is performed so that a bounded signal of time is leveraged in the NNs. Moreover, experimental validations are presented to illustrate the performance of the developed path planning strategy.
+Notation
+In the following development, R denotes the set of real numbers, Rn and Rn×m denote the sets of real n-vectors and n × m matrices, and R≥a and R>a denote the sets of real numbers greater than or equal to a and strictly greater than a, respectively, where a ∈ R. The n × n identity matrix, column vector of ones of dimension j, and the zeros matrix or dimension m × n are denoted by In, 1j, and 0m×n, respectively; hence, if n = 1, 0m×n reduces to a vector of zeros. The partial derivative of k with respect to the state x is denoted by ∇k(x, y, . . .), while the transpose of a matrix or vector is denoted by (·)T . For a vector ξ ∈ Rm, the notation Tanh(ξ) ∈ Rm and sgn(ξ) ∈ Rm are deﬁned as Tanh(ξ) [tanh(ξi), . . . , tanh(ξm)]T and sgn(ξ) [sgn(ξi), . . . , sgn(ξm)]T , respectively, where tanh(·) denotes the hyperbolic tangent function and sgn(·) denotes the signum function. The notation U [a, b]1n×1 denotes a n-dimensional vector selected from a uniform distribution on [a, b], and 1n×m denotes a n × m matrix of ones.
+
+II. PROBLEM FORMULATION
+
+Consider an autonomous agent with control-afﬁne nonlinear dynamics given by
+
+x˙ (t) = f (x(t)) + g (x(t)) u(t)
+
+(1)
+
+for all t ∈ R≥t0 , where x : R≥t0 → Rn denotes the state, f : Rn → Rn denotes the drift dynamics, g : Rn → Rn×m denotes the control effectiveness, u : Rt≥t0 → Rm denotes the control input, and t0 ∈ R≥0 denotes the initial time. In addition, consider
+dynamic avoidance regions with nonlinear dynamics given by
+
+z˙i(t) = hi (zi(t))
+
+(2)
+
+for all t ∈ R≥t0 , where zi : Rt≥t0 → Rn denotes the state of the center of the ith avoidance region and hi : Rn → Rn denotes the drift dynamics for the ith zone in M {1, 2, . . . , M }, where M is the set of avoidance regions in the state space Rn.1 The dynamics in (2) are modeled as autonomous and isolated systems to facilitate the control problem formulation. The representation of the dynamics in (2) would require that complete knowledge of the dynamics over the entire operating domain are used. However, motivated by real systems where agents may only have local sensing, it is desired to only consider the zone inside a detection radius. Therefore, to alleviate the need for the HJB to require knowledge of the avoidance region dynamics outside of the agents’ ability to sense the obstacles, the avoidance regions are represented as
+
+z˙i(t) = Fi (x(t), zi(t)) hi (zi(t))
+
+(3)
+
+for all t ∈ R≥t0 . In (3), Fi : Rn × Rn → [0, 1] is a smooth transition function that satisﬁes Fi(x, zi) = 0 for x − zi > rd and Fi(x, zi) = 1 for x − zi ≤ r¯, where rd ∈ R>0 denotes the detection radius of the system in (1), and r¯ ∈ (ra, rd) where ra ∈ R>0 denotes the radius of the avoidance region. From the agent’s perspective, the dynamics of the obstacles do not affect
+the agent outside of the sensing radius.
+Remark 1: In application, a standard practice is to enforce
+a minimum avoidance radius to ensure safety [30], [31]. In
+addition, the detection radius rd and avoidance radius rs depend on the system parameters such as the maximum agent velocity
+limits.
+Assumption 1: The number of dynamic avoidance regions
+M is known; however, the locations of the states of each region
+is unknown until it is within the sensing radius of the agent.
+Section VII presents an approach to alleviate Assumption 1.
+Assumption 2: The drift dynamics f , hi, and control effectiveness g are locally Lipschitz continuous, and g is bounded such that 0 < g(x(t)) ≤ g for all x ∈ Rn and all t ∈ R≥t0 where g ∈ R>0. Furthermore, f (0) = 0, and ∇f : Rn → Rn × Rn is continuous.
+Assumption 3: The equilibrium points zie for the obstacles given by the dynamics in (3) lie outside of a ball of radius rd centered at the origin. That is, the origin is sufﬁciently clear of
+obstacles. Furthermore, obstacles do not trap the agent, meaning
+
+1The terms avoidance regions and obstacles are used interchangeably.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+417
+
+The goal is to simultaneously design and implement a controller u which minimizes the cost function
+
+∞
+
+J (ζ, u)
+
+r (ζ (τ ) , u (τ )) dτ
+
+(5)
+
+t0
+
+subject to (4) while obeying supt(ui) ≤ μsat ∀i = 1, . . . , m, where μsat ∈ R>0 is the control effort saturation limit. In (5), r : RN × Rm → [0, ∞] is the instantaneous cost deﬁned as
+
+Fig. 1. Augmented regions around each avoidance region.
+the obstacles do not completely barricade the agent in the sense that the agent has a free, unblocked, path to the goal location. Moreover, the agent is assumed to be sufﬁciently agile to be able to outmaneuver the moving obstacles. Speciﬁcally, the obstacle velocities must be appropriately equal or less than the agent for the agent to have capability to avoid the obstacle in general.
+Remark 2: Assumption 3 limits pathological scenarios where obstacle avoidance is not possible. Speciﬁcally, scenarios may arise where obstacles move faster than the agent. In such scenarios, it may be infeasible for agents using this method, or other existing approaches, to avoid the obstacle without colliding. However, given an upper bound on the obstacles velocities, the sensing radius can be sized large enough for the agent to respond accordingly.
+Remark 3: To facilitate the development, let d : Rn × Rn → R denote a distance metric deﬁned as d(v, w) v − w for v, w ∈ Rn. Moreover, the centers of the avoidance regions, shown in Fig. 1, are augmented with the following.2
+1) The total detection set is deﬁned as D = ∪i∈MDi, where
+Di = {x ∈ Rn | d (x, zi) ≤ rd} .
+2) The total conﬂict set is deﬁned as W = ∪i∈MWi, where
+Wi = {x ∈ Rn | ra < d (x, zi) ≤ r} .
+3) The total avoidance set is Ω = ∪i∈MΩi, where each local avoidance region is
+Ωi = {x ∈ Rn | d (x, zi) ≤ ra} .
+
+M
+r (ζ, u) = Qx(x) + si (x, zi) Qz (zi) + Ψ(u) + P (ζ)
+i=1
+(6) where Qx, Qz : Rn → R≥0 are user-deﬁned positive deﬁnite functions that penalize the agent and obstacle states. The Qz(zi) term in (6) only inﬂuences the cost when the obstacles are sensed. The smooth scheduling function si : Rn × Rn → [0, 1] that allows the avoidance region states in the detection radius to
+be penalized, satisﬁes si = 0 for x − zi > rd and si = 1 for x − zi ≤ r¯. In (6), Ψ : Rm → R is a positive deﬁnite function penalizing the control input u, deﬁned as
+
+Ψ(u)
+
+m
+2
+i=1
+
+ui 0
+
+μsatri tanh−1
+
+ξui μsat
+
+dξui
+
+(7)
+
+where ui is the ith element of the control u, ξui is an integration variable, and ri is the diagonal elements which make up the symmetric positive deﬁnite weighting matrix R ∈ Rm×m where R diag{R}, and R [r1, . . . , rm] ∈ R1×m [19], [21], [48].
+The selection of the input penalizing function in (7) is motivated
+
+such that a bounded form of control policy can be derived from
+
+the HJB [48]. Moreover, tanh(·) is used in (7) because it is a
+
+continuous one-to-one real-analytic function, tanh(0m) = 0m,
+
+and
+
+tanh−1
+
+(
+
+ξui μsat
+
+)
+
+is
+
+monotonically
+
+increasing.
+
+The
+
+function
+
+P : RN → R in (6), called the avoidance penalty function, is
+
+a positive semideﬁnite compactly supported function deﬁned as
+
+P (ζ)
+
+⎛⎧
+
+M i=1
+
+⎜⎝min
+
+⎪⎨ ⎪⎩0,
+
+d (x, zi)2 − rd2 d (x, zi)2 − ra2
+
+2 ⎫⎪⎬⎪⎭⎞⎟⎠2 .
+
+(8)
+
+Furthermore, the avoidance region and agent dynamics can be combined to form the following system:
+
+ζ˙(t) = F (ζ(t)) + G (ζ(t)) u(t)
+
+(4)
+
+for all t ∈ R≥t0 , where ζ = [xT , z1T , . . . , zM T ]T ∈ RN , N = (M + 1)n and
+
+⎡
+
+⎤
+
+f (x)
+
+F (ζ) = ⎢⎢⎢⎣
+
+F1 (x, z1) h1 (z1) ...
+
+⎥⎥⎥⎦
+
+G (ζ) =
+
+g(x) 0M n×m
+
+.
+
+FM (x, zM ) hM (zM )
+
+2The size of the regions also depends on the dynamics of the obstacles.
+
+Remark 4: The avoidance penalty function in (8) is zero
+
+outside of the compact set D, and yields an inﬁnite penalty
+
+when x − zi = ra for any i ∈ M. Other penalty/avoidance functions can be used; see [33] for a generalization of avoidance
+
+functions. The avoidance penalty function in (8) modiﬁes the
+
+one found in [33], which studies a generalization of avoidance
+
+penalty functions. Since the term in the denominator has quartic
+
+growth compared to only quadratic growth, the function in (8)
+
+is scaled differently compared to the one found in [33]. Other
+
+growth factors can also be used which affect the rate at which
+
+the agent penalizes the avoidance regions once it detects them.
+
+Assumption 4:
+
+There
+
+exist
+
+constants
+
+q,
+x
+
+qx,
+
+q,
+z
+
+qz
+
+∈
+
+R>0
+
+such
+
+that
+
+q
+x
+
+x
+
+2 ≤ Qx(x) ≤ qx
+
+x
+
+2
+
+for
+
+all
+
+x ∈ Rn,
+
+and
+
+qz zi 2 ≤ Qz(zi) ≤ qz zi 2 for all zi ∈ Rn and i ∈ M.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+418
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+The inﬁnite-horizon scalar value function for the optimal value function, denoted by V ∗ : RN → R≥0, is expressed as
+
+∞
+
+V ∗ (ζ) = min
+
+r (ζ (τ ) , u (τ )) dτ (9)
+
+u(τ )∈U |τ ∈R≥t t
+
+where U ⊂ Rm denotes the set of admissible inputs. For the
+
+stationary solution, the HJB equation, which characterizes the
+
+optimal value function is given by
+
+0 = ∂V ∗ (ζ) (F (ζ) + G (ζ) u∗ (ζ)) + r (ζ, u∗ (ζ)) ∂ζ
+
+= ∂V ∗ (ζ) (f (x) + g(x)u∗ (ζ)) ∂x
+
++
+
+M i=1
+
+∂V ∗ (ζ) ∂zi
+
+(Fi
+
+(x,
+
+zi)
+
+hi
+
+(zi))
+
++
+
+r
+
+(ζ ,
+
+u∗
+
+(ζ ))
+
+(10)
+
+with the condition V ∗(0) = 0, where u∗ : RN → Rm is the
+optimal control policy. Taking the partial derivative of (10) with respect to u∗(ζ), setting it to zero (i.e., u∗(ζ) is the minimizing argument) and solving for u∗(ζ) results in
+
+u∗ (ζ) = −μsatTanh
+
+R−1G (ζ)T (∇V ∗ (ζ))T 2μsat
+
+.
+
+(11)
+
+The HJB in (10) uses both the agent and avoidance region dynamics.3 However, because each avoidance region is modeled as in (3), the terms that include them are zero when the regions are not detected; hence, they do not affect the HJB. Furthermore, the analytical expression in (11) requires knowledge of the optimal value function. However, the analytical solution for the HJB, i.e., the value function, is not feasible to compute in general cases. Therefore, an approximation is sought using a neural network approach.
+
+where Br(ζ) is a small compact set around the current state ζ ∈ χ. In (12), W : χ → RL is the continuously differentiable
+
+ideal StaF weight function that changes with the state dependent
+
+centers, : χ → R is the continuously differentiable bounded
+
+function reconstruction error, and σ : χ → RL is a concatenated
+
+vector of StaF basis functions such that
+
+⎡
+
+⎤
+
+σ0 (x, c0(x))
+
+σ (ζ, c (ζ)) = ⎢⎢⎢⎣
+
+s1 (x, z1) σ1 (z1, c1 (z1)) ...
+
+⎥⎥⎥⎦
+
+(14)
+
+sM (x, zM ) σM (zM , cM (zM ))
+
+where σ0(x, c0(x)) : Rn → RPx and σi(zi, ci(zi)) : Rn → RPzi for i ∈ M are strictly positive deﬁnite, continuously
+
+differentiable StaF kernel function vectors, ci : Rn → Rn for i ∈ {0, 1, . . . , M } are state-dependent centers, and the dimen-
+
+sion of the concatenated vector of StaF basis functions σ is
+
+L = Px +
+
+M i=1
+
+Pzi
+
+.
+
+The
+
+formation
+
+of
+
+the
+
+vector
+
+of
+
+basis
+
+func-
+
+tions in (14) allows for certain weights of the approximation to be
+
+constant when the agent and no-entry zones are not in the detec-
+
+tion regions. This formulation introduces a sparse-like approach
+
+because the basis functions that correlate to the no-entry zones
+
+are off due to the scheduling function si, when they are outside of the detection regions. Hence, approximation of the value func-
+
+tion is only inﬂuenced by the no-entry zones when they are in the
+
+detection regions Di. However, the optimal value function and
+controller are not known in general; therefore, approximations Vˆ : RN × RN × RL → R and uˆ : RN × RN × RL → Rm are
+
+used where
+
+Vˆ y, ζ, Wˆ c Pa(y) + Wˆ cT σ (y, c (ζ))
+
+(15)
+
+uˆ y, ζ, Wˆ a
+
+− μsat Tanh
+
+R−1G(y)T 2μsat
+
+III. VALUE FUNCTION APPROXIMATION
+
+Recent developments in ADP have resulted in computation-
+ally efﬁcient StaF kernels to approximate the value function [22]. To facilitate the development let χ ⊂ RN be a compact set, with x and all zi in the interior of χ. Based on the StaF method in [22] and [50], after adding and subtracting a bounded avoidance
+function Pa(ζ), the optimal value function and controller can be approximated as
+
+V ∗(y) = Pa(y) + W (y)T σ (y, c (ζ)) + (ζ, y)
+
+(12)
+
+u∗(y) = − μsat Tanh
+
+R−1G(y)T 2μsat
+
+× ∇Pa(y)T + ∇σ (y, c (ζ))T W (ζ)
+
++ ∇W (ζ)T σ (y, c (ζ)) + ∇ (y, ζ)T
+
+(13)
+
+where c(ζ) ∈ (Br(ζ))L are centers around the current concatenated state ζ, L ∈ Z>0 is the number of centers, and y ∈ Br(ζ)
+
+3The following Lyapunov-based stability analysis indicates that the states ζ(t) remain outside of Ω, i.e. ζ(t) ∈/ Ω. Hence, the gradient is never taken over the discontinuity.
+
+× ∇σ (y, c (ζ))T Wˆ a + ∇PaT (y) . (16)
+
+In (15) and (16), Vˆ and uˆ are evaluated at a point y ∈ Br(ζ) using StaF kernels centered at ζ, while Wˆ c, Wˆ a ∈ RL are the weight estimates for the ideal weight vector W . In actor-critic architectures, the estimates Vˆ and uˆ replace the optimal value function V ∗ and optimal policy u∗ in (10) to form a residual error δ : RN × RN × RL × RL → R known as the Bellman error (BE), which is deﬁned as
+δ y, ζ, Wˆ c, Wˆ a ∇Vˆ y, ζ, Wˆ c F (y)
+
++ G(y)uˆ y, ζ, Wˆ a + r y, uˆ y, ζ, Wˆ a . (17)
+
+The aim of the actor and critic is to ﬁnd a set of weights which minimize the BE for all ζ ∈ RN .
+
+Remark 5: Unlike the function P, which is not ﬁnite when
+
+x − zi = ra, for any i ∈ M, the function Pa satisﬁes Pa = 0
+
+when x, zi ∈/ Di for each i ∈ M, and for all 0 ≤ P (ζ) ≤
+
+P a, and ∇Pa(ζ) ≤ ∇Pa for all ζ ∈ RN . An example
+
+of Pa(ζ) includes Pa(ζ)
+
+M i=1
+
+Pa,i(x,
+
+zi)
+
+where
+
+Pa,i
+
+o(mthienr{e0x,a(mxp−lxez−is zo2i−f2rb−a2o)r2ud2+nrdεe}d)a2vfooirdraεnc∈e
+
+R>0, or see functions.
+
+[30]–[32]
+
+for
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+419
+
+IV. ONLINE LEARNING
+
+To implement the approximations online, at a given time instance t, the BE δt : R≥0 → R is evaluated as
+
+δt(t) δ ζ(t), ζ(t), Wˆ c(t), Wˆ a(t)
+
+(18)
+
+are adaptation gains, β ∈ R>0 is a forgetting factor, and ω(t) ∇σ ζ(t), c (ζ(t)) F (ζ(t)) +G (ζ(t)) uˆ ζ(t), ζ(t), Wˆ a(t) .
+
+where ζ denotes the state of the system in (4) starting at initial time t0 with initial condition ζ0, while Wˆ c(t) and Wˆ a(t) denote the critic weight and actor weight estimates at time t, respec-
+tively. The controller which inﬂuences the state x(t) ⊂ ζ(t) is
+
+u(t) = uˆ ζ(t), ζ(t), Wˆ a(t) .
+
+(19)
+
+Simulation of experience is used to learn online by extrapolating the BE to unexplored areas of the state space [22], [23]. Off-policy trajectories {xk : Rn × R≥0 → Rn}Nk=1 are selected by the critic such that each xk maps the current state x(t) to a point xk(x(t), t) ∈ Br(x(t)). The extrapolated BE δk : R≥0 → R for each ζk takes the form
+δk(t) = Wˆ cT (t)ωk(t) + ωP k(t) + r (ζk(t), uˆk(t)) (20)
+where ζk = [ xTk , Z(t) ]T
+
+ωP k(t) ∇Pa (ζk(t)) F (ζk(t))
+
++ G (ζk(t)) uˆ ζk(t), ζ(t), Wˆ a(t)
+
+ωk(t) ∇σ (ζk(t), c (ζ(t))) F (ζk(t))
+
++ G (ζk(t)) uˆ ζk(t), ζ(t), Wˆ a(t)
+
+and the extrapolated policies are
+
+uˆk (t)
+
+− μsat Tanh
+
+R−1G (ζk(t)) 2μsat
+
+× ∇σ ζk(t), c (ζ(t)) T Wˆ a(t) + ∇PaT (ζk(t)) .
+
+(21)
+
+The concurrent learning-based least squares update laws are designed as
+
+Wˆ˙ c(t) = − Γ(t)
+
+kc1ω(t) δ(t) ρ(t)
+
++
+
+kc2 N
+
+N k=1
+
+ωk (t) ρk (t)
+
+δk
+
+(t)
+
+(22)
+
+Γ˙ (t)
+
+=
+
+βΓ(t)
+
+−
+
+kc1Γ(t)
+
+ω(t)ωT (t) ρ2(t)
+
+Γ(t)
+
+−
+
+kc2 N
+
+Γ(t)
+
+N k=1
+
+ωk (t)ωkT ρ2k (t)
+
+(t)
+
+Γ(t),
+
+Γ (t0) = Γ0. (23)
+
+Furthermore, in (22) and (23) ρ(t) 1 + γ1ω(t)T ω(t), ρk(t) 1 + γ1ωk(t)T ωk(t) are normalizing factors, kc1,kc2, γ1 ∈ R>0
+
+The policy weights are updated to follow the critic weights using the actor update law designed as
+Wˆ˙ a(t) = −Γa ka1 Wˆ a(t) − Wˆ c(t) + ka2Wˆ a(t)
+
++
+
+kc1Ga1
+
+(t)
+
+ωT (t) ρ(t)
+
+Wˆ c(t)
+
++ kc2 N
+
+N k=1
+
+Ga1,k (t)
+
+ωkT (t) ρk (t)
+
+Wˆ c
+
+(t)
+
+(24)
+
+where ka1, ka2 ∈ R>0 are adaptation gains, Γa ∈ RL×L is a positive deﬁnite constant matrix, and
+
+Ga1(t) μsat∇σ (ζ(t), c (ζ(t))) G (ζ(t))
+
+× Tanh 1 Dˆ¯ (t) − Tanh R−1 Dˆ¯ (t)
+
+ku
+
+2μsat
+
+Ga1,k(t) μsat∇σ (ζk(t), c (ζ(t))) G(ζk(t))
+
+×
+
+Tanh
+
+1 ku
+
+Dˆ¯ k
+
+(t)
+
+− Tanh
+
+R−1 2μsat
+
+Dˆ¯ k
+
+(t)
+
+where ku ∈ R>0 is a constant, Dˆ¯ (t) GT (ζ(t))(∇σT (ζ(t), c(ζ(t)))Wˆ a(t) + ∇PaT (ζ(t))), and Dˆ¯k(t) GT (ζk(t))(∇σT (ζk(t), c(ζ(t)))Wˆ a(t) + ∇PaT (ζk(t))). Similar to the preliminary work in [53], a projection-based update law for the actor weight estimates can be used to simplify the stability analysis. In such a case, (24) would become Wˆ˙ a(t) = proj{−Γaka1(Wˆ a(t) − Wˆ c(t))}, where proj{·} denotes a smooth projection operator which bounds the weight estimates, see [54, Ch. 4] for details of the projection operator.
+Remark 6: Rather than extrapolating the entire state vector of the system, as designed in [22], [23], and [51], only the controlled states, i.e., the agent’s states, are extrapolated to perform simulation of experience. Compared to experience replay results such as [21], which record a history stack of prior input–output pairs, the simulation of experience approach in this result only uses extrapolated states within a time-varying neighborhood of the current agent state. This is motivated by the StaF approximation method, which only provides a sufﬁcient approximation of the value function a neighborhood of the current agent state.
+
+V. STABILITY ANALYSIS
+For notational brevity, time dependence of functions are henceforth suppressed. Deﬁne W˜ c W − Wˆ c and W˜ a W − Wˆ a as the weight estimation errors, and let (·) supπ∈Bξ (·) , where Bξ ⊂ χ × RL × RL is a compact set. Then, the
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+420
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+BEs in (18) and (20) can be expressed as
+
+δt = −ωT W˜ c + GTa1W˜ a + GTa2W˜ a + Δ (ζ) δk = −ωkT W˜ c + GTa1,kW˜ a + GTa2,kW˜ a + Δk (ζ) .
+
+The terms Ga2 and Ga2k are deﬁned as Ga2 μsat∇σG
+
+(sgn(Dˆ¯ )
+
+−
+
+Tanh(
+
+1 ku
+
+Dˆ¯ ))
+
+and
+
+Ga2,k
+
+μsat∇σkGk(sgn(Dˆ¯ k) −
+
+Tanh(
+
+1 ku
+
+Dˆ¯ k
+
+)).
+
+The
+
+functions
+
+Δ,
+
+Δk
+
+:
+
+RN
+
+→
+
+R are uniformly
+
+bounded over χ such that the residual bounds Δ , Δk
+
+decrease with decreasing ∇W and ∇ .4
+
+To facilitate the analysis, the system states x and selected
+
+states xk are assumed to satisfy the following inequalities. Assumption 5: There exists constants T ∈ R>0 and
+c1, c2, c3 ∈ R≥0, such that
+
+c1IL
+
+≤
+
+1 N
+
+N k=1
+
+ωk(t)ωkT (t) ρ2k (t)
+
+t+T
+c2IL ≤
+t
+
+1 N ωk (τ ) ωkT (τ )
+
+N
+k=1
+
+ρ2k (τ )
+
+dτ
+
+∀t ∈ R≥t0
+
+t+T
+c3IL ≤
+t
+
+ω (τ ) ωT (τ ) ρ2 (τ )
+
+dτ
+
+∀t ∈ R≥t0
+
+where at least one of the constants c1, c2, or c3 is strictly positive [22].
+In general, c1 can be made strictly positive by sampling redundant data, i.e, choosing N L, and c2 can be made strictly positive by sampling extrapolated trajectories at a high
+frequency. Generally, c3 is strictly positive provided the system is persistently excited (PE), which is a strong assumption that
+cannot be veriﬁed online. Since only one constant has to be
+strictly positive, ωk can be selected such that c1 > 0 or c2 > 0, since ωk is a design variable. Unlike the strong PE given by the third inequality in Assumption 5, the ﬁrst two inequalities can
+be veriﬁed online.
+Remark 7: Instead of injecting potentially destabilizing
+dither signals into the physical system to satisfy the PE con-
+dition, virtual excitation can be obtained by using the sample
+states. Speciﬁcally, the sample states xk(t) can be selected from a sampling distribution, such as a normal or uniform distribution,
+or they can be selected to follow a highly oscillatory trajectory. Lemma 1: Provided Assumption 5 is satisﬁed and λmin
+{Γ−0 1} > 0, the update law in (23) ensures that the least squares gain matrix Γ satisﬁes
+
+ΓIL ≤ Γ(t) ≤ ΓIL
+
+(25)
+
+where the bounds Γ and Γ are deﬁned as
+
+Γ=
+
+1
+
+λmax
+
+Γ−0 1
+
++ kc1+kc2
+4γ1 β
+
+1
+
+Γ= min
+
+(kc1c3 + kc2 max {c1T, c2}) , λmin
+
+Γ−0 1
+
+e−βT
+
+4For an arbitrary function φ, φk is deﬁned as φk φ(ζk(t)).
+
+where λmin{·}, λmax{·} denote the minimum and maximum eigenvalues, respectively [22].
+To facilitate the analysis, consider a candidate Lyapunov function VL : RN +2L × R≥t0 → R given by
+
+VL(Y,
+
+t)
+
+=
+
+V
+
+∗
+
+(ζ )
+
++
+
+1 2
+
+W˜ cT
+
+Γ−1(t)W˜ c
+
++
+
+1 2
+
+W˜ aT
+
+Γ−a 1W˜ a
+
++
+
+1 2
+
+M
+
+ziT zi
+
+(26)
+
+i=1
+
+where V ∗ is the optimal value function, and Y = [ζT , W˜ cT , W˜ aT ]T . Since the optimal value function is positive deﬁnite, using (25) and [55, Lemma 4.3], (26) can be bounded as
+
+νl ( Y ) ≤ V (Y, t) ≤ νl ( Y )
+
+(27)
+
+for all t ∈ R≥t0 and for all Y ∈ Rn+1+2˜L, where νl, νl : R≥0 → R≥0 are class K functions. To facilitate the following
+analysis, let νl : R≥0 → R≥0 be a class K function such that
+
+νl ( Y
+
+q )≤
+2
+
+x 2 + qz 4
+
+M
+si (x, zi)
+
+zi 2
+
+i=1
+
++ ka1 + ka2 8
+
+W˜ a
+
+2 + kc2c 8
+
+W˜ c 2
+
+(28)
+
+and let c ∈ R>0 be a constant deﬁned as
+
+c
+
+β + c1 .
+
+(29)
+
+2kc2Γ 2
+
+The sufﬁcient conditions for the subsequent analysis are given by
+
+ka1 + ka2 ≥ max 2
+
+ϕac,
+
+∇W GR λmin {Γa}
+
+∇σT
+
+(30)
+
+kc2c ≥ ϕac
+
+(31)
+
+1 q
+2z
+
+≥
+
+Lz
+
+(32)
+
+νι−1 (ι) < ν−ι 1 (νι (ξ))
+
+(33)
+
+where Lz is the Lipschitz constant such that hi(zi) ≤ Lz zi satisfying assumption (2) and ϕac ∈ R>0 is deﬁned in the appendix.
+Theorem 1: Consider the augmented dynamic system (4) and
+the dynamic systems in (1) and (3). Provided Assumptions 1–5
+are satisﬁed along with the sufﬁcient conditions in (30)–(33), then system state ζ(t), input u(t), and weight approximation errors W˜ a and W˜ c are Uniformly Ultimately Bounded (UUB); furthermore, states ζ(t) starting outside of Ω remain outside of Ω.
+Proof: Consider the Lyapunov function candidate in (26).
+The time derivative is given by
+
+V˙L = V˙ ∗ + W˜ cT Γ−1 W˙ − Wˆ˙ c + W˜ aT Γ−a 1 W˙ − Wˆ˙ a
+
+−
+
+1 2
+
+W˜ cT
+
+Γ−1Γ˙ Γ−1W˜ c
+
++
+
+M
+
+ziT (Fihi) .
+
+i=1
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+421
+
+Using the chain rule, the time derivative of the ideal weights W˙ For the case when ζ ∈ W, Assumption 2 is used to conclude
+
+can be expressed as
+
+that
+
+W˙ = ∇W (F + Gu) .
+
+(34)
+
+Substituting in (22)–(24) with (34) yields
+
+M
+V˙L = ∇V ∗F + ∇V ∗Gu + ziT (Fihi)
+i=1
+
++ W˜ cT Γ−1
+
+ω kc1Γ ρ δt
+
++
+
+kc2 Γ N N
+k=1
+
+ωk ρk
+
+δk
+
++ W˜ aT ka1 Wˆ a − Wˆ c + W˜ aT ka2Wˆ a(t)
+
++ W˜ aT
+
+ωT kc1Ga1 ρ
+
+−
+
+kc2 N
+
+N k=1
+
+Ga1,k
+
+ωkT ρik
+
+Wˆ c(t)
+
++
+
+W˜ cT Γ−1 + W˜ aT
+
+∇W
+
+(F
+
++
+
+Gu)
+
+−
+
+1 2
+
+W˜ cT
+
+Γ−1
+
+×
+
+βΓ
+
+−
+
+ωωT kc1Γ ρ2
+
+Γ
+
+−
+
+kc2 N
+
+N
+Γ
+k=1
+
+ωk ωkT ρ2k
+
+Γ
+
+Γ−1W˜ c.
+
+Using (6) with (10), (18)–(21), Young’s inequality, and Lemma 1, the Lyapunov derivative can be bounded as
+
+V˙L ≤ − νl ( Y ) − (νl ( Y ) − ι)
+
+q −z
+2
+
+M
+
+si (x, zi)
+
+zi
+
+2+
+
+Lz zi 2 .
+
+i=1
+
+i∈M
+
+Using the fact that infx,zi∈Wi si(x, zi) = 1 for any i ∈ M, and provided the sufﬁcient conditions in (30)–(33) hold,
+
+V˙L ≤ −νl ( Y ) ∀ Y ≥ νl−1 (ι) .
+
+(35)
+
+Hence, (26) is nonincreasing.
+If x − zi → ra for some i ∈ M, then P (ζ) → ∞, and V ∗(ζ) → ∞. If V ∗(ζ) → ∞ then VL(Y ) → ∞. Since this is a contradiction to (26) being nonincreasing, then ∀ζ(t0) ∈/ Ω, ζ(t) ∈/ Ω ∀t ≥ t0. Hence, V ∗(ζ) is ﬁnite and ∇V ∗(ζ) exists for all x − zi = ra.
+After using (27), (33), and (35), [55, Th. 4.18] can be invoked
+to conclude that Y is uniformly ultimately bounded such that lim supt→∞ Y (t) ≤ νι−1(νι(νι−1(ι))). Since Y ∈ L∞, it follows that ζ, W˜ c, W˜ a ∈ L∞. Since W is a continuous function of ζ, W ◦ ζ ∈ L∞. Hence, Wˆ a, Wˆ c ∈ L∞ which implies u ∈ L∞.
+
+V˙L
+
+≤
+
+−
+
+q
+x
+
+x
+
+2
+
+−
+
+q
+z
+
+2
+
+M
+
+si (x, zi)
+
+zi
+
+2
+
+i=1
+
+− 2 ka1 + ka2 8
+− W˜ c W˜ a
+
+W˜ a
+
+2
+−2
+
+kc2c 8
+
+W˜ c 2
+
+⎡
+
+kc2c
+
+⎢⎣
+
+−
+
+2 ϕac
+
+− ϕac 2
+ka1 + ka2
+
+⎤ ⎥⎦
+
+⎡ ⎣
+
+W˜ c W˜ a
+
+⎤ ⎦
+
+2
+
+4
+
+q −z
+2
+
+M
+
+si (x, zi)
+
+zi
+
+2+
+
+M
+
+ziT (Fihi) + ι
+
+i=1
+
+i=1
+
+where ι ∈ R>0 is the positive constant deﬁned in the appendix. Using (28), (30), and (31), the Lyapunov derivative reduces to
+
+V˙L ≤ − νl ( Y ) − (νl ( Y ) − ι)
+
+q −z
+2
+
+M
+
+si (x, zi)
+
+zi
+
+2+
+
+M
+
+ziT (Fihi) .
+
+i=1
+
+i=1
+
+For the case when x, zi ∈/ D ∀i ∈ M, the avoidance
+
+region dynamics in (3) can be used conclude that,
+
+qz 2
+
+M i=1
+
+si(x,
+
+zi)
+
+zi
+
+2+
+
+M i=1
+
+ziT
+
+(Fihi)
+
+=
+
+0;
+
+therefore
+
+V˙L ≤ −νl ( Y ) − (νl ( Y ) − ι) .
+
+Provided the sufﬁcient conditions in (30), (31), and (33) are met, then
+
+V˙L ≤ −νl ( Y ) , ∀Y ∈ χ ∀ Y ≥ νl−1 (ι) .
+
+Remark 8: The sufﬁcient condition in (30) can be satisﬁed by increasing the gain ka2 and selecting a gain Γa such that λmin{Γa} is large. This will not affect the sufﬁcient conditions in (31) and (32). Selecting extrapolated trajectories xk such that c is sufﬁciently large will aid in satisfying (31) without affecting (30) or (32). In addition, selecting StaF basis such that ∇σ is small will help satisfy the conditions in (30) and (31). To satisfy the sufﬁcient condition in (32) without affecting (30) or (31), it sufﬁces to select a function Qz according to Assumption 4 such that qx is larger than the Lipschitz constant Lz. Provided the StaF basis functions are selected such that , ∇ , and ∇W are small, and ka2 and c are selected to be sufﬁciently large, then the sufﬁcient condition in (33) can be satisﬁed.
+Remark 9: The value function V ∗ is dependent on the noentry zone states, and since it is used as a candidate Lyapunov function, (26) is also dependent on the states zi. Therefore, through proper construction of (6), it is shown in Theorem 1 that since VL is nonincreasing there is no collision between the agent x and no-entry zones zi. Other than Assumptions 2 and 3, there is no restriction on the movement of the obstacles. Rather, the states of the obstacles are included in the candidate Lyapunov function because the controlled agent must move such that collision is avoided, making the candidate Lyapunov function nonincreasing.
+VI. SIMULATIONS
+A. Mobile Robot
+To demonstrate the developed approach in Sections II–V, a simulation is provided for unicycle kinematic equations, where
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+422
+TABLE I INITIAL CONDITIONS AND PARAMETERS SELECTED FOR THE
+MOBILE ROBOT SIMULATION
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+f (x(t)) = 03×1 and
+
+⎡
+
+⎤
+
+cos(x3(t)) − sin(x3(t)) 0
+
+g(x(t)) = ⎣ sin(x3(t)) cos(x3(t)) 0 ⎦ .
+
+0
+
+0
+
+1
+
+Three heterogeneous no-entry zones are considered with oscilla-
+
+tory linear dynamics; the third state was selected to be stationary
+
+for each no-entry zone for the entirety of the simulation. The
+
+function Fi(x, zi) is selected as ⎧ ⎪⎪⎨0,
+
+x − zi > rd
+
+Fi (x, zi) = ⎪⎪⎩1T,i (x, zi) ,
+
+rd ≥ x − zi > r¯ x − zi ≤ r¯
+
+(36)
+
+where Ti(x, zi)
+
+1 2
+
++
+
+1 2
+
+cos(π(
+
+x−zi −r¯ rd −r¯
+
+))
+
+with
+
+the
+
+smooth
+
+scheduling function si(x, zi) = Fi(x, zi), and Pa(ζ) is se-
+
+lected as Pa(ζ) = 0. For value function approximation, the StaF basis σ0(x, c(x)) = [ k0,1, k0,2, k0,3, k0,4 ]T is used
+where k0,i k(x, ci(x)) = exT (x+0.05di) − 1, i = 1, 2, 3, 4, and the offsets are selected as d1 = [ 1, 0, 0 ]T , d2 = [ −0.333, 0.943, 0 ]T , d3 = [ −0.333, −0.471, 0.471 ]T , and d4 = [ −0.333, −0.471, −0.471 ]T . The StaF basis σi for each
+
+obstacle is selected to be the same as the agent, except that
+
+the state changes from x to zi. To perform BE extrapola-
+
+tion, ﬁve points are selected at random each time step from
+
+a 0.05ν(x(t)) × 0.05ν(x(t)) uniform distribution centered at
+
+the current state, where ν(x(t))
+
+x(t)T x(t) 1+x(t)T x(t)
+
+.
+
+The
+
+initial
+
+critic
+
+and actor weights and gains are selected as Wc(0) = Wa(0) =
+
+0.4 × 116×1, Γc(0) = 300 × I16, and Γa = I16. Table I summa-
+
+rizes the selected parameters.
+
+B. Results
+Figs. 2(a) and (b) shows that the agent and policy converge while detecting and navigating around the no-entry zones. Speciﬁcally, Fig. 2(b) shows that the agent’s policy changes when the agent detects each no-entry zone shown in Fig. 2(e), and hence, modiﬁes the agent’s trajectory shown in Fig. 2(f). Fig. 2(c) and (d) shows that the critic and actor weights for value function approximation remain bounded. However, they can not be compared to the ideal values since they are unknown due to the StaF nature of the function approximation method.
+
+Fig. 2. States, control policy, and weight estimates are shown in addition to
+the distances between the agent and each avoidance region center and the agent’s
+phase space portrait. Fig. 2(a) shows that the agents states converge to the origin.
+The input, shown in Fig. 2(b), causes the agent to steer off course as shown by the trajectory change of x2 in Fig. 2(a). The distance between the agent’s center and each avoidance region is shown in Fig. 2(e); the solid horizontal line represents ra = 0.1, and the two dashed horizontal lines represent rd = 0.6 and r = 0.55, respectively. (a) The agent states. (b) The agent approximate optimal input. (c)
+The critic weight estimates. (d) The actor weight estimates. (e) The distance between the agent and avoidance regions. (f) The phase space portrait for x1(t) and x2(t) of the agent.
+
+C. Nonlinear System
+
+In addition to the mobile robot simulation, a simulation for a
+
+nonlinear system is performed with system dynamics (see [56,
+
+Ch. 5.2]) given by
+
+⎡
+
+−x1(t) + x2(t),
+
+⎤
+
+f (x(t)) = ⎢⎣
+
+−
+
+1 2
+
+x1
+
+(t)
+
+⎥⎦
+
+−
+
+1 2
+
+x2
+
+(t)
+
+1 − (cos (2x1(t)) + 2)2
+
+and
+
+g (x(t)) = sin (2x1(t)) + 2,
+
+0,
+
+.
+
+0,
+
+cos (2x1(t)) + 2
+
+Three heterogeneous obstacles are considered. The ﬁrst
+and second obstacles were designed to converge to z1e = [ −0.8, 0.5 ]T and z2e = [ −0.1, −1.1 ]T , respectively, while the third obstacle oscillated around z3e = [ 0, 0 ]T at a radius of 1.13. The functions Fi(x, zi), si(x, zi), and Pa(ζ) are
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+423
+
+TABLE II INITIAL CONDITIONS AND PARAMETERS SELECTED FOR THE
+NONLINEAR SYSTEM SIMULATION
+
+selected to be the same as the mobile robot simulation. The basis used for value function approximation for the agent is selected as σ0(x, c(x)) = [ kσ,1, kσ,2, kσ,3 ]T , where kσ,i kσ(x, ci(x)) = exT (x+0.005ν(x(t))di) − 1, i = 1, 2, 3 where ν(x(t)) is deﬁned in the mobile robot simulation and the offsets are selected as d1 = [ 0, 1 ]T , d2 = [ −0.866, −0.5 ]T , d3 = [ 0.866 −0.5 ]T . Moreover, the basis used for the each obstacles is selected to be the same as for the agent. A single point was selected from a 0.005ν(x(t)) × 0.005ν(x(t)) uniform distribution centered at the current state and is used to perform BE extrapolation. A projection algorithm was used on the actor weight estimates. Table II shows the selected parameters, while the initial actor, critic weights, and least-squares gains are selected as Wc(0) = Wa(0) = 0.4 × 112×1, Γc(0) = 1000 × I12, and Γa = I12, the selected parameters are shown in the table.
+D. Results
+Fig. 3(a) and (b) shows that the agent and policy converge to the origin. However, when a no-entry zone comes into the sensing radius of the agent, shown in Fig. 3(e), the input in Fig. 3(b) steers the agent off course. This is seen by the change in the agent’s trajectory and is shown in Fig. 3(f). Moreover, when the agent senses the no-entry zones, their basis is turned ON and the corresponding actor and critic weights are updated as seen in Fig. 3(c) and (d). It is seen that the weights remain bounded. Similar to the previous simulation, the weights can not be compared to the ideal values since they are unknown.
+VII. EXTENSION TO UNCERTAIN NUMBER OF AVOIDANCE REGIONS AND UNCERTAIN SYSTEMS
+In Section II–V, the HJB in (10) required the number of noentry zones in the operating domain to be known, which may not always be available. In this section, an extension is provided which alleviates the need to know how many no-entry zones are in the operating domain. Furthermore, by adding and subtracting Pa(x, Z), the following value function is introduced:
+V ∗ (x(t), Z(t)) = Pa (x(t), Z(t)) + V # (x(t), Z(t)) (37)
+where V #(x(t), Z(t)) is an approximation error of the optimal value function. Furthermore, the function V #(x, Z) can be interpreted as time-varying map Vt# : Rn × R≥t0 such that
+
+Fig. 3. States, control policy, and weight estimates for the nonlinear system simulation are shown in addition to the distances between the agent and each avoidance region center and the agent’s phase space portrait. Fig. 3(a) shows that the agents states converge to the origin, but go off course when obstacles are sensed. Fig. 3(b) shows the input for the agent, which acts abruptly as obstacles are sensed. The distance between the agent’s center and each avoidance region is shown in Fig. 3(e); the solid horizontal line represents ra = 0.1, and the two dashed horizontal lines represent rd = 0.7 and r = 0.5, respectively. (a) The agent states. (b) The agent approximate optimal input. (c) The critic weight estimates. (d) The actor weight estimates. (e) The distance between the agent and avoidance regions. (f) The phase space portrait for x1(t) and x2(t) of the agent.
+Vt#(x, t) = V #(x, Z) [57]. Therefore, (37) is rewritten as
+V ∗ (x(t), Z(t)) = Pa (x(t), Z(t)) + Vt# (x(t), t) . (38)
+The optimal controller u∗ is admissible; hence, the value function V ∗(x, Z) is ﬁnite and x, Z ∈/ Ω. Therefore, Pa(x, Z) is continuous for x, Z ∈/ Ω, hence (38) can be approximated via the StaF approximation method. However, because time does not lie on a compact domain, Vt# can not be approximated directly using time as an input to the NN. To address this technical challenge, the mapping φ : R≥t0 → [0, α], α ∈ R>0 is introduced such that Vt#(x(t), t) = Vt#(x(t), φ−1(κ)) = Vκ#(x(t), κ) where κ = φ(t). Now, κ lies on a compact set and the function Vκ#(x, κ) can be approximated using the StaF method as
+V ∗ (x(t), Z(t)) = Pa (x(t), Z(t))
++ W T ζ#(t) σ y(t), c ζ#(t) + ε y(t), ζ#(t)
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+424
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+with
+
+σ(ζ#, c(ζ#))
+
+=
+
+[
+
+s0
+
+σ0 (x,c0 (x)) (x)σ1 (κ,c1 (κ))
+
+],
+
+where
+
+ζ#
+
+[xT , κ]T ,
+
+y [yxT , yκ]T ∈ Br(ζ#), and s0 : Rn → [0, 1] is a smooth
+
+function such that s0(02×1) = 0.
+
+Moreover, since Pa(x, Z) = i∈M Pa,i(x, zi) is designed to
+
+be a bounded positive semideﬁnite symmetric function, it fol-
+
+lows
+
+that
+
+∂ Pa,i (x,z1 ,...,zm ) ∂x
+
+=
+
+− ∂Pa,i(x,z1,...,zm)
+∂zi
+
+for
+
+all
+
+i
+
+∈
+
+M;
+
+hence, the HJB is represented as
+
+0
+
+=
+
+r(x, Z,
+
+u)
+
++
+
+∂Vκ# ζ# ∂ζ#
+
+F # ζ# + G# ζ# u
+
++
+
+M
+
+∂Pa,i ∂x
+
+(f (x)
+
++
+
+g(x)u
+
+−
+
+Fi
+
+(x,
+
+zi)
+
+hi
+
+(zi))
+
+(39)
+
+i=1
+
+where F #(ζ#)
+
+[ f (x)T ,
+
+∂κ ∂t
+
+]T
+
+,
+
+and
+
+G# (ζ # )
+
+[g(x)T ,
+
+0m×1]T . The HJB in (39) requires the knowledge of the uncertain
+
+dynamics f (x) and hi(zi). Using a NN approximator, the time
+
+derivative of Pa is written as
+
+P˙a =
+
+M
+
+∂Pa,i ∂x
+
+(f (x)
+
++
+
+g(x)u
+
+−
+
+Fi
+
+(x,
+
+zi)
+
+hi
+
+(zi))
+
+i=1
+
+= Yp(x, Z)θ + εp(x, Z)
+
+where Yp : Rn × RMn → R1×lp is a selected basis such that Yp(x, Z) = 01×lp when x − zi > rd, for all i ∈ M, θ ∈ Rlp is an unknown weight, and εp : Rn × RMn → R is the unknown function approximation error. Likewise the agent drift dynamics
+can be represented as f (x(t)) = Yf (x(t))Ξ + εf (x(t)) with Yf : Rn → Rn×lf being a known basis, Ξ ∈ Rlf an unknown weight, and εf : Rn → Rn the function approximation error.5
+Assumption 6: There exists constants εp, εf , Yf , Yp, θ, Ξ ∈ R>0 such that supζ∈χ Yp(x, Z) ≤ Yp, supζ∈χ εp(x, Z) ≤
+εp, supx∈χ Yf (x) ≤ Y f , supx∈χ εf (x) ≤ εf , θ ≤ θ, and Ξ ≤ Ξ [23], [58].
+Using the estimates Wˆ c, Wˆ a, θˆ, and Ξˆ in (39), the approximate BE δˆ : Rn+1 × Rn+1 × RN × RL × RL × Rlf +lp → R
+is deﬁned as
+
+δˆ y, ζ#, Z, Wˆ c, Wˆ a, θˆ, Ξˆ Yp (yx, Z) θˆ
+
++ω# y, ζ#, Z, Wˆ a, Ξˆ T Wˆ c +r yx, Z, uˆ y, ζ#, Z, Wˆ a (40)
+
+where ω#(y, ζ#, Z, Wˆ a, Ξˆ) G#(y)uˆ(y, ζ#, Z, Wˆ a)),
+
+Ξˆ #
+
+[ Ξˆ
+01×1
+
+0lf ×1 1
+
+],
+
+and
+
+∇σ(y, c(ζ#))(Y #(y)Ξˆ# +
+
+Y #(y)
+
+[ Yf (yx)T ,
+
+∂yκ ∂t
+
+]T
+
+,
+
+uˆ y, ζ#, Z, Wˆ a
+
+−μsat Tanh
+
+1 R−1G#T (y) 2μsat
+
+× ∇PaT (yx, Z) + ∇σT y, c ζ# Wˆ a
+
+(41)
+
+where ∇Pa(yx, Z)
+
+[
+
+∂
+
+Pa (yx ∂x
+
+,Z
+
+)
+
+,
+
+∂
+
+Pa (yx ∂κ
+
+,Z
+
+)
+
+]
+
+=
+
+[
+
+∂
+
+Pa (yx ∂x
+
+,Z
+
+)
+
+,
+
+0].
+
+Using δˆ, the instantaneous BEs and approximate policies
+
+in (18)–(21) are redeﬁned as δt(t) δˆ(ζ#(t), ζ#(t), Z(t), Wˆ c(t), Wˆ a(t), θˆ(t), Ξˆ(t)), δk(t) δˆ(ζk#(t), ζ#(t), Z(t), Wˆ c(t), Wˆ a(t), θˆ(t), Ξˆ(t)), u(t) uˆ(ζ#(t), ζ#(t), Z(t), Wˆ a(t)), and uˆk(t) uˆ(ζk#(t), ζ#(t), Z(t), Wˆ a(t)), respectively.
+Assumption 7. [22], [23]: There exists a compact set Θ ⊂ Rlp+lf , known a priori, which contains the unknown parameter vectors θ and Ξ. Let X˜ [Ξ˜T , θ˜T ]T = [(Ξ − Ξˆ)T , (θ − θˆ)T ]T and Xˆ = [ΞˆT , θˆT ]T denote the total concatenated vector
+of parameter estimate errors and parameter estimates, respectively. The estimates Xˆ : R≥t0 → Rlp+lf are updated based on switched update laws of the form
+
+Xˆ˙ (t) = fXs Xˆ (t), t , Xˆ (t0) ∈ Θ
+
+(42)
+
+where s ∈ N is the switching index with {fXs : Rlp+lf × R≥t0 → Rlp+lf }s∈N being a family of continuously differentiable functions. There exist a continuously differentiable function Vθ : Rlp+lf × R≥t0 → R≥0 that satisﬁes
+
+νθ X˜ ≤ Vθ X˜ , t ≤ νθ X˜
+
+(43)
+
+∂Vθ X˜ , t ∂X˜
+
+−fXs X˜ (t), t
+
+∂Vθ X˜ , t +
+∂t
+
+≤ −Kθ
+
+X˜
+
+2
++D
+
+X˜
+
+(44)
+
+for all t ∈ R≥t0 , s ∈ N, and X˜ ∈ Rlp+lf . In (43), νθ, νθ :
+
+R≥0 → R≥0 are class K functions. In (44), Kθ ∈ R>0 is an
+
+adjustable parameter, D ∈ R>0 is a positive constant, and the
+
+ratio
+
+D Kθ
+
+is sufﬁciently small.6
+
+Remark 10: If f (x(t)) = 0n×1, then Y #(y) and Ξˆ# sim-
+
+plify to Y #(y)
+
+[ 0lf ×n,
+
+∂yκ ∂t
+
+]T
+
+and Ξˆ#
+
+[ 0lf ×1
+01×1
+
+0lf ×1 1
+
+],
+
+re-
+
+spectively. Furthermore, Ξ does not need to be estimated for
+
+single integrator dynamics and the concatenated systems then reduce to X˜ θ˜ and fXs(Xˆ (t), t) fθs(θˆ(t), t).
+The conditions (43) and (44) in Assumption 7 imply that
+
+Vθ can be used as a candidate Lyapunov function to show the parameter estimates θˆ and Ξˆ converge to a neighborhood of
+
+the true values. Update laws using CL-based methods can be
+
+designed to satisfy Assumption 7; examples of such update laws
+
+can be found in [59]–[62]. The main result for the extension to
+
+systems with uncertainties and an unknown number of avoidance
+
+regions uses Vθ + VL as a candidate Lyapunov function and is summarized in the following theorem.
+
+Theorem 2: Provided Assumptions 2–7 along with the suf-
+
+ﬁcient conditions in (30)–(33) are satisﬁed, and StaF kernels
+
+are selected such that ∇W , ε, ∇ε, are sufﬁciently small, then
+
+the update laws in (22)–(24) with (41), δt(t), and δk(t) ensure
+that the state x and input u(t), and weight approximation errors W˜ a, W˜ c, θ˜, Ξ˜ are UUB; furthermore, states x(t), zi(t) starting
+outside of Ω remain outside of Ω.
+
+Proof: The proof is a combination of Assumption 7 with
+
+Theorem 1 by using VL + Vθ as a candidate Lyapunov function; hence, the proof is omitted to alleviate redundancy.
+
+5If the agent dynamics f (x(t)) are assumed to be single integrator dynamics such that f (x(t)) = 0n×1, system identiﬁcation for the agent is not necessary.
+
+6The positive constant D can possibly depend on the parameter Kθ.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+425
+
+VIII. SIMULATION-IN-THE-LOOP EXPERIMENTS
+In Section VI, simulations where performed to demonstrate the developed approach. To demonstrate the robustness of the developed method, experiments are performed on a quadcopter avoiding virtual obstacles. Speciﬁcally, three experiments are conducted to demonstrate the ability of an aerial vehicle to be autonomously regulated to the origin while avoiding dynamic avoidance regions. For each experiment, a Parrot Bebop 2.0 quadcopter is used as the aerial vehicle. The developed quadcopter controller requires feedback of its and the obstacle’s position and orientation (pose). The pose of the quadcopter is obtained by a NaturalPoint, Inc. OptiTrack motion capture system at 120 Hz. Using the robotic operating system (ROS) Kinetic framework and the bebop_autonomy package developed by [63] running on Ubuntu 16.04, the control policies are calculated for the quadcopter. The control policy is communicated from a ground station which broadcasts velocity commands at 120 Hz over the 5-GHz Wi-Fi channel. The developed control policy is implemented as a velocity command to the quadcopter. While this allows an effective demonstration of the underlying strategy, improved performance could be obtained by implementing the policies through acceleration commands that do not rely on the onboard velocity tracking controller. Such an implementation could also have additional implications due to input constraints for acceleration commands.
+The experiments are performed using two-dimensional (2-D) Euclidean coordinates (without the inclusion of altitude) for the state x(t) for ease of experimental execution and implementation. However, since the development does not restrict the state dimension, experiments can also be extended to use 3-D Euclidean coordinates. All three experiments use simpliﬁed quadcopter dynamics represented by (1) with f (x(t)) = 02×1 and g(x(t)) = I2 so that x˙ = u, where, without a loss of generality, x(t) ∈ R2 is the composite vector of the 2-D Euclidean coordinates, with respect to the inertial frame and u ∈ R2 are velocity commands broadcast to the quadcopter. A supplementary video of the experiment accompanies this article, available for download7 (included in the submitted ﬁles). For the ﬁrst two experiments, virtual spheres are used as the dynamic avoidance regions. The virtual spheres, which evolve according to linear oscillatory dynamics, are generated using ROS via Ubuntu on the ground station. The positions of the virtual spheres in the inertial frame are used in the designed method to interact with the vehicle, only when each position is within the detection radius of the quadcopter. The supplementary video shows how the quadcopter interacts with the virtual spheres. For the third experiment, one of the virtual spheres is replaced by a remotely controlled (i.e., human-piloted) quadcopter.
+A. Experiment One
+The ﬁrst experiment is performed using the method developed in Sections II–V. Three virtual avoidance regions are generated using heterogeneous oscillatory linear dynamics. The functions Fi(x, zi), si(x, zi) = Fi(x, zi), are selected to be
+7[Online]. Available: http://ieeexplore.ieee.org
+
+TABLE III INITIAL CONDITIONS AND PARAMETERS SELECTED FOR THE EXPERIMENT
+
+the same as in Section VI while Pa(ζ) is selected to be
+
+Pa(ζ) =
+
+M i=1(min{0,
+
+(
+
+}) . x−zi 2−rd2
+
+2
+
+x−zi 2−ra2 )2+rε
+
+For
+
+value
+
+func-
+
+tion approximation, the agent is selected to have the StaF basis
+
+σ0(x, c(x)) = [xT c1(x), xT c2(x), xT c3(x)]T , where ci(x) =
+
+x + ν(x)di, i = 1, 2, 3, where ν(x) is redeﬁned as ν(x)
+
+0.5xT x 1+xT x
+
+and
+
+the
+
+offsets
+
+are
+
+selected
+
+as
+
+d1 = [ 0,
+
+−1 ]T ,
+
+d2 =
+
+[ 0.866, −0.5 ]T , and d3 = [ −0.866, −0.5 ]T . The StaF basis
+
+σi for each obstacle is selected to be the same as the agent, except that the state changes from x to zi. Assumption 5 discussed how the extrapolated regressors ωk are design variables. Thus, instead of using input–output data from a persistently exciting
+
+system, the dynamic model can be used and evaluated at a single
+
+time-varying extrapolated state to achieve sufﬁcient excitation.
+
+It was shown in [22, Sec. 6.3] that the use of a single time-varying
+
+extrapolated point results in improved computational efﬁciency
+
+when compared using a large number of stationary extrapolated
+
+states. Motivated by this insight, at each time a single point
+
+is selected at random from a 0.2ν(x(t)) × 0.2ν(x(t)) uniform
+
+distribution centered at the current state. The initial critic and
+
+actor weights and gains are selected as Wc(0) = U [0, 4]112×1, Wa(0) = 112×1, Γc(0) = I12, and Γa = I12, and the selected parameters are shown in Table III.
+
+B. Experiment Two
+
+The second experiment is performed using the extension in
+
+Section VII and similar to experiment one, three virtual avoid-
+
+ance regions are generated with heterogeneous oscillatory linear
+
+dynamics. The agent has the same basis σ0(x) as the ﬁrst exper-
+
+iment, while the basis σ1(κ, c(κ)) is selected as σ1(κ, c(κ)) =
+
+[κT c1(κ), κT c2(κ), ]T , where κ = φ(t)
+
+0.25 0.01t+1
+
+and
+
+ci(κ)
+
+=
+
+κ + ν(κ)di, i = 1, 2 where ν(κ) is the same function as in the
+
+ﬁrst experiment except evaluated at κ and the offsets are selected
+
+as d1 = 0.25, and d2 = 0.05. For the total basis σ(ζ#, c(ζ#)),
+
+the
+
+function
+
+s0(x)
+
+is
+
+selected
+
+as
+
+s0(x)
+
+=
+
+ν(x) 0.5
+
+.
+
+The
+
+initial
+
+critic
+
+and actor weights and adaptive gains are selected as as Wc(0) =
+
+U [0, 4]15×1, Wa(0) = 15×1, and Γa = I5. The rest of the param-
+
+eters are selected to remain the same as in the ﬁrst experiment and
+
+are shown in Table III. Since the agent dynamics are modeled as
+
+single integrator dynamics with f (x(t)) = 02×1, system identiﬁcation was not performed on the agent. However, to approxi-
+
+mate θ in Section VII, the ICL method in [62, Sec. IV.B] was
+
+utilized with the basis Yp(x, Z) = Tanh(VpT ∇Pa(yx, Z)T ), where Vp = U [−5, 5]13×10 is a constant weight matrix. To keep
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+426
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+the weight estimates bounded, a projection algorithm was used similar to [62, Sec. IV.B] and the update laws were turned OFF when no avoidance regions were sensed. Not performing system identiﬁcation on the agent reduces redundancy in parameter identiﬁcation because the unknown weight θ in the function in the time derivative of Pa is already being approximated. Furthermore, as stated in Footnote 5, if the agent is implemented using single integrator dynamics, then system identiﬁcation can be ignored on the agent drift dynamics f (x(t)).
+
+C. Experiment Three
+The third experiment is performed using the extension in Section VII where the ﬁrst avoidance region, denoted by the state z1 and represented by another Parrot Bebop quadcopter, is ﬂown/controlled manually by hand. The virtual avoidance regions with states z2 and z3 are simulated as in the previous experiments. The radii were changed to rd = 1.0, r¯ = 0.7, and ra = 0.45 meters (m) to reduce the chance of the quadcopters colliding, the gains qx, qz where changed to qx = diag{0.5, 0.5} and qz = diag{3.0, 3.0}, and the rest of the parameters remained the same as in the second experiment.
+
+D. Results
+
+The ﬁrst experimental validation for the development in
+
+Sections II–V are shown in Figs. 4 and 5. Fig. 4(a) and (b) shows
+
+that the agent, as well as the agent’s control policy, remains
+
+bounded around the origin. Fig. 4(b) shows that the control of
+
+the
+
+agent
+
+is
+
+bounded
+
+by
+
+0.5
+
+m s
+
+even
+
+in
+
+the
+
+presence
+
+of
+
+the
+
+mobile
+
+avoidance regions. The input does not converge to zero because
+
+of aerodynamic disturbances, when the quadcopter reaches the
+
+origin. The critic and actor weight estimates remain bounded and
+
+converge to steady-state values, as shown in Fig. 4(c) and (d).
+
+However, because of the StaF nature of the StaF approximation
+
+method, the ideal weights are unknown; hence the estimate
+
+cannot be compared to their ideal values. Even though the agent
+
+enters the detection region as shown by Figs. 4(e) and 5(a), the
+
+developed method drives the agent away from the avoidance
+
+regions and toward the origin. When encountering avoidance
+
+region z2 between the 8th and 12th seconds, the agent was able to
+
+maneuver around the avoidance region without collision despite
+
+multiple encounters with it because the avoidance region was
+
+moving close to the origin and obstructing the path. Moreover,
+
+Fig. 6(a) shows the change in velocity when the agent encounters
+
+the avoidance region.
+
+The second and third experiments were performed to validate
+
+the development in Section VII with the results shown in Figs. 5–
+
+8. Speciﬁcally, the second experiment was performed using sim-
+
+ilar conditions and parameters as in the ﬁrst experiment. Fig. 5(b)
+
+shows that the agent is capable of adjusting its path when it
+
+encounters the avoidance regions and the agent is regulated to
+
+the origin without colliding with the avoidance regions, while
+
+Fig. 6(b) shows the relative velocities between the agent and
+
+each avoidance region. The approximate value function and total
+
+cost for the ﬁrst two experiments are shown in Fig. 7. Both
+
+experiments resulted in similar costs and approximate value
+
+functions. Speciﬁcally, Fig. 7(a) shows that the approximate
+
+Fig. 4. States, control policy, and weight estimates are shown in addition to the distances between the agent and each avoidance region center for the ﬁrst experiment. Fig. 4(a) shows that the agents states converge to a close neighborhood of the origin. When the agent detects the avoidance regions, the commanded input, shown in Fig. 4(b), causes the agent to steer off course as shown by the change in the trajectory of x2 in Fig. 4(a). The distance between the center of the agent and each avoidance region is shown in Fig. 4(e); the two dashed horizontal lines represent the detection radius and conﬂict radius denoted by rd = 0.7 m and r = 0.45 m, respectively, while the solid horizontal line represents the radius of the avoidance region denoted by ra = 0.2 m. (a) The agent states. (b) The agent approximate optimal input. (c) The critic weight estimates. (d) The actor weight estimates. (e) The distance between the agent and avoidance regions.
+value function remains positive and converges to zero when the agent reaches the origin.
+Furthermore, the third experiment extends the second experiment further by substituting one of the autonomous avoidance regions for a nonautonomous one. Speciﬁcally, a manually controlled avoidance region is used, which is controlled to approach the agent throughout the experiment. Figs. 5(c)–8 show the results of the experiment. In Fig. 5(c), the agent is forced away from the direction of the origin, but still manages to redirect itself without colliding with the avoidance regions. The relative velocity for the third experiment is shown in Fig. 6(c), which changes abruptly as each avoidance regions is sensed. The approximate value function and total cost for the third experiment are also shown in Fig. 7. Since one of the avoidance regions was remotely controlled, its trajectory was nonautonomous; hence, the agent’s trajectory differed when interacting with it and the applied control policy did not saturate as much compared to
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA ET AL.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+427
+
+Fig. 5. Phase-space portrait for the agent and the positions of the agent and avoidance regions for each experiment. In each ﬁgure, the left plot shows the agent’s phase-space portrait where the green circle is the agent’s ﬁnal position. The plots on the right of each ﬁgure show the agent’s and avoidance regions positions at certain time instances where the diamond represents the agent state and the circles represent the avoidance regions. (a) The agent phase-space portrait (left) and the positions of the agent and avoidance regions (right) for the ﬁrst experiment. (b) The agent phase-space portrait (left) and positions of the agent and avoidance region (right) for the second experiment. (c) The agent phase-space portrait (left) and positions of the agent and avoidance region (right) for the third experiment.
+
+Fig. 6. Relative velocities for each experiment. The relative velocities were
+numerically computed and ﬁltered using a moving average ﬁlter with a window
+size of ten time-steps. In each ﬁgure, the blue line represents the relative velocity
+of the ﬁrst state and the red line represents the relative velocity of the second
+state for each obstacle (i.e., x˙ 1(t) − z˙i,1(t) and x˙ 2(t) − z˙i,2(t) for i = 1, 2, 3, respectively). (a) Relative velocities for z1 (left), z2 (middle), and z3 (right) for the ﬁrst experiment. (b) Relative velocities for z1 (left), z2 (middle), and z3 (right) for the second experiment. (c) Relative velocities for z1 (left), z2 (middle), and z3 (right) for the third experiment.
+
+the ﬁrst experiment, resulting in a smaller total cost. Fig. 8(a)
+
+shows that the agent is regulated to the origin and that its state is
+
+adjusted online in real time by the input, as shown in Fig. 8(b),
+
+when it encounters the avoidance regions. The input remains
+
+bounded
+
+by
+
+the
+
+controller
+
+saturation
+
+of
+
+0.5
+
+m s
+
+and
+
+converges
+
+to a small bounded residual of the origin. The estimates of
+
+the unknown weights θ are shown in Fig. 8(c), which remain
+
+bounded, but since the ideal basis is unknown and the ideal
+
+weights are unknown, the estimates cannot be compared to the
+
+actual weights. Fig. 8(d) shows the distance between the agent
+
+and each avoidance region center, and shows that the agent does
+
+not get within ra of the avoidance regions. Moreover, as soon as the agent gets within r¯ of the avoidance region, it moves
+
+away from zi. Additionally, when the agent detects the avoidance region, i.e., x − zi ≤ rd, the control policy is adjusted, which can be seen from Fig. 8(b) and (d). Moreover, the critic and
+
+actor weights estimates using the transformation in Section VII
+
+are shown in Fig. 8(e) and (f), respectively. The ﬁgures show
+
+that the estimates remain bounded and converge to steady-state
+
+values. Similar to the ﬁrst experiment, the ideal weights are
+
+unknown, thus the weight estimates cannot be compared to the
+
+ideal weights.
+
+Fig. 7. Approximate value functions and total costs for the three experiments. (a) Approximate value function. (b) Total cost.
+The results in Figs. 4–8 show that the developed method is capable of handling uncertain dynamic avoidance regions while regulating an autonomous agent. The agent locally detects the avoidance regions and then adjusts its path online. While experiments one and two used radii selected as rd = 0.7, r = 0.45, ra = 0.2 meters, the radii in experiment three were increased to rd = 1.0, r¯ = 0.7, and ra = 0.45 m, respectively. The increase in radii was because one of the obstacles moved at a higher relative velocity, and a larger distance was required to enable the agent to avoid collision. The optimal selection of the size of the detection region (e.g., as a function of the maximum agent speed, the obstacle relative velocity, and the sensing rate) including detection radii changing with relative agent and avoidance region velocities remains a subject for future research.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+428
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+(cf., [39], [40]) instead of spherical-shaped avoidance regions, investigating methods to alleviate Assumption 3, and extending the developed approach to multiple agents which cooperate but avoid other mobile obstacles. Investigating the relationships between the speed of the agent and avoidance regions and the respective sensing radius including dynamically changing radii also remains a topic for future research.
+Moreover, in the presence of uncertainty, it is unclear how to develop a ﬁnite-time convergent update law. However, recent developments, such as [64] and [65], could potentially provide insight into developing ﬁnite-time approximate optimal controllers. In addition, during the learning phase of adaptive systems, it is difﬁcult to ensure safety guarantees are met, especially in safety-critical systems. Results such as [66]–[68] could provide insight into designing RL constrained approaches with safety speciﬁcations for motion planning. Such investigations into ﬁnite-time and safety-critical approximate optimal controllers are subjects of future research.
+
+Fig. 8. States, control policy, and weight estimates of the agent are shown in addition to the distances between the agent and each avoidance region center for the third experiment. (a) The agent states. (b) The agent approximate optimal input. (c) The estimates of θ. (d) The distance between the agent and avoidance regions. (e) The critic weight estimates. (f) The actor weight estimates.
+IX. CONCLUSION
+In this article, an online approximate motion planning strategy in the presence of mobile avoidance regions was developed. Because the avoidance regions need to only be known inside a detection radius, they were modeled using local dynamics. Since the avoidance regions were coupled with the agent in the HJB, the basis of the approximation also used the avoidance region state when approximating the value function. Because the states were not always known, a scheduling function was used to turn-OFF the basis, which then stopped updating the weight approximations for the avoidance regions when they were not detected. Theorem 1 showed the UUB of the states and that the states of the coupled system remain outside of the avoidance set. An extension to systems with uncertain dynamics and an unknown number of avoidance regions was presented, and Theorem 2 summarized the overall stability for the system with uncertainties. Simulations and three experiments were performed that demonstrated successful implementation of the developed motion planning and avoidance region evasion strategy.
+Some possible topics of future research include—determining the size of the avoidance region based on the sampling rate of nearby obstacles, investigating the use of collision cones
+
+APPENDIX A STABILITY ANALYSIS CONSTANTS
+
+In Section V, the positive constants ι, ϕac ∈ R>0 are
+
+introduced, which are deﬁned as ι
+
++ + ι2c
+kc2 c
+
+(ιa1 +ιa2 )2 ka1 +ka2
+
+W T ∇σ + σT ∇W + ∇
+
++ ∇Pa
+
+GR 2
+
+∇W T σ + ∇εT
+
+m,
+
+and ϕac
+
+ka1 +
+
+∇W Γ
+
+GR 2
+
+∇σT
+
++ kc1
+
+m γ1
+
+μsat
+
+∇σG
+
++
+
+kc2 N
+
+N k=1
+
+m γ1
+
+μsat
+
+∇σk Gk
+
+,
+
+where
+
+ιa1
+
+W T ∇σ + σT ∇W + ∇
+
++ ∇Pa
+
+GR 2
+
+∇σT
+
++
+
+∇W F λmin {Γa }
+
++
+
+∇W GR λmin{Γa} 2
+
+∇Pa +∇σT W
+
+, ιa2
+
+ka2 W +kc1μsat ∇σG
+
+√m
+γ1
+
+W
+
++
+
+kc2 N
+
+N k=1
+
+μsat
+
+∇σk Gk
+
+√m
+γ1
+
+W
+
+, and ιc
+
+∇W F Γ
+
++
+
+∇W Γ
+
+GR 2
+
+∇Pa +∇σT W
+
++kc1 2√1γ1
+
+Δ
+
++
+
+kc2 N
+
+N k=1
+
+2√1γ1
+
+Δk .
+
+ACKNOWLEDGMENT
+Any opinions, ﬁndings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reﬂect the views of the sponsoring agency.
+
+REFERENCES
+[1] D. González, J. Pérez, V. Milanés, and F. Nashashibi, “A review of motion planning techniques for automated vehicles,” IEEE Trans. Intell. Transp. Syst., vol. 17, no. 4, pp. 1135–1145, Apr. 2016.
+[2] G. S. Aoude, B. D. Luders, J. M. Joseph, N. Roy, and J. P. How, “Probabilistically safe motion planning to avoid dynamic obstacles with uncertain motion patterns,” Auton. Robot., vol. 35, no. 1, pp. 51–76, 2013.
+[3] A. V. Rao, D. A. Benson, C. L. Darby, M. A. Patterson, C. Francolin, and G. T. Huntington, “Algorithm 902: GPOPS, a MATLAB software for solving multiple-phase optimal control problems using the Gauss pseudospectral method,” ACM Trans. Math. Softw., vol. 37, no. 2, pp. 1–39, 2010.
+[4] K. Yang, S. K. Gan, and S. Sukkarieh, “An efﬁcient path planning and control algorithm for RUAVs in unknown and cluttered environments,” J. Intell. Robot Syst., vol. 57, pp. 101–122, 2010.
+[5] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” Int. J. Robot. R, vol. 30, pp. 846–894, 2011.
+[6] A. Alvarez, A. Caiti, and R. Onken, “Evolutionary path planning for autonomous underwater vehicles in a variable ocean,” IEEE J. Ocean. Eng., vol. 29, no. 2, pp. 418–429, Apr. 2004.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+DEPTULA et al.: APPROXIMATE OPTIMAL MOTION PLANNING TO AVOID UNKNOWN MOVING AVOIDANCE REGIONS
+
+429
+
+[7] G. Leitmann and J. Skowronski, “Avoidance control,” J. Optim. Theory Appl., vol. 23, no. 4, pp. 581–591, 1977.
+[8] C. Shen, Y. Shi, and B. Buckham, “Path-following control of an AUV: A multiobjective model predictive control approach,” IEEE Trans. Control Syst. Technol., vol. 27, no. 3, pp. 1334–1342, May 2019.
+[9] Z. Kan, A. Dani, J. M. Shea, and W. E. Dixon, “Network connectivity preserving formation stabilization and obstacle avoidance via a decentralized controller,” IEEE Trans. Autom. Control, vol. 57, no. 7, pp. 1827–1832, Jul. 2012.
+[10] E. Rimon and D. Koditschek, “Exact robot navigation using artiﬁcial potential functions,” IEEE Trans. Robot. Autom., vol. 8, no. 5, pp. 501–518, Oct. 1992.
+[11] S. M. LaValle and P. Konkimalla, “Algorithms for computing numerical optimal feedback motion strategies,” Int. J. Robot. Res., vol. 20, pp. 729– 752, 2001.
+[12] C. Petres, Y. Pailhas, P. Patron, Y. Petillot, J. Evans, and D. Lane, “Path planning for autonomous underwater vehicles,” IEEE Trans. Robot., vol. 23, no. 2, pp. 331–341, Apr. 2007.
+[13] A. Shum, K. Morris, and A. Khajepour, “Direction-dependent optimal path planning for autonomous vehicles,” Robot. Auton. Syst., 2015.
+[14] I. M. Mitchell, A. M. Bayen, and C. J. Tomlin, “A time-dependent Hamilton-Jacobi formulation of reachable sets for continuous dynamic games,” IEEE Trans. Autom. Control, vol. 50, no. 7, pp. 947–957, Jul. 2005.
+[15] H. Zhang, D. Liu, Y. Luo, and D. Wang, Adaptive Dynamic Programming for Control Algorithms and Stability, (Communications and Control Engineering). London, U.K.: Springer-Verlag, 2013.
+[16] H. Zhang, L. Cui, and Y. Luo, “Near-optimal control for nonzero-sum differential games of continuous-time nonlinear systems using singlenetwork ADP,” IEEE Trans. Cybern., vol. 43, no. 1, pp. 206–216, Feb. 2013.
+[17] H. Zhang, L. Cui, X. Zhang, and Y. Luo, “Data-driven robust approximate optimal tracking control for unknown general nonlinear systems using adaptive dynamic programming method,” IEEE Trans. Neural Netw., vol. 22, no. 12, pp. 2226–2236, Dec. 2011.
+[18] F. L. Lewis and D. Vrabie, “Reinforcement learning and adaptive dynamic programming for feedback control,” IEEE Circuits Syst. Mag., vol. 9, no. 3, pp. 32–50, Third Quarter 2009.
+[19] K. G. Vamvoudakis, M. F. Miranda, and J. P. Hespanha, “Asymptotically stable adaptive–optimal control algorithm with saturating actuators and relaxed persistence of excitation,” IEEE Trans. Neural Netw. Learn. Syst., vol. 27, no. 11, pp. 2386–2398, Nov. 2016.
+[20] X. Yang, D. Liu, D. Wang, and H. Ma, “Constrained online optimal control for continuous-time nonlinear systems using neuro-dynamic programming,” in Proc. IEEE Chin. Control Conf., 2014, pp. 8717–8722.
+[21] H. Modares, F. L. Lewis, and M.-B. Naghibi-Sistani, “Integral reinforcement learning and experience replay for adaptive optimal control of partially-unknown constrained-input continuous-time systems,” Automatica, vol. 50, no. 1, pp. 193–202, 2014.
+[22] R. Kamalapurkar, J. Rosenfeld, and W. E. Dixon, “Efﬁcient model-based reinforcement learning for approximate online optimal control,” Automatica, vol. 74, pp. 247–258, Dec. 2016.
+[23] R. Kamalapurkar, P. Walters, and W. E. Dixon, “Model-based reinforcement learning for approximate optimal regulation,” Automatica, vol. 64, pp. 94–104, 2016.
+[24] D. Liu, X. Yang, D. Wang, and Q. Wei, “Reinforcement-learning-based robust controller design for continuous-time uncertain nonlinear systems subject to input constraints,” IEEE Trans. Cybern., vol. 45, no. 7, pp. 1372– 1385, July. 2015.
+[25] D. Wang, D. Liu, Q. Zhang, and D. Zhao, “Data-based adaptive critic designs for nonlinear robust optimal control with uncertain dynamics,” IEEE Trans. Syst., Man, Cybern., Syst., vol. 46, no. 11, pp. 1544–1555, Nov. 2016.
+[26] R. Kamalapurkar, L. Andrews, P. Walters, and W. E. Dixon, “Model-based reinforcement learning for inﬁnite-horizon approximate optimal tracking,” IEEE Trans. Neural Netw. Learn. Syst., vol. 28, no. 3, pp. 753–758, Mar. 2017.
+[27] D. E. Koditschek and E. Rimon, “Robot navigation functions on manifolds with boundary,” Adv. Appl. Math., vol. 11, pp. 412–442, Dec. 1990.
+[28] Z. Kan, J. R. Klotz, E. Doucette, J. Shea, and W. E. Dixon, “Decentralized rendezvous of nonholonomic robots with sensing and connectivity constraints,” ASME J. Dyn. Syst., Meas., Control, vol. 139, no. 2, 2017, Art. no. 024501.
+[29] T.-H. Cheng, Z. Kan, J. A. Rosenfeld, and W. E. Dixon, “Decentralized formation control with connectivity maintenance and collision avoidance under limited and intermittent sensing,” in Proc. Amer. Control Conf., 2014, pp. 3201–3206.
+
+[30] E. J. Rodríguez-Seda, C. Tang, M. W. Spong, and D. M. Stipanovic´, “Trajectory tracking with collision avoidance for nonholonomic vehicles with acceleration constraints and limited sensing,” Int. J. Robot. Res., vol. 33, no. 12, pp. 1569–1592, 2014.
+[31] E. J. Rodríguez-Seda, D. M. Stipanovic´, and M. W. Spong, “Guaranteed collision avoidance for autonomous systems with acceleration constraints and sensing uncertainties,” J. Optim. Theory Appl., vol. 168, no. 3, pp. 1014–1038, 2016.
+[32] E. J. Rodríguez-Seda and M. W. Spong, “Guaranteed safe motion of multiple lagrangian systems with limited actuation,” in Proc. IEEE Conf. Decis. Control, 2012, pp. 2773–2780.
+[33] D. M. Stipanovic´, P. F. Hokayem, M. W. Spong, and D. D. Šiljak, “Cooperative avoidance control for multiagent systems,” J. Dyn. Syst., Meas., Control, vol. 129, no. 5, pp. 699–707, 2007.
+[34] J. F. Fisac, M. Chen, C. J. Tomlin, and S. S. Sastry, “Reach-avoid problems with time-varying dynamics, targets and constraints,” in Proc. Int. Conf. Hybrid Syst., Comput. Control, 2015, pp. 11–20.
+[35] J. Ding, E. Li, H. Huang, and C. J. Tomlin, “Reachability-based synthesis of feedback policies for motion planning under bounded disturbances,” in Proc. IEEE Int. Conf. Robot. Autom., 2011, pp. 2160–2165.
+[36] R. Takei, H. Huang, J. Ding, and C. J. Tomlin, “Time-optimal multi-stage motion planning with guaranteed collision avoidance via an open-loop game formulation,” in Proc. IEEE Int. Conf. Robot. Autom., 2012, pp. 323– 329.
+[37] A. Chakravarthy and D. Ghose, “Obstacle avoidance in a dynamic environment: A collision cone approach,” IEEE Trans. Syst., Man, Cybern.—Part A: Syst. Human, vol. 28, no. 5, pp. 562–574, Sep. 1998.
+[38] A. Chakravarthy and D. Ghose, “Generalization of the collision cone approach for motion safety in 3-D environments,” Auton. Robots, vol. 32, no. 3, pp. 243–266, 2012.
+[39] A. Chakravarthy and D. Ghose, “Collision cones for quadric surfaces in n-dimensions,” IEEE Robot. Autom. Lett., vol. 3, no. 1, pp. 604–611, Jan. 2018.
+[40] V. Sunkara, A. Chakravarthy, and D. Ghose, “Collision avoidance of arbitrarily shaped deforming objects using collision cones,” IEEE Robot. Autom. Lett., vol. 4, no. 2, pp. 2156–2163, Apr. 2019.
+[41] A. Ferrara and C. Vecchio, “Second order sliding mode control of vehicles with distributed collision avoidance capabilities,” Mechatronics, vol. 19, no. 4, pp. 471–477, 2009.
+[42] C. E. Luis and A. P. Schoellig, “Trajectory generation for multiagent pointto-point transitions via distributed model predictive control,” IEEE Robot. Autom. Lett., vol. 2, no. 2, pp. 6375–382, Apr. 2019.
+[43] M. M. G. Ardakani, B. Olofsson, A. Robertsson, and R. Johansson, “Model predictive control for real-time point-to-point trajectory generation,” IEEE Trans. Autom. Sci. Eng., vol. 16, no. 2, pp. 972–983, Apr. 2019.
+[44] Z. Huang, D. Chu, C. Wu, and Y. He, “Path planning and cooperative control for automated vehicle platoon using hybrid automata,” IEEE Trans. Intell. Transp. Syst., vol. 20, no. 3, pp. 959–974, Mar. 2019.
+[45] H. Wang, Y. Huang, A. Khajepour, Y. Rasekhipour, Y. Zhang, and D. Cao, “Crash mitigation in motion planning for autonomous vehicles,” IEEE Trans. Intell. Transp. Syst., vol. 20, no. 9, pp. 3313–3323, Sep. 2019.
+[46] T. Dierks, B. Thumati, and S. Jagannathan, “Optimal control of unknown afﬁne nonlinear discrete-time systems using ofﬂine-trained neural networks with proof of convergence,” Neural Netw., vol. 22, no. 5/6, pp. 851–860, 2009.
+[47] K. Doya, “Reinforcement learning in continuous time and space,” Neural Comput., vol. 12, no. 1, pp. 219–245, 2000.
+[48] S. Lyshevski, “Optimal control of nonlinear continuous-time systems: Design of bounded controllers via generalized nonquadratic functionals,” in Proc. Amer. Control Conf., 1998, pp. 205–209.
+[49] P. Walters, R. Kamalapurkar, and W. E. Dixon, “Approximate optimal online continuous-time path-planner with static obstacle avoidance,” in Proc. IEEE Conf. Decis. Control, 2015, pp. 650–655.
+[50] J. A. Rosenfeld, R. Kamalapurkar, and W. E. Dixon, “The state following approximation method,” IEEE Trans. Neural Netw. Learn. Syst., vol. 30, no. 6, pp. 1716–1730, Jun. 2019.
+[51] P. Deptula, J. Rosenfeld, R. Kamalapurkar, and W. E. Dixon, “Approximate dynamic programming: Combining regional and local state following approximations,” IEEE Trans. Neural Netw. Learn. Syst., vol. 29, no. 6, pp. 2154–2166, Jun. 2018.
+[52] P. Walters, R. Kamalapurkar, F. Voight, E. Schwartz, and W. E. Dixon, “Online approximate optimal station keeping of a marine craft in the presence of an irrotational current,” IEEE Trans. Robot., vol. 34, no. 2, pp. 486–496, Apr. 2018.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+
+430
+
+IEEE TRANSACTIONS ON ROBOTICS, VOL. 36, NO. 2, APRIL 2020
+
+[53] P. Deptula, R. Licitra, J. A. Rosenfeld, and W. E. Dixon, “Online approximate optimal path-planner in the presence of mobile avoidance regions,” in Proc. Amer. Control Conf., 2018, pp. 2515–2520.
+[54] W. E. Dixon, A. Behal, D. M. Dawson, and S. Nagarkatti, Nonlinear Control of Engineering Systems: A Lyapunov-Based Approach. Cambridge, MA, USA: Birkhauser, 2003.
+[55] H. K. Khalil, Nonlinear Systems, 3rd ed. Upper Saddle River, NJ, USA: Prentice-Hall, 2002.
+[56] R. Kamalapurkar, P. S. Walters, J. A. Rosenfeld, and W. E. Dixon, Reinforcement Learning for Optimal Feedback Control: A Lyapunov-Based Approach. Cham, Switzerland: Springer, 2018.
+[57] R. Kamalapurkar, H. Dinh, S. Bhasin, and W. E. Dixon, “Approximate optimal trajectory tracking for continuous-time nonlinear systems,” Automatica, vol. 51, pp. 40–48, Jan. 2015.
+[58] F. L. Lewis, R. Selmic, and J. Campos, Neuro-Fuzzy Control of Industrial Systems with Actuator Nonlinearities. Philadelphia, PA, USA: SIAM, 2002.
+[59] P. Deptula, Z. I. Bell, E. Doucette, J. W. Curtis, and W. E. Dixon, “Databased reinforcement learning approximate optimal control for an uncertain nonlinear system with partial loss of control effectiveness,” in Proc. Amer. Control Conf., 2018, pp. 2521–2526.
+[60] Z. Bell, P. Deptula, H.-Y. Chen, E. Doucette, and W. E. Dixon, “Velocity and path reconstruction of a moving object using a moving camera,” in Proc. Amer. Control Conf., 2018, pp. 5256–5261.
+[61] R. Licitra, Z. I. Bell, E. Doucette, and W. E. Dixon, “Single agent indirect herding of multiple targets: A switched adaptive control approach,” IEEE Control Syst. Lett., vol. 2, no. 1, pp. 127–132, Jan. 2018.
+[62] A. Parikh, R. Kamalapurkar, and W. E. Dixon, “Target tracking in the presence of intermittent measurements via motion model learning,” IEEE Trans. Robot., vol. 34, no. 3, pp. 805–819, Jun. 2018.
+[63] M. Monajjemi, “bebop_autonomy library,” 2015. [Online]. Available: http://bebop-autonomy.readthedocs.io
+[64] Z. Kan, T. Yucelen, E. Doucette, and E. Pasiliao, “A ﬁnite-time consensus framework over time-varying graph topologies with temporal constraints,” J. Dyn. Syst., Meas., Control, vol. 139, no. 7, 2017, Art. no. 071012.
+[65] E. Arabi, T. Yucelen, B. C. Gruenwald, M. Fravolini, S. Balakrishnan, and N. T. Nguyen, “A neuroadaptive architecture for model reference control of uncertain dynamical systems with performance guarantees,” Syst. Control Lett., vol. 125, pp. 37–44, 2019.
+[66] I. Papusha, J. Fu, U. Topcu, and R. M. Murray, “Automata theory meets approximate dynamic programming: Optimal control with temporal logic constraints,” in Proc. IEEE Conf. Decis. Control, 2016, pp. 434–440.
+[67] Q. Gao, D. Hajinezhad, Y. Zhang, Y. Kantaros, and M. M. Zavlanos, “Reduced variance deep reinforcement learning with temporal logic speciﬁcations,” in Proc. ACM/IEEE Int. Conf. Cyber Phys. Syst., 2019, pp. 237–248.
+[68] Y. Yang, Y. Yin, W. He, K. G. Vamvoudakis, H. Modares, and D. C. Wunsch, “Safety-aware reinforcement learning framework with an actor-critic-barrier structure,” in Proc. IEEE Amer. Control Conf., 2019, pp. 2352–2358.
+Patryk Deptula received the B.Sc. degree in mechanical engineering (major) and mathematics (minor) from Central Connecticut State University, New Britain, CT, USA, in 2014. He received the M.S. and Ph.D. degrees in mechanical engineering from the Department of Mechanical and Aerospace Engineering, the University of Florida, Gainesville, FL, USA, in 2017 and 2019, respectively.
+In 2019, he joined The Charles Stark Draper Laboratory, Inc., Cambridge, MA, USA. His current research interests include learning-based and adaptive control, multiagent systems, human–machine interaction, vision-based navigation and control, biomedical systems, biomechanics, and robotics applied to a variety of ﬁelds.
+Hsi-Yuan (Steven) Chen received the Ph.D. degree in mechanical engineering from the University of Florida, Gainesville, FL, USA, in 2018.
+In 2019, he joined Amazon Robotics, North Reading, MA, USA, where he is an Applied Scientist with a focus on autonomous mobility. His main research interests include the development and application of Lyapunov-based state estimation and control methods for autonomous vehicles.
+
+Ryan A. Licitra received the B.S., M.S., and doctoral degrees in mechanical engineering from the University of Florida, Gainesville, FL, USA, in 2013, 2015, and 2017, respectively.
+He joined the Nonlinear Controls and Robotics group in 2014 to pursue his doctoral research. He is currently with the University of Florida Research and Engineering Education Facility to facilitate extensive collaboration with Air Force Research Laboratory (AFRL) research staff. His research interests include the study of network control systems, including systems with changing topologies, and multitasked agents.
+Joel A. Rosenfeld received the Ph.D. in mathematics from the University of Florida, Gainesville, FL, USA, in 2013.
+He joined the Nonlinear Controls and Robotics group in 2013 as a Postdoctoral Researcher with the Department of Mechanical and Aerospace Engineering, University of Florida, focusing on approximation problems in control theory. In 2017, he joined the VeriVital Laboratory, Department of Electrical Engineering and Computer Science, Vanderbilt University, Nashville, TN, USA, as a Postdoctoral Researcher and later became a Senior Research Scientist Engineer with the Institute for the Study of Software Integrated Systems (ISIS), Vanderbilt University. He is currently an Assistant Professor with the Department of Mathematics and Statistics, University of South Florida. His research interest includes data science problems in dynamical systems theory with an emphasis on kernel techniques.
+Warren E. Dixon (F’16) received the Ph.D. degree in electrical engineering from the Department of Electrical and Computer Engineering, Clemson University, Clemson, CS, USA, in 2000.
+He was an Eugene P. Wigner Fellow with Oak Ridge National Laboratory (ORNL). In 2004, he joined the Mechanical and Aerospace Engineering Department, University of Florida. He has authored or coauthored three books, an edited collection, 13 chapters, and over 130 journals, and 230 conference papers. His main research interest include the development and application of Lyapunov-based control techniques for uncertain nonlinear systems. Dr. Dixon was the recipient of the 2001 Oak Ridge National Laboratory (ORNL) Early Career Award for Engineering Achievement in 2001, the Department of Energy Outstanding Mentor Award in 2004, the IEEE Robotics and Automation Society (RAS) Early Academic Career Award in 2006, the American Automatic Control Council (AACC) O. Hugo Schuck (Best Paper) Award in 2009 and 2015, the National Science Foundation (NSF) CAREER Award during 2006 to 2011, the American Society of Mechanical Engineers (ASME) Dynamics Systems and Control Division Outstanding Young Investigator Award in 2011, the University of Florida College of Engineering Doctoral Dissertation Mentoring Award during 2012 to 2013, and the Fred Ellersick Award for Best Overall MILCOM Paper in 2013. He is an ASME Fellow, an IEEE Control Systems Society (CSS) Distinguished Lecturer, and served as the Director of Operations for the Executive Committee of the IEEE CSS Board of Governors (2012–2015). He currently serves as a member of the U.S. Air Force Science Advisory Board. He is currently or formerly an Associate Editor for ASME Journal of Dynamic Systems, Measurement and Control, Automatica, IEEE TRANSACTIONS ON SYSTEMS, MAN, AND CYBERNETICS: PART B CYBERNETICS, and the International Journal of Robust and Nonlinear Control.
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on May 18,2022 at 09:46:57 UTC from IEEE Xplore. Restrictions apply.
+

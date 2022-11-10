@@ -1,0 +1,700 @@
+Proceedings, The Fourth International Symposium on Combinatorial Search (SoCS-2011)
+
+Path Planning with Adaptive Dimensionality
+
+Kalin Gochev, Benjamin Cohen, Jonathan Butzke, Alla Safonova
+University of Pennsylvania kgochev, bcohen, jbutzke, alla @seas.upenn.edu
+
+Maxim Likhachev
+Carnegie Mellon Univ. maxim@cs.cmu.edu
+
+Abstract
+Path planning quickly becomes computationally hard as the dimensionality of the state-space increases. In this paper, we present a planning algorithm intended to speed up path planning for high-dimensional state-spaces such as robotic arms. The idea behind this work is that while planning in a highdimensional state-space is often necessary to ensure the feasibility of the resulting path, large portions of the path have a lower-dimensional structure. Based on this observation, our algorithm iteratively constructs a state-space of an adaptive dimensionality–a state-space that is high-dimensional only where the higher dimensionality is absolutely necessary for ﬁnding a feasible path. This often reduces drastically the size of the state-space, and as a result, the planning time and memory requirements. Analytically, we show that our method is complete and is guaranteed to ﬁnd a solution if one exists, within a speciﬁed suboptimality bound. Experimentally, we apply the approach to 3D vehicle navigation (x, y, heading), and to a 7 DOF robotic arm on the Willow Garage’s PR2 robot. The results from our experiments suggest that our method can be substantially faster than some of the state-ofthe-art planning algorithms optimized for those tasks.
+Keywords: Motion and Path Planning, Planning Algorithms, Heuristic Search
+1 Introduction
+Path planning is frequently done in high-dimensional statespaces in order to represent a high degree of freedom robotic system or to account for various kinodynamic constraints of the system. Unfortunately, the high dimensionality of the state-space often leads to a dramatic increase in the time and memory required to ﬁnd a path. However, while planning in a high-dimensional state-space is often necessary, large portions of the computed paths are still low-dimensional. For example, a 3D (x, y, θ) path for a non-holonomic robot typically contains large portions that are straight-line segments and do not therefore require 3-dimensional planning. Sections of the path that include turning do require fulldimensional planning. Similarly, planning for manipulation
+Copyright c 2011, Association for the Advancement of Artiﬁcial Intelligence (www.aaai.org). All rights reserved.
+This research was sponsored by ONR grant N00014-09-11052 and the Army Research Laboratory Cooperative Agreement Number W911NF-10-2-0016.
+
+can often be reduced to 3D planning for an end-effector and then just running an inverse kinematics solver to ﬁnd the full-dimensional path that corresponds to the found endeffector path. At the same time, there are relatively infrequent situations where the planner does need to consider the full conﬁguration of the arm in trying to ﬁgure out the feasibility of the end-effector path.
+In this paper, we present an algorithm that exploits this observation. It iteratively constructs a state-space that is low-dimensional everywhere except for the areas where low-dimensional planning fails. This results in substantial speedups and lower memory requirements. On the theoretical side, we show that the method is complete with respect to the state-space discretization and can provably guarantee to ﬁnd a solution, if one exists, within a given suboptimality bound. On the experimental side, we apply our algorithm to a 3D (x, y, θ) vehicle navigation problem, planning adaptively in 3D/2D, and also to a 7 DOF robot arm on the Willow Garage’s PR2 robot, planning adaptively in 7D/3D, where 3D corresponds to 3D (x, y, z) planning for the end effector. In both scenarios, our experiments suggest that our approach can be substantially faster than other methods optimized for these tasks.
+2 Related Work
+In order to improve planning times, researchers have used a variety of techniques to avoid performing global planning in high-dimensions. Many path planners implement a two layer planning scheme where a low-dimensional global planner provides input to a higher-dimensional local planner. Since these local planners can operate on a small subset of the entire environment, they can afford to include more dimensions while still meeting planning time constraints. The local planners have been implemented using reactive obstacle avoidance planners (Thrun and others 1998) and dynamic windows (Philippsen and Siegwart 2003; Brock and Khatib 1999) to produce feasible paths from an underlying low-dimensional global planner. However these techniques can result in highly suboptimal paths and even paths that are infeasible to follow due to mismatches in the assumptions made by the higher and lower level planners.
+Our approach does not split the planning process into two ﬁxed layers but rather mixes the dimensionalities of the planning problem within a single planning process. The tech-
+
+52
+
+nique most similar to ours is the hierarchical planners using homomorphic abstraction which have shown excellent runtime reductions by grouping adjacent states together and pre-computing costs for traversing the set from all possible entry and exit points (Botea, Mu¨ller, and Schaeffer 2004). This approach requires signiﬁcant pre-processing in order to be effective. Other hierarchical planners use different methods of abstraction to make better informed heuristics to guide the search (Bulitko et al. 2007). Our method differs from these in that we change the dimensionality of a state-space where necessary as opposed to combining states to have connecting edges.
+Our approach is also somewhat relevant to planners that use very accurate pre-computed heuristic values (Knepper and Kelly 2006). The heuristics are often derived by solving a lower-dimensional problem. As a result, these methods can be viewed as a full-dimensional planning that uses the results of the lower dimensional planning. Unlike our approach however, these methods do not explicitly decrease the dimensionality and, as a result, can run into severe computational problems when the heuristic is incorrect.
+3 Planning with Adaptive Dimensionality
+3.1 Deﬁnitions, Notations, Assumptions
+We are assuming that the planning problem is represented by a discretized ﬁnite state-space S of dimensionality d, consisting of state vectors X = (x1, ..., xd), and a set of transitions T = {(Xi, Xj)|Xi, Xj ∈ S}. Each transition (Xi, Xj) corresponds to a feasible transition between the corresponding state vector values and is associated with a cost c(Xi, Xj) which is bounded from below by some positive δ, that is, c(Xi, Xj) > δ > 0. Thus, we have an edgeweighted graph G with a vertex set S and edge set T . The goal of the planner is to ﬁnd a least-cost path in G from the start state XS to the goal state XG. We will use the notation π(Xi, Xj) to denote a path in graph G from state Xi to state Xj. We will use π∗(Xi, Xj) to denote a least-cost path. The cost of any path π(Xi, Xj) is the cumulative costs of the transitions along it and will be notated by c(π(Xi, Xj)).
+Consider two state-spaces—a high-dimensional Shd with dimensionality h, and a low-dimensional Sld with dimensionality l, which is a projection of Shd onto a lower dimensional manifold (h > l, |Shd| > |Sld|). We deﬁne a many-to-one mapping
+λ : Shd → Sld
+from the high-dimensional state-space Shd to the lowdimensional state-space Sld. For example, in the case of 3D/2D navigation planning we used the simple mapping λ((x, y, θ)) = (x, y), just dropping the heading information θ.
+Each of the two state-spaces may have its own transition set. For example, in the 3D/2D navigation planning scenario we used 8-connected grid transitions for the 2D state-space, and a set of precomputed feasible atomic actions that capture the kinodynamic constraints of the vehicle, called motion primitives, as transitions for the 3D state-space (Figure 1). We require that the costs of the transitions be such that for
+
+Figure 1: Example state transitions for a 3D/2D state-space–white cells are 2D states (x, y),
+dark gray cells are 2D states with feasible 3D transitions to 3D states (x, y, heading), and the light gray cells are 3D states. On the upper left is shown a 2D state with all of its feasible transitions (only 2D transitions). The state in the middle right is in the boundary area, so its feasible transitions include all 2D transitions that end in a 2D state and all 3D transitions (from all possible heading values) that end in a 3D state. In light gray are shown some of the disallowed 3D transitions, since they lead to 2D states. In the lower left is a 3D state with all of its 3D transitions (heading indicated by the white arrow).
+
+every pair of states Xi and Xj in Shd,
+
+c (π∗ (Xi, Xj)) ≥ c (π∗ (λ(Xi), λ(Xj)))
+
+(1)
+
+That is, we require that the cost of a least-cost path between
+any two states in the high-dimensional state-space to be at
+least the cost of a least-cost path between their images in the
+low-dimensional state-space. We also deﬁne the mapping λ−1 : Sld → (Shd)∗ from
+the low-dimensional state-space Sld to subsets of the highdimensional state-space Shd, deﬁned by
+λ−1(Xld) = {X ∈ Shd|λ(X) = Xld}
+Notice that λ−1 is a one-to-many mapping. Let Ghd and Gld represent the corresponding graphs de-
+ﬁned by Shd and Sld and their respective transition sets T hd and T ld.
+The idea of our algorithm is to iteratively construct and search an adaptively-dimensional state-space Sad. We discuss the structure and the construction of Sad in the next
+section.
+
+3.2 Algorithm
+Structure of Sad: Recall that the goal of our algorithm
+was to use the faster low-dimensional planning, except for
+areas of the environment where high-dimensional planning
+is necessary to ensure the feasibility of the resulting path.
+We want our adaptively-dimensional state-space to cap-
+ture this property—namely, we want to have largely lowdimensional states in Sad, except for the areas where high-
+dimensional planning needs to be done, represented by highdimensional states in Sad. To ensure path feasibility in the high-dimensional regions of Sad, we have to use high-
+dimensional transitions. In the low-dimensional areas we
+can use simpler low-dimensional transitions. However, recall that the transitions we have in T hd and T ld connect two
+states of the same dimensionality, which do not allow us to
+transition from the low-dimensional to the high-dimensional regions. Therefore, we have to construct a transition set T ad
+that allows for transitions between states of different dimen-
+sionalities. Construction of Sad: Our algorithm iteratively con-
+structs Sad, beginning with the low-dimensional-state space Sld and introducing a set of high-dimensional regions R in
+it. We will ﬁrst explain how the high-dimensional regions
+
+53
+
+(a) Initial 2D/3D path
+
+(b) Tunnel around path
+
+(c) Tracking in tunnel
+
+(d) Add sphere at point of fail-
+ure
+
+(e) 2D/3D path
+
+(f) Tunnel around path
+
+(g) Tracking in tunnel (h) Add sphere at point of fail-
+
+(i) 2D/3D path
+
+(j) Tunnel around path
+
+(k) Tracking in tunnel
+
+(l) Final trajectory
+
+ure
+Figure 2: Example of iterative process for simple map. The light gray circles are the states that exist in 3D, while the darker gray outer circles represent the border of 2D states which have valid 3D transitions
+going into the 3D areas. The black bars are obstacles, white areas are 2D only, and the dark gray lines are the path from the 2D/3D search and the forward simulation.
+
+are being introduced into Sad and connected with the low-
+dimensional regions. The algorithm that decides when and
+where to introduce these regions will be explained later.
+Once a high-dimensional region r is introduced, the following changes are done to Sad. If a low-dimensional state Xild falls inside a high-dimensional region r ∈ R, we replace it with its high-dimensional projection states in λ−1(Xild). Thus, Sad contains both low-dimensional and high-dimensional states. Notice that if a high-dimensional state Xhd is in Sad, then its low-dimensional projection λ(Xhd) is not in Sad, and also if Xhd ∈ Sad, then λ(Xhd) ∈ Sad.
+Next we deﬁne the transition set T ad for the adaptivelydimensional state-space as follows. For any state Xi ∈ Sad:
+• If Xi is high-dimensional then for all high-dimensional transitions (Xi, Xjhd) ∈ T hd, if Xjhd ∈ Sad then (Xi, Xjhd) ∈ T ad. If Xjhd ∈ Sad, then (Xi, λ(Xjhd)) ∈ T ad. That is, for high-dimensional states we allow only
+high-dimensional transitions to other high-dimensional states if they fall inside Sad, or their low-dimensional pro-
+jections (Fig. 1 lower left).
+• If Xi is low-dimensional then for all low-dimensional transitions (Xi, Xjld) ∈ T ld, if Xjld ∈ Sad then (Xi, Xjld) ∈ T ad and for all high-dimensional transitions (X, Xjhd) ∈ T hd, where X ∈ λ−1(Xi), if Xjhd ∈ Sad then (Xi, Xjhd) ∈ T ad. That is, for low-dimensional states we allow low-dimensional transitions if they lead to another low-dimensional state in Sad (Fig. 1 upper
+left), and high-dimensional transitions from their high-
+dimensional projections if they lead to a high-dimensional state in Sad (Fig. 1 right).
+Notice, that the above deﬁnition of T ad allows for transi-
+tions between states of different dimensionalities. Figure 1
+illustrates the set of transitions in the adaptive graph in the
+case of 3D (x, y, θ) path planning. The adaptively-dimensional state-space Sad and the tran-
+sition set T ad give us a graph Gad of adaptive dimensional-
+ity. Adding new high-dimensional regions or increasing the sizes of existing regions requires the reconstruction of Sad
+
+and T ad, and thus, will produce a new instance of Gad.
+
+We also deﬁne a tunnel τ of radius w around an
+adaptively-dimensional path πad as follows: τ is a subgraph of Ghd, and thus consists of high-dimensional states and transitions. A high dimensional state Xhd ∈ τ if there exists a state Xi ∈ πad such that the distance from λ(Xhd) to Xi (or λ(Xi) if Xi is high-dimensional) is no larger than w, for some pre-deﬁned distance metric in Sld. We include all transitions (Xj, Xk) from T hd such that both Xj and Xk are in τ .
+
+We continue this section with an intuitive description of
+
+our proposed algorithm, in particular the algorithm for de-
+ciding when and where to introduce the high-dimensional regions within Sad. Figure 2 provides an illustration of
+
+a run of the algorithm for 3D (x, y, θ) path planning, that
+
+completed in 3 iterations. Algorithm 1 gives the pseudo
+
+code for our algorithm. Each iteration of the algorithm con-
+
+sists of two phases—an adaptive planning phase (Fig. 2(a))
+
+and a path tracking phase (Fig. 2(b) - 2(d)). In the adap-
+tive planning phase, the current instance of the adaptivelydimensional graph Gad is searched for a least-cost path of
+
+adaptive dimensionality from start to goal. The tracking
+
+phase, then attempts to construct a high-dimensional exe-
+
+cutable path to match (or track) the adaptive path computed
+
+in the adaptive planning phase.
+
+Initially, Gad is the same as Gld, with two high-
+
+dimensional regions added around the start and goal states (Algorithm 1, lines 1-3), which are necessary since the start
+
+and goal states are high-dimensional. At each iteration, a new instance of Gad is constructed based on the set of high-
+
+dimensional regions, and is searched for a least-cost path πa∗d from XS to XG. Notice that πa∗d consists of both lowdimensional and high-dimensional states, so it is not an ex-
+
+ecutable path. If no path is found in the adaptive planning
+
+phase, then no feasible path exists from start to goal and
+
+the algorithm terminates. If an adaptive path πa∗d is found, then the path tracking phase constructs a tunnel τ of ra-
+
+dius w around is searched for
+
+tahleeaasdta-cpotisvteppaaththππτ∗a∗fdro(mFigs.tar2t(tbo))g. oTalh(eFnigτ.
+
+2(c)). Note that since τ consists of only high-dimensional
+
+states and transitions, πτ∗ is a fully high-dimensional path,
+
+54
+
+(a) XS and XG
+
+(b) 7D spheres at XS and XG
+
+(c) πad(XS , XG) for iteration 1
+
+(d) New sphere inserted at point of tracking
+failure
+
+(e) πad(XS , XG) for iteration 2 (f) Final 7D arm trajectory after successful (g) Final trajectory (obstacles not shown)
+
+(h) Final trajectory (top view)
+
+tracking
+
+Figure 3: Example environment for robotic arm motion planning. A trajectory is computed of how the arm can be maneuvered from the start conﬁguration to reach through the opening to the goal arm
+conﬁguration in two iterations of our algorithm. 3(c) and 3(e) show the adaptively-dimensional paths computed at each iteration
+
+and thus, it is executable. If no path is found in τ , then
+
+a new high-dimensional region is introduced in Gad or the
+
+sizes of the existing regions are increased, and the algorithm
+
+proceeds to the next iteration. If a path is found in τ , but its cost c(πτ∗) > track · c(πa∗d), then a new high-dimensional region is introduced or the sizes of existing high-dimensional
+
+regions are increased, and another iteration is started. If c(πτ∗) ≤ track · c(πa∗d), then the algorithm returns πτ∗ as a feasible path from start to goal and terminates. The returned
+
+path is guaranteed to have cost that is no more than track times the cost of an optimal path in Ghd.
+
+Identifying the places where high-dimensional regions
+
+need to be introduced is a non-trivial problem in itself. In
+
+both of our experiments, the search within the tunnel dur-
+
+ing the path tracking phase keeps a record of how far along
+
+the tunnel states have been expanded. Thus, if the search
+
+in τ fails, we are able to reconstruct a path to the point
+
+where the search had failed, and we introduce a new high-
+
+dimensional region there, as seen in Fig. 2(c),2(d),2(g), and
+
+2(h). Line 17 of algorithm 1 is obscure about how exactly
+
+the state Xr where a new high-dimensional region needs to be introduced is being computed. There are a number of
+
+approaches that can be taken in identifying such a state. Per-
+
+haps the simplest one is to pick a random location along the
+
+path where to introduce a new region. A more sophisticated
+
+technique, which we implemented, is to approximate the lo-
+
+cation, where the largest cost πτ∗ is observed. Introducing a
+
+discrepancy between πa∗d and new high-dimensional region
+
+at that location tends to remedy the cost discrepancy, and
+
+generally works well in identifying the regions that require
+
+high-dimensional planning. The approach taken in comput-
+
+ing Xr does not affect the theoretical properties of the algorithm, such as algorithm termination and suboptimality
+
+guarantees.
+
+3.3 Theoretical Properties The presented algorithm is complete with respect to Gad and provides guarantees on the suboptimality related to the
+track constant.
+
+Algorithm 1 Path Planning with Adaptive Dimensionality
+
+1: Gad = Gld
+
+2: AddFullDimRegion(Gad, λ(XS))
+
+3: AddFullDimRegion(Gad, λ(XG))
+
+4: loop
+
+5: 6:
+
+search Gad if πa∗d(XS ,
+
+for least-cost path πa∗d(XS XG) is not found then
+
+,
+
+XG
+
+)
+
+7:
+
+return no path from XS to XG exists
+
+8: 9:
+
+construct a tunnel τ around search τ for least-cost path
+
+ππτ∗a∗(dX(XSS, X, XGG)
+
+)
+
+10: if πτ∗(XS, XG) is not found then
+
+11:
+
+let π(XS, Xend) be the returned path
+
+12:
+
+if Xend is already within FullDimRegion in Gad then
+
+13:
+
+GrowFullDimRegion(Gad, λ(Xend))
+
+14:
+
+else
+
+15:
+
+AddFullDimRegion(Gad, λ(Xend))
+
+16: else if c(πτ∗(XS , XG)) > track · c(πa∗d(XS , XG)) then
+
+17:
+
+identify a state Xr where a new FullDimRegion needs to
+
+be introduced
+
+18:
+
+if Xr is already within FullDimRegion in Gad then
+
+19:
+
+GrowFullDimRegion(Gad, Xr)
+
+20:
+
+else
+
+21:
+
+AddFullDimRegion(Gad, Xr)
+
+22: else
+
+23:
+
+return πτ∗(XS, XG)
+
+Theorem 3.1 The cost of a least-cost path from XS to XG, πa∗d(XS, XG), in Gad is a lower bound on the cost of a leastcost path from XS to XG, πh∗d(XS, XG), in Ghd.
+c(πa∗d(XS, XG)) ≤ c(πh∗d(XS, XG)) Proof Consider the projection of the path c(πh∗d(XS, XG)) onto the adaptive dimensionality state-space Sad. In this projection, every state X in πh∗d(XS, XG) is mapped onto itself if X ∈ Sad and onto λ(X) otherwise. Then according to equation 1, every transition Ti in the projected version of the path πh∗d(XS, XG) will either be bounded from above by the cost of the corresponding transition in
+
+55
+
+πh∗d(XS, XG) if Ti is a low-dimensional transition, or will be exactly equal to the cost of the corresponding transition if
+
+Ti is a high-dimensional transition. Consequently, the cost
+
+of the projected version than c(πh∗d(XS, XG)).
+
+oFfurπth∗hde(rmXoSr,eX, Gsi)ncweilπl a∗bde(XnoS
+
+larger , XG)
+
+is a least-cost path from XS to XG in Sad, its cost is no
+
+larger than the cost of any other path including the cost
+
+of the projected c(πa∗d(XS, XG))
+
+version ≤ c(πh∗d
+
+of πh∗d(XS (XS, XG)).
+
+,
+
+XG).
+
+As a result,
+
+Theorem 3.2 If we have a ﬁnite state-space, algorithm 1 terminates and at the time of its termination, the cost of the returned path π(XS, XG) is no more than track times the cost of an optimal path from state XS to state XG in Ghd.
+
+Proof The termination of the algorithm is ensured by the
+fact that after each iteration we are introducing new highdimensional states to Gad. Since we have a ﬁnite statespace, after ﬁnitely many iterations, Gad will become identical to Ghd, containing only high-dimensional states. Gad
+will then be searched for a least-cost path in a ﬁnite time.
+If a path is successfully computed by the adaptive planning
+phase, it will be fully high-dimensional and the tracking
+phase will be able to track the computed path exactly, causing the algorithm to terminate. If no path is found in Gad,
+the algorithm again terminates stating that no feasible path
+exists from start to goal.
+The second statement of Theorem 3.2 follows from The-
+orem 3.1. By Theorem 3.1, the adaptive planning phase pro-
+duces an underestimate of the real cost from start to goal, that is c(πa∗d(XS, XG)) ≤ c(πh∗d(XS, XG)). Upon algorithm termination, the tracking phase succeeds in ﬁnding a
+path of cost no more than track times the cost of the computed adaptive path. Thus, we have c(πτ (XS, XG)) ≤
+track · c(πa∗d(XS , XG)) ≤ track · c(πh∗d(XS , XG)). Hence, the cost of the tracked path is no larger than track times the cost of an optimal path from start to goal in Ghd.
+
+-suboptimal graph searches such as weighted-A* are often used by researchers (Likhachev and Ferguson 2008), since they provide the ﬂexibility of quickly ﬁnding paths of cost no more than times the cost of an optimal path. The following result can be proven if we modify algorithm 1 to use such -suboptimal graph searches:
+
+Theorem 3.3 If plan-suboptimal searches are used in lines
+5 and 9 of algorithm 1, the cost of the path returned by our algorithm is no larger than plan · track · πh∗d(XS, XG).
+
+Proof If we use an -suboptimal search in the adaptive plan-
+
+ning phase, we know that that the cost of the produced path
+
+c(πad) is no larger than · c(πa∗d) ≤ · c(πh∗d).
+
+· c(πa∗d). Then we have c(πad) ≤ Then we know that the tracking
+
+phase produced a path πτ of cost no larger than track ·c(πad).
+
+Hence, we have c(πτ ) ≤ track · c(πad) ≤ · track · c(πh∗d).
+
+3.4 Algorithm Parameters
+Our algorithm has several important parameters that directly affect its execution time:
+• tracking suboptimality parameter track ≥ 1 – affects the number of iterations of the algorithm. Larger values pro-
+
+duce more suboptimal ﬁnal paths with fewer algorithm iterations, trading off path suboptimality for planning time.
+• adaptive search suboptimality parameter plan ≥ 1 – affects the time spent in the adaptive planning phase of each iteration. Larger values produce more suboptimal paths quicker, trading off path suboptimality for planning time.
+• size of high-dim. regions – affects the number of iterations and also the time spent in the adaptive planning phase of the algorithm. Larger regions tend to reduce the number of iterations but many unnecessary highdimensional states may be introduced, which increases adaptive planning time. The parameter generally trades off between number of algorithm iterations and time required per iteration.
+• width of the tracking tunnel τ – affects the amount of time taken by the tracking phase of the algorithm and the chances of successful tracking. The parameter trades off the number of iterations for tracking time per iteration.
+4 Implementation and Experimental Analysis
+The domains we chose to validate our algorithm were robotic path planning for non-holonomic robots done in three dimensions—(x, y, heading), and arm motion planning for 7 DOF robotic arm on the Willow Garage’s PR2 robot. In both cases our algorithm implementation kept track of the high-dimensional regions of the environment as spheres: 2D (x, y) circles in the case of 3D path planning, and 3D (x, y, z of the end-effector) spheres in the case of robotic arm motion planning). This allowed us to quickly check if a state falls inside a region or not, and also quickly add new regions and grow the sizes of existing ones.
+In both cases the graph G representing the problem was constructed as a lattice-based graph, similar to the approach taken in (Likhachev and Ferguson 2008), except we used constant resolution for all lattices. In lattice-based planning, each state consists of a vertex encoding a state vector and edges corresponding to feasible transitions to other states. The set of edges incident to a state are computed based on a set of pre-computed motion primitives, which are executable by the robot.
+4.1 3D Path Planning
+For the 3D planning, we modeled our environment as a planar world and a polygonal robot with three degrees of freedom: x, y, and θ (heading). We used a very simple projection function λ to transform 3D states to 2D states:
+λ3D/2D(x, y, θ) = (x, y)
+We used a 16-discretized value for the heading angle, thus, our λ−1 mapping was:
+λ−3D1/2D(x, y) = {(x, y, 0), ..., (x, y, 15)}
+The set of motion primitives used for 3D states consisted of long straight, short straight, left and right turn elements for both forward and reverse motion, as can be seen in the lower left corner of ﬁgure 1. The motion primitives used for
+
+56
+
+(a) Typical map used for 3D/2D navigation. (b) Example map for which the 2D Dijkstra
+heuristic is misleading for the 3D search (the
+opening on the lower left is not traversable us-
+ing 3D motion primitives).
+Figure 4: Maps of size 2500x2500 cells.
+2D states were the eight neighboring states (eight-connected 2D grid), as seen in the upper left of ﬁgure 1. It should be noted that the motion primitives for 2D states do not produce feasible paths.
+We compared our algorithm to the full 3D planner on several different map sizes. Small maps with few hundred cells in each dimension were quickly solved by the full 3D planner, so little beneﬁt was seen of our algorithm. On maps with 5000 or more cells in both x and y dimensions, the full 3D planner was unable to ﬁnd a solution due to memory constraints, while our algorithm, having to expand a lot fewer states, was still able to plan successfully.
+As a middle ground and to prevent the results from being skewed by the 3D planner having to use the signiﬁcantly slower hard drive swap space, we randomly generated 50 2500x2500 cell maps typiﬁed by ﬁgure 4(a) for our test runs.
+In all the cases we used a 2D Dijkstra search as the heuristic to help guide a weighted-A* 3D planner towards the goal state. Weighted-A* multiplies the heuristic by an value to direct the planner along the heuristic path as in (Likhachev and Ferguson 2008). By weighting the heuristic in this manner the resulting path cost is guaranteed to be within of the optimal cost. In addition, for the 2D portion of our planner and the heuristic generation for the 3D planner, the obstacles on the map were inﬂated by the inscribed circle radius to preclude the generation of paths through areas too narrow for the robot to physically traverse.
+The underlying search algorithm used in both the adaptive planning phase and the tracking phase of our algorithm was also weighted-A* using the plan parameter suboptimality bound. In addition, the tunnel width we used for the tracking phase was six cells, and the radii of newly added spheres were 20 cells. Since the longest motion primitive was 10 cells long, these parameter values seemed sufﬁcient to allow reasonable range of maneuvers to occur within a sphere and within the tracking tunnel τ .
+For each map three values of the suboptimality parameter were tried: 1.1, 1.5 and 3.0 with the adaptive planner using the square root of for both plan and , track giving an overall suboptimality bound of the adaptive algorithm of . For both planners a maximum planning time was enforced based on the value of : = 1.1 : 5 minutes, = 1.5 : 4 minutes, = 3.0 : 3 minutes.
+
+Figure 5: Trajectory from Fig. 3 being executed by an actual PR2 robot
+4.2 Robotic Arm Motion Planning
+In the case of the robotic arm motion planning, our goal was to use a 7D/3D adaptive planning, where 3D states represented the arm’s end-effector position, and 7D states represented the full arm conﬁguration. Generally, the full arm conﬁguration on the PR2 robot is given by its seven joint angles (shoulder pan, shoulder lift, shoulder roll, elbow ﬂex, forearm roll, wrist ﬂex, wrist roll). Constructing a λ mapping reducing full joint angle conﬁguration to end effector position presented several challenges—namely discretization of the joint angle space could not be easily matched to a discretization of the end-effector position space, and λ and λ−1 would have needed to involve expensive FK and IK computations. Instead, we decided to transform the standard 7D robot arm conﬁguration representation to one described in (Tolani, Goswami, and Badler 2000), which converts joint angles representations of a 7 DOF arm to 7 DOF representations consisting of the following values: (end-effector x position, end-effector y position, end-effector z position, endeffector roll, end-effector pitch, end-effector yaw, swivel angle). We are going to adopt the following short-hand notation for describing such states: (eeposition, eeorientation, swivel), where eeposition and eeorientation consist of 3 values each. For more details on the representation, consult (Tolani, Goswami, and Badler 2000). This alternative representation of the full arm conﬁguration did not change the dimensionality of the high-dimensional state-space, but provided clean and easy λ and λ−1 mappings without any dicretization inconsistencies.
+λ7D/3D(eeposition, eeorientation, swivel) = (eeposition)
+λ−7D1/3D(eeposition) = {(eeposition, eeorientation, swivel)|
+for all feasible values of swivel and eeorientation}
+We used very simple motion primitives for the 7D arm motion planning—namely we allow +/-1 change in each of the seven state-vector values. This produces 14 possible transitions for 7D states and 6 possible transitions for 3D states. Due to the simplicity of the motion primitives, the resulting arm trajectory is not very smooth, but experimenting with a more complex set of motion primitives is one of our future work goals.
+We chose a 2 cm. 3D grid resolution for the end-effector position, and 16-discretized values for the four angles. This produced a 3D grid of 75x75x75, or roughly 420,000 lowdimensional states, centered at the shoulder joint. In each cell of the grid we have 164 ∼ 65, 000 possible highdimensional states, giving us a total of about 28 billion states in the high-dimensional state-space.
+We ran both the adaptive dimensionality planning algorithm and the full 7D planning algorithm on 35 environments and compared the results. Environments ranged in
+
+57
+
+degree of difﬁculty—some required very simple motions to navigate from start to goal, while others were more cluttered and required a set of complex maneuvers to navigate around the obstacles. Some of the types of environments we used included various table tops, bookshelves, and random cuboid obstacles. Both the adaptively-dimensional and the 7D algorithm utilized a 3D Dijkstra heuristic to guide the planners to the position constraint. We treated the end-effector as a point robot of radius equal to the radius of the largest link of the arm. More sophisticated collision checking and enforcing of joint limits were done on high-dimensional states.
+We observed that new sphere radius parameter value of about 10cm. allows sufﬁcient arm maneuvering. Also tunnel radius of 10-20cm. provides a good balance between the success rate of the tracking phase and the time needed for tracking a path. Since we have a large number of highdimensional states, we imposed time limits on both the adaptive planning phase and the tracking phase. The time limit we used for the adaptive planning phase was 120 seconds. If the limit was reached the adaptive planning failed and the algorithm terminated, reporting that no path from start to goal could be found in the given time limit. Due to the number of states inside the tunnel τ even with a small radius, the tracking search might take a long time to ﬁnd a path through the tunnel or fail. Since we require the tracking to fail before we begin a new iteration, it becomes impractical to wait long for tracking to fail before starting a new iteration. Thus, we limit the time for the tracking phase, allowing us to proceed to the next itration more quickly. The time limit on the tracking phase we used was 20 seconds.
+4.3 Results
+For both the 3D path planning and the 7D motion planning on robotic arm experiments, we compared the total number of states expanded, number of high-dimensional states expanded, ﬁnal path cost, and execution time of the adaptively-dimensional planner compared to the highdimensional planner, for each of the maps tested. Our results are summarized in table 1 for 3D vehicle navigation and table 2 for the robotic arm motion planning.
+In the case of 3D path planning, while the average time for the adaptively-dimensional planner was signiﬁcantly shorter than the average time for the 3D planner it is interesting to note that the 3D planner was actually faster on 54 out of 100 runs. When the map was benign, the 2D Djikstra heuristic allowed the 3D planner to expand very few states, particularly at higher plan values. However, two particular cases led to very long 3D plan times: the case of a map with no solution and the case of a map where the solution required a route very different from the one computed by the heuristic. Of the 18 runs where neither algorithm was able to ﬁnd a solution in the allowed time the adaptively-dimensional planner recognized no solution was available in an average of 12 seconds with a maximum of 25 seconds. On the other hand, the 3D planner in all but two cases ran out of allowable execution times (determined the two cases after 177 and 175 seconds for = 1.5 and = 3.0 respectively).
+The second case where the adaptive-dimensionality planner performed signiﬁcantly better than the 3D planner is the
+
+set of maps where the heuristic for the 3D planner fails to ﬁnd a good route. An example of this type of map is shown in ﬁgure 4(b). A signiﬁcantly shorter path exists from start to goal going through the narrow opening depicted in the lower left. Even after inﬂating the obstacles, the 2D planner is capable of ﬁnding a route through the narrow passage. However, this path is not executable using the 3D motion primitives. The 3D planner cannot make use of this information and update its heuristic due to its non-iterative nature. The adaptively-dimensional algorithm initially plans a 2D path through the short cut, but after attempting to track this path, ﬁnds that it cannot negotiate the tight turn and places a sphere at that location. During the next iteration while expanding the 3D states in the sphere the adaptivelydimensional planner determines that no path through the sphere exists and reverts back to the 2D planner to explore other alternative routes. By using the lower-dimensional search to ﬁnd the alternate route, this search can be performed signiﬁcantly quicker than the full 3D search.
+In the case of 7D motion planning on a robotic arm, we noticed results similar to those obtained in the 3D path planning experiments. For simple environments where the 3D Dijkstra heuristic provides good guidance to the goal and for high plan values, 7D planning is able to quickly identify a path from start to goal satisfying the suboptimality constraint, without having to expand many states. However, in cases of complex environments, where the heuristic fails to provide good guidance to the goal, or for lower suboptimality bounds the adaptively-dimensional planner performs signiﬁcantly faster. As seen in table 2, adaptive planning is able to achieve about two times speedup on the average over seven-dimensional planning for suboptimality bound of 5.0, and about ten times speedup for suboptimality bound of 2.0. We ran our algorithm with several sets of parameter values. It is interesting to note that increasing the tracking tunnel radius by a factor of 2 results in about 4 times increase in the average number of 7D states expanded during tracking, and thus, about 4 times increase in the average planning time (19.59s). On the other hand, decreasing the tracking tunnel radius by a factor of 2 results in increased number of algorithm iterations on some of the more cluttered environments, slightly increasing the average planning time (7.66s).
+4.4 Comparison with Sampling-Based Planners
+
+Algorithm
+RRT (smoothed) RRT (not smoothed) adaptive
+
+End-effector distance
+
+between a pair of trajectories
+
+Avg.
+
+Max.
+
+8.2 cm
+
+27.5 cm
+
+9.7 cm
+
+28.8 cm
+
+2.5 cm
+
+7.7 cm
+
+Elbow distance
+
+between a pair of trajectories
+
+Avg.
+
+Max.
+
+6.6 cm
+
+18.0 cm
+
+6.5 cm
+
+17.9 cm
+
+2.2 cm
+
+7.9 cm
+
+Table 3: Trajectory consistency comparison between our planner
+
+and an RRT planner in the 7DOF robotic arm setting.
+
+We also compared our adaptively-dimensional planner with a sampling-based planner—RRT (LaValle and Kuffner 2001; Kuffner and LaValle 2000; Kavraki et al. 1996)— in the 7DOF robot-arm setting. The advantages of our algorithm over sampling-based planners are deterministic bounds on suboptimality guarantees, consistency in the solutions of similar problems, and applicability to any (including discrete) planning problems that can be represented as
+
+58
+
+Algorithm
+3D adaptive 3D adaptive 3D adaptive
+
+Suboptimality Bound 1.1 1.1 1.5 1.5 3.0 3.0
+
+Time (secs) mean std dev 142.57 60.24 184.99 112.93 83.74 104.94 25.78 48.96 59.99 79.16 15.21 35.80
+
+# 3D Expands (in thousands)
+
+mean
+
+std dev
+
+5218
+
+2177
+
+4448
+
+2884
+
+2813
+
+3533
+
+648
+
+1665
+
+2252
+
+3064
+
+396
+
+1319
+
+# 2D Expands (in thousands)
+
+mean
+
+std dev
+
+n/a
+
+2434
+
+1793
+
+n/a
+
+826
+
+1332
+
+n/a
+
+656
+
+1145
+
+Total Expands (in thousands)
+
+mean
+
+std dev
+
+5218
+
+2177
+
+6957
+
+3946
+
+2813
+
+3533
+
+1476
+
+2541
+
+2252
+
+3064
+
+1053
+
+1903
+
+Table 1: Testing results on randomly generated maps for 3D path planning on non-holonomic robot
+
+Path Cost mean std dev 58763 9610 59202 9856 68360 11946 66630 13400 79707 13463 71358 13372
+
+Algorithm
+7D adaptive 7D adaptive
+
+Suboptimality Bound 2.0 2.0 5.0 5.0
+
+Time (secs)
+
+mean std dev
+
+147.88 59.93
+
+14.42 41.95
+
+10.63 15.66
+
+5.23
+
+10.45
+
+# Iterations mean max
+n/a 1.31 6.0
+n/a 1.06 2.0
+
+# 7D Expands
+
+mean
+
+std dev
+
+769743 1103939
+
+47419 151391
+
+46529
+
+65586
+
+23877
+
+45427
+
+# 3D Expands
+
+mean std dev
+
+n/a
+
+33219 189870
+
+n/a
+
+113
+
+40
+
+Total Expands
+
+mean
+
+std dev
+
+769743 1103939
+
+79689 244112
+
+46529
+
+65586
+
+23986
+
+45439
+
+Path Cost mean std dev 63417 18088 72656 17000 73344 19092 75400 18839
+
+Table 2: Testing results on 35 environments for 7D motion planning on robotic arm
+
+Successful Plans
+12 of 35 33 of 35 31 of 35 34 of 35
+
+a graph and have corresponding low-dimensional graph representations. Although our algorithm could not match the speed of RRT, the consistency of our planner was signiﬁcantly better—it produced very similar trajectories for similar start/goal conﬁgurations within an environment.
+We used the following experimental setup for measuring the consistency of the planners. We picked a random tabletop environment in which the goal is to maneuver the robotic arm from under to over a table-top. We created 10 scenarios with similar (but not the same) start and goal conﬁgurations in that environment. We ran both our planner and the RRT planner on these scenarios. To measure the consistency between a pair of arm trajectories produced by a planner, we measured the average and maximum distances between endeffector positions along the trajectories and also the average and maximum distances between elbow positions along the trajectories. We calculated the consistency between all (45) pairs of the 10 trajectories produced by our planner and compared it with the consistency between all (45) pairs of the 10 RRT trajectories (we compared with both RRT with postsmoothing and RRT without smoothing; smoothing operations included shortcutting and quintic spline smoothing). Table 3 shows the maximum and average end-effector and elbow distances averaged over the 45 pairwise comparisons of the 10 trajectories for each planner.
+5 Conclusion
+While many path planning problems are seemingly highdimensional, they are often low-dimensional in most of the state-space. In this paper, we have presented an algorithm that tries to exploit this observation and constructs a statespace of adaptive dimensionality: high dimensionality is introduced only where it is necessary. This results in a signiﬁcant speedup over the full-dimensional planning alternatives without sacriﬁcing the guarantees on completeness and suboptimality.
+References
+Botea, A.; Mu¨ller, M.; and Schaeffer, J. 2004. Near Optimal Hierarchical Path-Finding. Journal of Game Development 1(1):7–28.
+Brock, O., and Khatib, O. 1999. High-speed navigation using the global dynamic window approach. In Proceedings
+
+of the IEEE International Conference on Robotics and Automation (ICRA), 341–346.
+Bulitko, V.; Sturtevant, N.; Lu, J.; and Yau, T. 2007. Graph abstraction in real-time heuristic search. Journal of Artiﬁcial Intelligence Research (JAIR) 30:51 – 100.
+Kavraki, L.; Svestka, P.; Latombe, J.-C.; and Overmars, M. H. 1996. Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces. IEEE Transactions on Robotics and Automation 12(4):566–580.
+Knepper, R., and Kelly, A. 2006. High performance state lattice planning using heuristic look-up tables. In Intelligent Robots and Systems, 2006 IEEE/RSJ International Conference on, 3375–3380.
+Kuffner, J., and LaValle, S. 2000. RRT-connect: An efﬁcient approach to single-query path planning. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA), 995–1001.
+LaValle, S., and Kuffner, J. 2001. Rapidly-exploring random trees progress and prospects. Algorithmic and Computational Robotics New Directions 293 – 308.
+Likhachev, M., and Ferguson, D. 2008. Planning long dynamically-feasible maneuvers for autonomous vehicles. In Proceedings of Robotics: Science and Systems (RSS).
+Philippsen, R., and Siegwart, R. 2003. Smooth and efﬁcient obstacle avoidance for a tour guide robot. In ICRA, 446–451.
+Thrun, S., et al. 1998. Map learning and high-speed navigation in RHINO. In Kortenkamp, D.; Bonasso, R.; and Murphy, R., eds., AI-based Mobile Robots: Case Studies of Successful Robot Systems. Cambridge, MA: MIT Press.
+Tolani, D.; Goswami, A.; and Badler, N. 2000. Real-time inverse kinematics techniques for anthropomorphic limbs. Graphical Models 62:353 – 388.
+
+59
+

@@ -1,0 +1,350 @@
+Robust Real-time UAV Replanning Using Guided Gradient-based Optimization and Topological Paths
+Boyu Zhou, Fei Gao, Jie Pan, and Shaojie Shen
+
+arXiv:1912.12644v2 [cs.RO] 16 Apr 2020
+
+Abstract— Gradient-based trajectory optimization (GTO) has gained wide popularity for quadrotor trajectory replanning. However, it suffers from local minima, which is not only fatal to safety but also unfavorable for smooth navigation. In this paper, we propose a replanning method based on GTO addressing this issue systematically. A path-guided optimization (PGO) approach is devised to tackle infeasible local minima, which improves the replanning success rate signiﬁcantly. A topological path searching algorithm is developed to capture a collection of distinct useful paths in 3-D environments, each of which then guides an independent trajectory optimization. It activates a more comprehensive exploration of the solution space and output superior replanned trajectories. Benchmark evaluation shows that our method outplays state-of-the-art methods regarding replanning success rate and optimality. Challenging experiments of aggressive autonomous ﬂight are presented to demonstrate the robustness of our method. We will release our implementation as an open-source package1.
+I. INTRODUCTION
+Unmanned aerial vehicles (UAVs) are gaining popularity for many applications such as autonomous inspection, transportation, and photography, in which the UAV is required to navigate along a global reference trajectory to ﬁnish its missions. To ensure safety, trajectory replanning is of vital importance to cope with previously unknown obstacles.
+The problem of trajectory replanning has been investigated actively. Recent works [1]–[5] reveal that gradient-based trajectory optimization (GTO), which typically formulates trajectory replanning as a non-linear optimization problem that trades off smoothness, safety, and dynamically feasibility, is particularly effective for this problem. It is widely applied thanks to its convenience to deform an infeasible trajectory segment into a feasible one, with very high efﬁciency and low memory requirement.
+Despite its advantages, GTO-based replanning is cursed by the issue of local minima. The issue arises from the collision cost of the optimization, which should be evaluated according to the structure of the environment. Since there are multiple safe and unsafe regions, this cost is non-convex by nature. This issue could cause fatal crashes since it frequently makes the trajectory get stuck in infeasible local minima and results in replanning failure. Besides, it also leads to the lack of optimality guarantee, as only a small fraction of solution
+This work was supported by HKUST-DJI Joint Innovation Laboratory and HKUST institutional fund. All authors are with the Department of Electronic and Computer Engineering, Hong Kong University of Science and Technology, Hong Kong, China. {bzhouai, fgaoaa, jpanai, eeshaojie}@ust.hk
+1The open-source code will be released at https://github. com/HKUST-Aerial-Robotics/Fast-Planner and https:// github.com/HKUST-Aerial-Robotics/TopoTraj
+
+Fig. 1. A set of topologically distinct paths (left). Multiple trajectories generated with the guidance of different paths (right). Video demonstrating the proposed replanning method in aggressive ﬂights is available at https: //www.youtube.com/watch?v=YcEaFTjs-a0.
+space around the initial trajectory is searched. Consequently, the so-called local optimal trajectory is usually unsatisfactory for smooth and safe ﬂights. Researchers have realized this critical issue and employed strategies like random restart [1] and iterative reﬁnement [5] to relieve it. Nonetheless, the problem is not resolved essentially and prohibits GTO to be applied to more challenging scenarios such as aggressive ﬂight.
+In this paper, the local minima problem is addressed systematically by a new GTO-based replanning method, which comprised of a path-guided optimization (PGO), an efﬁcient algorithm to discover topologically distinct paths, and the parallel trajectory optimization guided by the paths (as depicted in Fig.1). Firstly, we answer the question of how infeasible local minima of GTO can be reliably prevented. The typical reasons for infeasible local minima are investigated. Based on them, we propose PGO in which a geometric path is utilized to guide the optimization effectively so that the success of replanning is guaranteed. Secondly, we answer how optimality of the replanning can be improved considerably, with only minor computational overhead. We propose an efﬁcient sampling-based topological path searching approach to extract a comprehensive set of paths that capture the structure of the environment. With the guidance of several carefully selected paths, PGO is invoked to explore the solution space more thoroughly. It consistently yields better replanning than previous methods, while the total computation time is comparable.
+We conduct extensive benchmark comparisons with stateof-the-art methods and challenging real-world experiments to validate our proposed replanning method. Results show that it is superior to previous ones in terms of signiﬁcantly higher success rate and stronger optimality guarantee, with only slightly longer computational time induced by the topological path searching. The contributions of this paper are summarized as follows:
+
+1) A robust optimization approach for real-time trajectory replanning named PGO, to boost the success rate of the replanning.
+2) An efﬁcient topological path searching algorithm, and its integration with the proposed PGO, to search the solution space more thoroughly and yield better replanning.
+3) Benchmark comparisons and real-world experiments that validate the performance of our proposed method. The source code of our implementation will be released.
+II. RELATED WORK
+A. Gradient-based Trajectory Optimization
+GTO is one of the major trajectory generation approaches, which formulates the problem as a non-linear optimization that minimizes an objective function. Interest in this method was revived recently by [6], which generates discrete-time trajectories by minimizing its smoothness and collision costs using covariant gradient descent. [7] has a similar formulation, but solves the problem by sampling neighboring candidates iteratively. The stochastic sampling strategy partially overcomes the local minima issue but is computationally intensive. [1] extended the method to continuous-time polynomial trajectories to avoid differential errors. It also does random trajectory perturbation and optimization restart for a higher success rate. However, the improvement is insignificant. [2] improved the success rate by providing a highquality initial path, which is found by an informed samplingbased path searching. However, it only applies to low-speed ﬂight. In [3], the trajectory is parameterized as a uniform Bspline. It showed that the continuity and locality properties of B-spline are particularly useful for trajectory replanning. [4] further exploited the convex hull property of B-spline and improve the optimization efﬁciency and robustness by a large margin. However, given a poor initial trajectory in complex environments, this method still suffers. As a result, [5] adopts an iterative post-process to improve the practical success rate of [4]. By far, local minima still remains a challenge, since no method copes with it essentially. In this paper, we propose PGO, which incorporates a geometric path in the optimization. As the path effectually guides the optimization to escape from infeasible local minima, the planning success rate is guaranteed. Moreover, multiple distinct paths produced by the topological path searching are integrated with the PGO to seek for plentiful locally optimal solutions, which ensures higher trajectory quality.
+B. Topological Path Planning
+There have been works utilizing the idea of topologically distinct paths for planning, in which paths belonging to different homotopy (homology) [8]–[12] or visibility deformation [13] classes are sought. [8] constructs a variant of probabilistic roadmap (PRM) to capture homotopy classes, in which path searching and redundant path ﬁltering are conducted simultaneously. In contrast, [9, 10] ﬁrstly creates a PRM or Voronoi diagram, after which a homology equivalence relation based on complex analysis [11] is adopted to ﬁlter out redundant paths. These methods only apply to 2-D
+
+(a)
+
+(b)
+
+Fig. 2. Typical examples of optimization failure, where adjacent parts of
+
+a trajectory are pushed in opposing directions if the trajectory crosses the
+
+”valley” (a) or ”ridge” (b) of the ESDF (denoted by orange dashed lines).
+
+Red arrows denote gradients of ESDF and yellow ones are gradients of the
+
+objective function.
+
+scenarios. To seek for 3-D homology classes, [12] exploited the theory of electromagnetism and propose a 3-D homology equivalence relation. However, it requires occupied space to be decomposed into ”genus 1” obstacles, which is usually impractical. Besides, capturing only homotopy classes in 3D space is insufﬁcient to encode the set of useful paths, as indicated in [13], since 3-D homotopic paths may be too hard to deform into each other. To this end, [13] leverages a visibility deformation roadmap to search for a richer set of useful paths. [14, 15] convert maps built from SLAM systems into sparse graphs representing the topological structure of the environments. [13]–[15] focus on global ofﬂine planning and are too time-consuming for online usage. Our topological path searching is conceptually closest to [13], but with a reinvented algorithm for real-time performance.
+
+III. PATH-GUIDED TRAJECTORY OPTIMIZATION
+A. Optimization Failure Analysis
+Previous work [16] showed that failure of GTO is relevant to unfavorable initialization, i.e., initial paths that pass through obstacles in certain ways usually get stuck. Underlying reason for this phenomenon is illustrated in Fig.2. Typical GTO methods incorporate the gradients of a Euclidean signed distance ﬁeld (ESDF) in a collision cost to push the trajectory out of obstacles. This cost is combined with the smoothness and dynamic feasibility cost to form an objective function, whose gradients iteratively deform the trajectory into a smooth and safe one. Yet there are some ”valleys” or ”ridges” in the ESDF, around which the gradients differ greatly. Consequently, if a trajectory is in collision and crosses such regions, the gradients of ESDF will change abruptly at some points. This can result in gradients of the objective function pushing different parts of the trajectory in opposing directions and fails the optimization.
+Normally, such ”valleys” and ”ridges”, which corresponds to the space that has an identical distance to the surfaces of nearby obstacles, are difﬁcult to avoid, especially in complex environments. Therefore, optimization depending solely on the ESDF fails inevitably at times. To solve the problem, it is essential to introduce extra information that can produce an objective function whose gradients consistently deform the trajectory to the free space.
+
+(a)
+
+(b)
+
+Fig. 3. The two-phases PGO approach for trajectory replanning. (a)
+
+A geometric guiding path (orange) attracts the original B-spline trajectory
+
+(green) into the free space. (b) The warmup trajectory is further optimized
+
+in the ESDF to improve its smoothness and clearance.
+
+B. Problem Formulation
+
+We propose PGO built upon our previous work [4] that represents trajectories as B-splines for more efﬁcient cost evaluation. For a trajectory segment in collision, we reparameterize it as a pb degree uniform B-spline with control points {Q0, Q1, . . . , QN }.
+PGO consists of two different phases. The ﬁrst phase generates an intermediate warmup trajectory. As concluded above, external information should be included to effectually deform the trajectory, since solely applying the ESDF could be futile. We employ a geometric guiding path to attract the initial trajectory to the free space (depicted in Fig. 3(a)) since collision-free paths are readily available from standard methods like A* and RRT*. In our work, the paths are provided by the sampling-based topological path searching (Sect. IV). The ﬁrst-phase objective function is:
+
+fp1 = λ1sfs + λ1gfg
+
+(1)
+
+where fs is the smoothness cost of the trajectory, while fg is the cost to penalize the distance between the guiding path and the B-spline trajectory. As in [4], fs is designed as a elastic band cost function2 that simulates the elastic forces
+of a sequence of springs:
+
+N −pb+1
+
+fs =
+
+Qi+1 − 2Qi + Qi−1 2
+
+(2)
+
+i=pb −1
+
+Because the shape of a B-spline is ﬁnely controlled by its control points, we utilize this property to simplify the design of fg. Each control point Qi is assigned with an associated point Gi on the guiding path, which is uniformly sampled along the guiding path. Then fg is deﬁned as the sum of the squared Euclidean distance between these point pairs:
+
+N −pb
+
+fg =
+
+Qi − Gi 2
+
+(3)
+
+i=pb
+
+Notably, it is an unconstrained quadratic programming problem, so its optimal solution can be obtained in closed form. It outputs a smooth trajectory in the vicinity of the guiding path. Since the path is already collision-free, usually
+
+2Only the subset of control points {Qpb , Qpb+1, · · · , QN−pb } is optimized due to the boundary state constraints of the trajectory. Qpb−2, Qpb−1, QN−pb+1 and QN−pb+2 are needed to evaluate the smoothness.
+
+(a)
+
+(b)
+
+Fig. 4. The proposed replanning framework. a) A trajectory segment
+
+within the checking horizon (green) collides with an obstacle and triggers
+
+the topological roadmap generation (Sect.IV-B) within a cube. b) Paths are
+
+extracted, shortened and pruned to guide the PGO in parallel. The red path
+
+is shorter than the blue one; however, it leads to a more jerky trajectory
+
+which takes sharp turns near the start and end position.
+
+the warmup trajectory is also so. Even though it is not completely collision-free, its major part will be attracted to the free space. At this stage, the gradients of ESDF along the trajectory vary smoothly, and the gradients of the objective function (green arrows in Fig.3(b)) push the trajectory to the free space in consistent directions. Hence, standard GTO methods can be utilized to improve the trajectory.
+In the second phase, we adopt our previous B-spline optimization method [4] to further reﬁne the warmup trajectory into a smooth, safe, and dynamically feasible one, whose objective function is:
+
+fp2 = λ2sfs + λ2cfc + λ2d (fv + fa)
+
+(4)
+
+fc is the collision cost evaluated on the ESDF, which grows rapidly if the trajectory gets close to obstacles. fv and fa penalize infeasible velocity and acceleration. The formulations of fc, fv, and fa are simpliﬁed based on the convex hull property of B-spline, thanks to which it sufﬁces to constrain the control points of the B-spline to ensure safety and dynamic feasibility, without evaluating expensive line integrals. For brevity, we refer the readers to [4] for detailed formulations.
+Although PGO has one more step of optimization compared with previous methods, it can generate better trajectories within shorter time. The ﬁrst-phase takes only negligible time, but generate a warmup trajectory that is easier to be further reﬁned, which improve the overall efﬁciency.
+
+IV. TOPOLOGICAL PATH SEARCHING
+Given a geometric guiding path, our PGO method can replan a locally optimal trajectory. However, this trajectory is not necessarily satisfactory, even with the guidance of the shortest path, as seen in Fig. 4(b). Actually, it is difﬁcult to determine the best guiding path, since the paths do not contain high order information (velocity, acceleration, etc.), and can not completely reﬂect the true motion. Searching a kinodynamic path [17, 18] may sufﬁce, but it takes excessive time to obtain a promising path with boundary state constraints at the start and end of the replanned trajectory.
+For a better solution, a variety of paths is required. We propose a sampling-based topological path searching to ﬁnd a collection of distinct paths to guide the PGO. Although
+
+(a) The four trajectories are equiva- (b) An illustration of UVD. The blue lent under the deﬁnition of homotopy, trajectory is distinct to the green one, but represent substantially different but is equivalent to the purple one. motions of a quadrotor.
+Fig. 5. Topology equivalence relation.
+methods [8, 13]–[15] are for this problem, none of them runs in real-time in complex 3-D environments. We redesign the algorithm carefully to solve this challenging problem in real time.
+A. Topology Equivalence Relation
+Although the concept of homotopy is widely used, it captures insufﬁcient useful trajectories in 3-D environments, as shown in Fig. 5(a). [13] proposes a more useful relation in 3-D space named visibility deformation (VD), but it is computationally expensive for equivalence checking. Based on VD, we deﬁne uniform visibility deformation (UVD), which also captures abundant useful trajectories, and is more efﬁcient for equivalence checking.
+
+Algorithm 1: Topological Roadmap
+
+1 Initialize()
+
+2 AddGuard(G, s), AddGuard(G, g)
+
+3 while t ≤ tmax ∧ Nsample ≤ Nmax do
+
+4 ps ← Sample()
+
+5 gvis ← VisibleGuards(G, ps)
+
+6 if gvis.size() == 0 then
+
+7
+
+AddGuard(G, ps)
+
+8 if gvis.size() == 2 then
+
+9
+
+path1 ← Path(gvis[0], ps, gvis[1])
+
+10
+
+distinct ← T rue
+
+11
+
+Ns ← SharedNeighbors(G, gvis[0], gvis[1])
+
+12
+
+for each ns ∈ Ns do
+
+13
+
+path2 ← Path(gvis[0], ns, gvis[1])
+
+14
+
+if Equivalent(path1, path2) then
+
+15
+
+distinct ← F alse
+
+16
+
+if Len(path1) < Len(path2) then
+
+17
+
+Replace(G, ps, ns)
+
+18
+
+break
+
+19
+
+if distinct then
+
+20
+
+AddConnector(G, ps, gvis[0], gvis[1])
+
+Deﬁnition 1. Two trajectories τ1(s), τ2(s) parameterized by s ∈ [0, 1] and satisfying τ1(0) = τ2(0), τ1(1) = τ2(1), belong to the same uniform visibility deformation class, if for all s, line τ1(s)τ2(s) is collision-free.
+
+Fig. 6. Comparison between UVD (left) and VD (right). Each red point on one path is transformed to a point (green) on the other path. Any two associated points correspond to the same parameter s in UVD, but not in VD.
+
+Fig. 5(b) gives an example of three trajectories belonging
+
+to two UVD classes. The relation between VD and UVD
+
+is depicted in Fig. 6. Both of them deﬁne a continuous map
+between two paths τ1(s) and τ2(s), in which a point on τ1(s) is transformed to a point on τ2(s) through a straight-line. The major difference is that for UVD, point τ1(s1) is mapped to τ2(s2) where s1 = s2, while for VD s1 does not necessarily equals s2. In concept, UVD is less general and characterizes subsets of VD classes. Practically, it captures slightly more classes of distinct paths than VD, but is far less expensive 3
+
+for equivalence checking.
+
+To test UVD relation, one can uniformly discretize s ∈ [0, 1] to si = i/K, i = 0, 1, ..., K and check collision for lines τ1(si)τ2(si). For the piece-wise straight line paths (as in Alg. 1, Equivalent()), we simply parameterize it uniformly,
+
+so that for any s except τ (s) is the join points of two straight
+
+lines,
+
+dτ (s) ds
+
+= const.
+
+B. Topological Roadmap
+
+Alg. 1 is used to construct a UVD roadmap G capturing an abundant set of paths from different UVD classes. Unlike standard PRM, which results in many redundant loops, our method generates a more compact roadmap where each UVD class contains just one or a few paths (displayed in Fig. 7).
+We introduce two different kinds of graph nodes, namely guard and connector, similar to the Visibility-PRM [19]. The guards are responsible for exploring different part of the free space, and any two guards g1 and g2 are not visible to each other (line g1g2 is in collision). Before the main loop, two guards are created at the start point s and end point g. Every time a sampled point is invisible to all other guards, a new guard is created at this point (Line 6-7). To form paths of the roadmap, connectors are used to connect different guards (Line 7-19). When a sampled point is visible to exactly two guards, a new connector is created, either to connect the guards to form a topologically distinct connection (Line 1920), or to replace an existing connector to make a shorter path (Line 16-17). Limits of time (tmax) or sampling number (Nmax) are set to terminate the loop.
+With the UVD roadmap, a depth-ﬁrst search augmented by a visited node list is applied to search for the paths between s and g, similar to [10].
+
+C. Path Shortening & Pruning
+As shown in Fig. 7(e), some paths obtained from Alg. 1 may be detoured. Such paths are unfavorable, since in the
+
+3To test VD relation, one should compute a visibility diagram and do path searching within it [13], which has higher complexity than testing UVD.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+Fig. 7. Generation of the topological roadmap. Red and green nodes represent the guards and connectors respectively. (a)-(c): Guards are added to
+
+occupy different regions of space, and connectors are added to form new connections between the guards. (d): new connectors replace the old ones, making
+
+the connections shorter. (e): some of the paths found by the depth-ﬁrst search. Both the red and orange paths belong to the same UVD class, while the
+
+pink path is the only member of its UVD class.
+
+V. REAL-TIME TOPOLOGICAL TRAJECTORY REPLANNING
+
+Fig. 8. A detoured and long path (green line) is shortened. For each discretized point on the original path (green point), its visibility to the last waypoint of the shortened path (red points) is checked. The center points of the blocking voxel (dashed) are pushed and appended as new waypoints.
+ﬁrst phase of PGO it can deform a trajectory excessively and make it unsmooth. Hence, Alg. 2 ﬁnd a topologically equivalent shortcut path Ps for each Pr found by the depthﬁrst search (illustrated in Fig. 8). The algorithm uniformly Discretizes Pr to a set of points Pd. In each iteration, if a point pd in Pd is invisible from the last point in Ps (Line 3, 4), the center of the ﬁrst occupied voxel blocking the view of Ps.back() is found (Line 5). This point is then pushed away from obstacles in the direction orthogonal to ld and coplanar to the ESDF gradient at pb (Line 6), after which it is appended to Ps (Line 7). The process continues until the last point is reached.
+Although in Alg. 1, redundant connection between two guards are avoided, there may exist a small number of redundant paths between s and g (Fig. 7(e)). To completely exclude repeated ones, we check the equivalence between any two paths and only preserve topologically distinct ones.
+
+Algorithm 2: Finding a shortcut path Ps for Pr.
+
+1 Pd ← Discretize(Pr), Ps ← {Pd.front()}
+
+2 for each pd ∈ Pd do
+
+3 ld ← Line(Ps.back(), pd)
+
+4 if ¬ LineVisib(ld) then
+
+5
+
+pb ← BlockPoint(ld)
+
+6
+
+po ← PushAwayObs(pb, ld)
+
+7
+
+Ps.push back(po)
+
+8 Ps.push back(Pd.back())
+
+Algorithms in Sect. IV output a fruitful set of paths that can guide trajectory optimization. We integrate them appropriately with the PGO for real-time replanning, as illustrated in Fig. 4. During the ﬂight, a segment of the global trajectory within a speciﬁc horizon is checked periodically for safety. Once collisions are detected, topological roadmap construction is triggered within a cube, which is determined by the start and end position of the segment, and (rx, ry, rz) specifying the size of the cube. Paths extracted from the roadmap are shortened and pruned (Sect. IV-C), after which each of the paths invokes an independent PGO.
+Noticeably, the number of alternative UVD classes grows exponentially with the number of obstacles. So in complex environments it may be intractable to optimize for all paths. For this reason, we only select the ﬁrst Kmax shortest paths. Paths more than rmax times longer than the shortest one are also excluded. Such strategies bound the complexity and does not lead to the missing of potential optimality, since very long paths are unlikely to produce the optimal trajectory. Practically we ﬁnd Kmax = 5 is sufﬁcient.
+VI. RESULTS
+A. Benchmark Comparisons
+We ﬁrst compare our local replanning method with two state-of-the-art methods Ewok [3] and TRR [5]. Both methods parameterize local trajectory as uniform B-spline and use GTO to do replanning efﬁciently. TRR further exploits the convex hull property of B-spline to simplify the cost function. We compare all methods in random maps with 3 different densities of obstacles, with 500 random replanning tasks for each density, as shown in Fig. 9. For fair comparisons, we initialize all methods with the same reference trajectories computed by [20]. Besides, we limit the optimization time of Ewok and TRR to 15 ms according to their settings in the original work. For ours, the time for topological roadmap construction 4 and trajectory optimization is limited to 3 ms
+4The computation time of topological path searching can not be determined exactly, because time for path shortening and pruning varies slightly in different environments. So we determine the roadmap sampling time empirically according to the desired time budget.
+
+Fig. 9. Benchmark comparisons of the proposed method (red) with Ewok [3] (green) and TRR [5] (blue) in environments of different complexities.
+TABLE I COMPARISONS OF REPLANNING METHODS.
+
+Density Low
+Medium High
+
+Method
+Ewok [3] TRR [5] Proposed Ewok [3] TRR [5] Proposed Ewok [3] TRR [5] Proposed
+
+Comp. time (ms)
+15.00 15.00 5.75 + 10.00 15.00 15.00 6.83 + 10.00 15.00 15.00 7.05 + 10.00
+
+Success rate (%)
+88.0 90.4 100.0 81.4 85.6 100.0 78.8 82.6 100.0
+
+Smoothness (m2/s5)
+9.0151 6.5102 5.4357 9.5042 8.3942 6.7833 9.4845 9.1762 7.7038
+
+and 10 ms 5. We check for collisions and smoothness of replanned trajectories.
+As is shown in Tab. I, our method outperforms both benchmark methods in terms of success rate and smoothness. Our method successfully ﬁnds feasible replanning in all environments, while the success rates of others decrease with increasing complexity of environments. Also, our method generates the smoothest trajectories. Our overall computation is only slightly longer, in which 5-7 ms is spent on topological path searching and 10ms on parallel optimization. It is notable that although less time is spent on optimization, the generated trajectories are better. The reasons are that the proposed two-phases optimization (Sect. III-B) is easier to converge, and that the parallel optimization (Sect. V) explores the solution space more thoroughly.
+
+B. Aggressive Autonomous Flights
+We conducted aggressive autonomous ﬂight experiments to validate the robustness of our replanning method. The self-developed drone is localized by a robust visual-inertial state estimator [?]. A local mapping framework [22] fuses the depth images from a stereo camera into a volumetric occupancy map and maintains an ESDF for online replanning. We use a geometric controller [23] for trajectory tracking. All modules run on an Intel Core i7-8550U CPU.
+
+5Run-time efﬁciency is critical for online replanning, therefore we give short computation time to test the performance.
+
+Fig. 10. Autonomous ﬂight experiments in indoor (top) and outdoor (buttom) environments. A set of topologically distinct candidate trajectories are generated to avoid obstacles while keeping the drone close to the global reference trajectory (black). The best one (red) is selected and executed.
+Fig. 11. Indoor and outdoor autonomous aggressive ﬂights.
+The experiments are conducted in complex indoor and outdoor scenes. In each experiment, a straight-line global reference trajectory is ﬁrst generated using the approach [20]. During the ﬂight, local trajectories within a horizon of 9 m are replanned to avoid previously unknown obstacles while keeping the drone close to the global trajectory. Aggressive autonomous ﬂights with very limited sensing range in both scenes are quite challenging, since safe trajectories should be generated frequently within extremely short time to cope with sudden and unexpected obstacles. The local trajectories, local maps and velocity proﬁles of one indoor and outdoor ﬂights are shown in Fig. 10. We refer the readers to the video attachment for more details.
+VII. CONCLUSIONS
+In this paper, we propose a robust trajectory replanning method for autonomous quadrotor navigation. It overcomes local minima with the path-guided optimization, topological path searching and parallel trajectory optimization. Extensive benchmark comparisons and aggressive autonomous ﬂight experiments are conducted to validate the robustness of our method.
+Currently, the performance of topological path searching is satisfactory, but its completeness is not analyzed in detail. Also, we are not completely certain about the theoretical optimality of the replanning method. In the future, we will investigate these problems. We also plan to extend our method to cope with not only static but also dynamic obstacles to enable safe navigation in more complex scenes.
+
+REFERENCES
+[1] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and E. Galceran, “Continuous-time trajectory optimization for online uav replanning,” in Proc. of the IEEE/RSJ Intl. Conf. on Intell. Robots and Syst.(IROS), Daejeon, Korea, Oct. 2016, pp. 5332–5339.
+[2] F. Gao, Y. Lin, and S. Shen, “Gradient-based online safe trajectory generation for quadrotor ﬂight in complex environments,” in Proc. of the IEEE/RSJ Intl. Conf. on Intell. Robots and Syst.(IROS), Sept 2017, pp. 3681–3688.
+[3] V. Usenko, L. von Stumberg, A. Pangercic, and D. Cremers, “Realtime trajectory replanning for mavs using uniform b-splines and a 3d circular buffer,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2017, pp. 215–222.
+[4] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efﬁcient quadrotor trajectory generation for fast autonomous ﬂight,” IEEE Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019.
+[5] F. Gao, L. Wang, B. Zhou, L. Han, J. Pan, and S. Shen, “Teach-repeatreplan: A complete and robust system for aggressive ﬂight in complex environments,” arXiv preprint arXiv:1907.00520, 2019.
+[6] M. Zucker, N. Ratliff, A. D. Dragan, M. Pivtoraiko, M. Klingensmith, C. M. Dellin, J. A. Bagnell, and S. S. Srinivasa, “Chomp: Covariant hamiltonian optimization for motion planning,” The International Journal of Robotics Research, vol. 32, no. 9-10, pp. 1164–1193, 2013.
+[7] M. Kalakrishnan, S. Chitta, E. Theodorou, P. Pastor, and S. Schaal, “Stomp: Stochastic trajectory optimization for motion planning,” in 2011 IEEE international conference on robotics and automation. IEEE, 2011, pp. 4569–4574.
+[8] E. Schmitzberger, J.-L. Bouchet, M. Dufaut, D. Wolf, and R. Husson, “Capture of homotopy classes with probabilistic road map,” in IEEE/RSJ International Conference on Intelligent Robots and Systems, vol. 3. IEEE, 2002, pp. 2317–2322.
+[9] C. Ro¨smann, F. Hoffmann, and T. Bertram, “Planning of multiple robot trajectories in distinctive topologies,” in 2015 European Conference on Mobile Robots (ECMR). IEEE, 2015, pp. 1–6.
+[10] ——, “Integrated online trajectory planning and optimization in distinctive topologies,” Robotics and Autonomous Systems, vol. 88, pp. 142–153, 2017.
+[11] S. Bhattacharya, “Search-based path planning with homotopy class constraints,” in Twenty-Fourth AAAI Conference on Artiﬁcial Intelligence, 2010.
+
+[12] S. Bhattacharya, M. Likhachev, and V. Kumar, “Topological constraints in search-based robot path planning,” Autonomous Robots, vol. 33, no. 3, pp. 273–290, 2012.
+[13] L. Jaillet and T. Sime´on, “Path deformation roadmaps: Compact graphs with useful cycles for motion planning,” The International Journal of Robotics Research, vol. 27, no. 11-12, pp. 1175–1188, 2008.
+[14] H. Oleynikova, Z. Taylor, R. Siegwart, and J. Nieto, “Sparse 3d topological graphs for micro-aerial vehicle planning,” in 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2018, pp. 1–9.
+[15] F. Blochliger, M. Fehr, M. Dymczyk, T. Schneider, and R. Siegwart, “Topomap: Topological mapping and navigation based on visual slam maps,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 1–9.
+[16] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Bradlow, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Motion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research, vol. 33, no. 9, pp. 1251–1270, 2014.
+[17] W. Ding, W. Gao, K. Wang, and S. Shen, “Trajectory replanning for quadrotors using kinodynamic search and elastic optimization,” in 2018 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2018, pp. 7595–7602.
+[18] S. Liu, N. Atanasov, K. Mohta, and V. Kumar, “Search-based motion planning for quadrotors using linear quadratic minimum time control,” in Proc. of the IEEE/RSJ Intl. Conf. on Intell. Robots and Syst.(IROS), Sept 2017, pp. 2872–2879.
+[19] T. Sime´on, J.-P. Laumond, and C. Nissoux, “Visibility-based probabilistic roadmaps for motion planning,” Advanced Robotics, vol. 14, no. 6, pp. 477–493, 2000.
+[20] C. Richter, A. Bry, and N. Roy, “Polynomial trajectory planning for aggressive quadrotor ﬂight in dense indoor environments,” in Proc. of the Intl. Sym. of Robot. Research (ISRR), Dec. 2013, pp. 649–666.
+[21] T. Qin, P. Li, and S. Shen, “Vins-mono: A robust and versatile monocular visual-inertial state estimator,” arXiv preprint arXiv:1708.03852, 2017.
+[22] L. Han, F. Gao, B. Zhou, and S. Shen, “Fiesta: Fast incremental euclidean distance ﬁelds for online motion planning of aerial robots,” arXiv preprint arXiv:1903.02144, 2019.
+[23] T. Lee, M. Leoky, and N. H. McClamroch, “Geometric tracking control of a quadrotor uav on se (3),” in Proc. of the IEEE Control and Decision Conf. (CDC), Atlanta, GA, Dec. 2010, pp. 5420–5425.
+

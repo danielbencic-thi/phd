@@ -1,0 +1,469 @@
+2011 IEEE International Conference on Robotics and Automation Shanghai International Conference Center May 9-13, 2011, Shanghai, China
+SIPP: Safe Interval Path Planning for Dynamic Environments
+
+Mike Phillips∗ and Maxim Likhachev∗ ∗ Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213
+
+Abstract— Robotic path planning in static environments is a thoroughly studied problem that can typically be solved very efﬁciently. However, planning in the presence of dynamic obstacles is still computationally challenging because it requires adding time as an additional dimension to the search-space explored by the planner. In order to avoid the increase in the dimensionality of the planning problem, most real-time approaches to path planning treat dynamic obstacles as static and constantly re-plan as dynamic obstacles move. Although gaining efﬁciency, these approaches sacriﬁce optimality and even completeness. In this paper, we develop a planner that builds on the observation that while the number of safe timesteps in any conﬁguration may be unbounded, the number of safe time intervals in a conﬁguration is ﬁnite and generally very small. A safe interval is a time period for a conﬁguration with no collisions and if it were extended one timestep in either direction, it would then be in collision. The planner exploits this observation and constructs a search-space with states deﬁned by their conﬁguration and safe interval, resulting in a graph that generally only has a few states per conﬁguration. On the theoretical side, we show that our planner can provide the same optimality and completeness guarantees as planning with time as an additional dimension. On the experimental side, in simulation tests with up to 200 dynamic obstacles, we show that our planner is signiﬁcantly faster, making it feasible to use in real-time on robots operating in large dynamic environments. We also ran several real robot trials on the PR2, a mobile manipulation platform.
+I. INTRODUCTION
+Whether it be autonomously driving a vehicle or performing household jobs, such as cleaning a room, almost all tasks that robots perform assume the ability to safely navigate from place to place in the presence of moving objects such as people, pets, cars, etc. In order to accomplish this, robots need to be able to predict where these dynamic obstacles will be moving in the near future. They need to plan short paths to their goals that do not endanger or inconvenience people. Robots also need to be able to plan these paths very quickly, in the likely situation that a dynamic obstacle’s trajectory is not what the robot predicted, and a new plan must be created to prevent collision. Being able to plan paths efﬁciently will allow robots to be more responsive and robust to a constantly changing environment.
+When planning in dynamic environments, adding a time dimension to the state-space is needed in order to properly handle moving obstacles, shown in Figure 1(b). However, the large increase in the number of states to be searched causes planning times to be much longer. Since the environment is constantly changing, plans need to be generated quickly or they will be out of date before they can even be used.
+
+Goal	  
+
+Goal	  
+
+Wait	  
+
+Robot	   (a)	  
+
+Robot	   (b)	  
+
+Fig. 1. (a) Treating the dynamic obstacle as a static one results in no solution, (b) Planning with time ﬁnds a solution by waiting for the obstacle to pass and then proceeding
+
+Therefore, for practical purposes, a common approach to producing faster plans is to treat the environment as though it were static [5], [9]. This is done by turning each dynamic obstacle (and sometimes its predicted trajectory for the near future) into a static obstacle. This ensures that the plan generated will not be allowed to collide with the dynamic obstacle in the near future. However, this approach suffers from suboptimality in cases where the robot could have crossed a trajectory without being hit, or just waited until the obstacle passed and then crossed. Instead it takes a long path around the trajectory of the obstacle. There are even cases when this approach will fail to ﬁnd a solution at all, such as when a dynamic obstacle’s trajectory goes through or crosses in front of a doorway that the robot must also use in order to reach its goal, shown in Figure 1(a).
+In this paper we propose a method that exploits the observation that the number of contiguous safe intervals is generally signiﬁcantly smaller than the number of timesteps that compose those intervals. For example, a conﬁguration that no dynamic obstacles pass through only has one safe interval, which spans from the start time to inﬁnity. With
+
+978-1-61284-385-8/11/$26.00 ©2011 IEEE
+
+5628
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+this in mind, we develop a planner that uses states deﬁned by conﬁguration (x,y,θ,etc) and the safe interval as independent variables, while only storing the actual timestep as a dependent variable. A conﬁguration is the set of non-time variables that describe the robot’s state, such as position, heading, joint angles, etc. An independent variable is one that is used to actually identify a state, while a dependent variable is stored with the state but is not used to identify it. Speciﬁcally, two states with the same values for their independent variables, but different dependent ones, are still considered the same state, by the planner. We provide theoretical guarantees that the states we eliminate from consideration cannot be part of the optimal solution with respect to the time it takes to traverse the path. As a result, our planner can guarantee optimality, while avoiding the increase in dimensionality of the problem. We demonstrate the efﬁciency in simulation with experiments on randomly generated indoor and outdoor environments, showing a signiﬁcant speed increase over a planner that represents states with conﬁguration and timestep as independent variables. Using the PR2 robot, we also demonstrate that the planner is suitable for real-time use.
+II. RELATED WORK
+Most of the approaches to dealing with dynamic obstacles, model them as static obstacles with a short window of high cost around the beginning of their projected trajectories [5], [9]. While efﬁcient, these approaches suffer from potential high suboptimality and even incompleteness, as described in our introduction. Another common approach is to only consider dynamic obstacles (still treating them as static obstacles) while executing the path, using local obstacle avoidance methods [2]. This method can get stuck in local minima and is not globally optimal. Another alternative is for the local planner to use velocity obstacles, which determine the controls that lead to collision with moving obstacles [13]. While this is more accurate, it still can lead to local minima as it greedily minimizes the difference between the desired control without dynamic obstacles, and the set of feasible controls that are not in velocity obstacles.
+Some approaches plan in the full space-time search space [10]. Silver’s HCA* algorithm is designed for planning for multiple robots, but in the paper, he points out that it can be applied to planning in dynamic environments. In dynamic environments, HCA* provides the same guarantees on optimality and makes the same assumptions that we do. In our experimental results, we show a comparison against the HCA* algorithm and show a signiﬁcant speed up. The reason our approach is faster is because our search space is much smaller. HCA* and other planners that use a time dimension have a state for every (conﬁguration, timestep) pair and since the number of timesteps is usually large the search space is also large. Our algorithm groups contiguous, collision-free timesteps into safe intervals, and then represents each state by a (conﬁguration, safe interval) pair. The maximum number of safe intervals for any given conﬁguration is at most the number of dynamic obstacles whose trajectories intersect in that conﬁguration. Therefore, the number of safe intervals
+
+is signiﬁcantly smaller than the number of timesteps for the same conﬁguration. As a result, the search space our planner constructs is much smaller, leading to faster planning and smaller memory requirements.
+The approach [12] is similar to ours in that it recognizes that a state is only needed for the earliest arrival time in a safe interval. The major difference is how we evaluate an edge from one interval to another. In [12], an “expand” is a partial move of a “probe” along an edge via a single timestep which then must be replaced back into the queue. This means that for each edge a “probe” goes back into the queue many times (and queue operations are the expensive part of the A* search) instead of just once as it is for our planner. Essentially, the approach in [12], has taken each cost-n edge and converted it into n cost-1 edges, which raises the asymptotic runtime to be a function of the edge weights as well as the number of vertices and edges. Nevertheless, [12] is very closely related to our approach.
+Planning with time, required for dealing with dynamic obstacles, is hard to perform on-line, since constant demand for re-planning enforces tight constraints on execution cycle. To address the real-time constraints, a number of approaches have been proposed that sacriﬁce near-optimality guarantees for the sake of efﬁciency [3], [11]. Our proposed approach differs in that we aim for computing paths that are optimal with respect to shortest time. Some other approaches use RRT-variants to plan quickly in higher-dimensional search spaces that can handle the kinodynamic constraints of more complex robots [7], [1]. However, these sampling-based approaches cannot provide the guarantees on optimality that we strive for. There have also been approaches that plan with the added time dimension only until the end of an obstacle’s trajectory (or when the uncertainty about the obstacle is too large) and then ﬁnish the plan in the simpler static state-space [4]. In this Time-Bounded Lattice approach, the dynamic obstacles and the time dimension are dropped in the search space, after a certain point in the time dimension. This sacriﬁces optimality. Our algorithm does not prune dynamic obstacle trajectories at all, making it optimal with respect to the entire given trajectories.
+III. ALGORITHM
+We deﬁne a safe interval as a contiguous period of time for a conﬁguration, during which there is no collision and it is in collision one timestep prior and one timestep after the period. The obvious exception to this is that the last safe interval for a conﬁguration may go until inﬁnity, if a dynamic obstacle never again is predicted to pass through this conﬁguration. A collision interval is the opposite of a safe interval. A collision interval is a contiguous period of time for a conﬁguration, where each timestep in this period is in collision with a dynamic obstacle and it is safe one timestep prior and one timestep after the period. Each spatial conﬁguration (such as the one shown in Figure 2) has a timeline (Figure 3), which is just an ordered list of intervals, alternating between safe and collision. Clearly, there cannot be two safe intervals in a row in the timeline because that
+
+5629
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+1 g(sstart) = 0; OPEN = ∅;
+
+2 insert sstart into OPEN with f (sstart) = h(sstart);
+
+3 while(sgoal is not expanded)
+
+4 remove s with the smallest f -value from OPEN;
+
+5 successors = getSuccessors(s);
+
+6 for each s in successors
+
+7 if s was not visited before then
+
+8
+
+f (s ) = g(s ) = ∞;
+
+9 if g(s ) > g(s) + c(s, s )
+
+10
+
+g(s ) = g(s) + c(s, s );
+
+11
+
+updateTime(s );
+
+12
+
+f (s ) = g(s ) + h(s );
+
+13
+
+insert s into OPEN with f (s );
+
+Fig. 4. A* with safe intervals
+
+Fig. 2. An environment with dynamic obstacles and a highlighted conﬁguration
+
+Safe interval
+
+Collision interval
+
+Timeline
+Safe interval
+
+Collision interval
+
+Safe interval
+
+Fig. 3. A timeline for the highlighted conﬁguration in Figure 2
+
+the start state to s. The heuristic function h(s) is an estimate of the cost from s to the goal state. We will be assuming the heuristic function is consistent, meaning that it never overestimates the cost to the goal and it satisﬁes the triangle inequality (without this our approach our approach loses completeness). The cost of a transition or edge from s to one of its successors s is deﬁned by c(s, s ).
+The main assumptions that our algorithm makes are:
+• c(s, s ) = time to execute the action from s to s . In other words, the goal of the planner is to ﬁnd a timeminimal trajectory.
+• The robot is capable of waiting in place (this assumption would not be true of a motorcycle).
+• Inertial constraints (acceleration/deceleration) are negligible. The planner assumes the robot can stop and accelerate instantaneously.
+
+would violate the deﬁnition of a safe interval, since a safe interval should be bounded by collision intervals or inﬁnity. The same argument applies for collision intervals. Using safe intervals to represent the time dimension of the search space is what makes our algorithm efﬁcient, and is the key idea to our approach. A single state, represented by a (conﬁguration, interval) pair, replaces what used to be many states, one for each timestep in the safe interval. This makes the state space signiﬁcantly smaller, allowing us to search for a solution in far less time.
+Dynamic Obstacle Representation Our algorithm assumes there is another system that tracks dynamic obstacles in the environment, predicts their future trajectories, and formats them into a general representation we deﬁne. We are given a list of dynamic obstacles, where each obstacle has a radius and a trajectory. A trajectory is just a list of points, where each point has state variables, specifying its conﬁguration, time, and some measure of the point’s uncertainty. The points in the trajectory list are ordered from earliest time to latest time, so by reading the points in order, it can be seen how the obstacle is predicted to move in the near future. Our representation also allows for dynamic obstacles to have more than one possible future trajectory. However, while the algorithm described in this paper applies to multiple hypothesis trajectories, for simplicity, we will assume each obstacle only has one trajectory.
+Notations and Assumptions We will now introduce some notation used to explain the algorithm. A state s has a variable, g(s), which is the cost of best known path from
+
+A. Planning with Safe Intervals
+Graph Construction When the planner is initialized, we create a timeline for each spatial conﬁguration, using the predicted dynamic obstacle trajectories1. This is done by iterating through each point along the trajectory of each dynamic obstacle and updating the timelines for all the conﬁgurations within collision distance of the point. This collision distance is the sum of the obstacle’s radius and the radius of the robot. (The radius may also be inﬂated appropriately with respect to the uncertainty associated with the point.)
+Graph Search After the initialization, we run the A* search, shown in Figure 4, which runs as usual except for how it gets the successors of a state (Figure 5) and how it updates the time variable for states (line 11, Figure 4).
+In Figure 5, the function M (s) returns the motions that can be performed from state s. These motions indicate how they change the spatial variables of a state. The motions also have an amount of time that it takes to execute them, which we will use to help determine what safe intervals we can get to in the resulting conﬁguration. The startT ime(i) returns the start time of safe interval i and endT ime(i), the end time of safe interval i.
+When a state s is expanded, we generate successors for it, shown in Figure 5. For each of the motions that our robot can perform from s, we compute the resultant conﬁguration
+1On the implementation side, we only generate and store timelines for conﬁgurations that the planner examines. This avoids memory requirements to be on the order of the size of the conﬁguration space.
+
+5630
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+1 getSuccessors(s)
+
+2 successors = ∅;
+
+3 for each m in M (s)
+
+4 cf g =conﬁguration of m applied to s
+
+5 m time =time to execute m
+
+6 start t = time(s) + m time
+
+A
+
+7 end t = endT ime(interval(s)) + m time
+
+8 for each safe interval i in cf g
+
+9
+
+if startT ime(i) > end t or endT ime(i) < start t
+
+10
+
+continue
+
+11
+
+t =earliest arrival time at cf g during interval i with no collisions
+
+12
+
+if t does not exist
+
+13
+
+continue
+
+14
+
+s = state of conﬁguration cf g with interval i and time t
+
+15
+
+insert s into successors
+
+16 return successors;
+
+B
+Fig. 5. getSuccessors
+
+SA0 cfg=A, i=0
+t=1, [0,5]
+
+SA1 cfg=A, i=1
+t=∞, [7,∞)
+
+1
+SB0 cfg=B, i=0 t=0, [0,4]
+1 3
+
+A
+
+SC0
+
+SC1
+
+SC2
+
+C
+
+cfg=C, i=0 t=1, [0,1]
+
+cfg=C, i=1 t=3, [3,3]
+
+cfg=C, i=2 t=∞, [5,∞)
+
+B
+
+C Fig. 7. An illustration of an expansion of state SB0. Each white circle in this ﬁgure represents a state. The ﬁrst line in each state is its name. The second line deﬁnes the state by indicating its conﬁguration (cfg) from Figure 6 and its safe interval (i). The third line shows the earliest known time we can reach this state (t) and the safe interval [a,b]. The gray ovals group states by their conﬁguration. The arrows indicate transitions from one state to another, labeled with their cost. The red X indicate invalid transitions due to collision with a dynamic obstacle.
+
+Fig. 6. An example environment with two dynamic obstacles moving at a speed of one cell per timestep. There are three highlighted conﬁgurations (A,B,C) and the robot is located at conﬁguration B.
+and the time of execution (line 3-5, Figure 5). Then for each of the time intervals in this new conﬁguration, we generate a successor with the earliest possible arrival time that does not have any collisions along the motion. When generating successors, we say that s uses “wait and move” actions. This means that for each safe interval in the new conﬁguration, we wait the minimal amount of time possible, so that when the move to the new conﬁguration is used, we arrive in the new safe interval as early as possible. The arrival time is stored with the state, but the state will not be identiﬁed by its time value, only by its other dimensions.
+During A*, whenever a shorter path to s is found, the cost is replaced with the smaller one. Similarly, when this happens it corresponds to arriving at s at an earlier time (since cost is equal to time) and so we also replace the time value stored in state s with this new shorter time (line 1011, Figure 4). We are guaranteed that when s is expanded we have found the earliest time that we can arrive at s . This allows us to safely generate and set the time for the successors of s .
+Figures 6 and 7 show an example of an expansion under the SIPP algorithm. In Figure 6, we have two gray dynamic
+
+obstacles moving in the direction indicated by their arrows at a speed of one cell per timestep. We have three labeled conﬁgurations (A,B,C) that we will examine. The robot is located at conﬁguration B and can move one cell per timestep in a 4-connected fashion. In Figure 7, we show the graph during the expansion of the robot’s current state, SB0. The other state in conﬁguration B (SB1) is not pictured because you cannot transition between safe intervals within the same conﬁguration because the robot would have to wait through the separating collision interval (making it irrelevant). In conﬁguration B, there are two valid motions the robot can perform on a 4-connected grid (up to conﬁguration A and down to conﬁguration C).
+There are two possible successors in A. The robot could move immediately to A and arrive in safe interval 0, one timestep later (SA0). The other successor in A is at safe interval 1 (SA1), however this interval starts at time 7 and we can only safely wait in SB0 until time 4 (after which we would get hit by the upward moving dynamic obstacle), making this transition invalid. This case is handled on lines 9-10 in Figure 5. So for the upward motion we would add only SA0 to our set of successors. The time (t) for SA0 is 1 because it takes one timestep to move one cell, while the t for SA1 is ∞ because we haven’t found any valid paths to that state yet.
+For the downward motion to conﬁguration C we have three possible successors. The robot could move down immediately to C and arrive in safe interval 0 (SC0) one timestep
+
+5631
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+later (before both dynamic obstacles reach C). Another successor is SC1, which is available only during timestep 3 (after the ﬁrst dynamic obstacle has passed, but before the second one arrives). To arrive at time 3, the robot would have to wait 2 timesteps before moving to C (which takes one timestep). This is an example of our “wait and move” actions. This transition has a cost of 3, since it takes that much time to execute. The ﬁnal possible successor is SC2, which is the state below the robot (C) after the upward moving dynamic obstacle has passed. The safe intervals align such that the robot could wait until time 4 and then move to C, arriving at 5, within safe interval 2. However, the collision check on lines 11-13 in Figure 5 would return no valid transition in this case. This collision check interpolates between the two states the robot moves between and in this case would detect that the robot and the dynamic obstacle are switching places by passing through each other. Therefore, SC2 is not a valid successor.
+So from the expansion of SB0, the set of successors is (SA0, SC0, SC1).
+B. Theoretical Analysis
+Here we sketch the proofs for completeness and optimality of our algorithm.
+Theorem 1: Arriving at a state at the earliest possible time guarantees the maximum set of possible successors.
+A state s is deﬁned by a conﬁguration and a safe interval. Let t0 and t1 be two times within the safe interval of s, such that t0 < t1. Let A1 be the set of successors generated, if we expanded s from time t1 and let A0 be the set of successors generated, if we expanded from time t0. Since s exists in a safe interval, the robot can wait from any time in the interval to any later time in the interval, before moving. Therefore, A0 is a superset of A1, since it can wait until t1 and later to get the successors in A1, but it may also have more successors from earlier than t1. This is illustrated in Figure 8. Therefore, if a state is expanded at the earliest possible time, we are guaranteed to have the largest set of successors. This is why the algorithm is still complete, even though it only has one state per safe interval. By having that state be the earliest time possible in the interval and using “wait and move” actions, we can still generate all the successors that would be generated by an algorithm that plans with timesteps. This theorem leads to the proof of completeness.
+Theorem 2: When the safe interval planner expands a state in the goal conﬁguration, it has found a time-minimal, collision-free path to the goal.
+In optimal A*, when a state is expanded, its g-value is minimal. In this planner, the cost on an edge is equal to the time it takes to execute that edge and whenever a g-value is updated (from ﬁnding a shorter path), the time value is also updated to the earlier time. Therefore, when a state (deﬁned by conﬁguration and safe interval) is expanded it is also the earliest possible time to arrive in this safe interval. So when a state in the goal conﬁguration is expanded, it is also the earliest time we can arrive at the goal conﬁguration. This is
+
+Fig. 8. The set of successors generated from t0 is a superset of the set of successors generated from t1
+optimal with respect to our time-minimal cost function. We also know that all states exist within safe intervals, which makes the entire path collision-free, from the start state to the goal state.
+Theorem 3: If the conﬁguration with the most dynamic obstacles passing through it has n such occurrences, then each conﬁguration can have at most n + 1 safe intervals.
+Since every collision interval is followed by a safe interval and the conﬁguration has n collision intervals then the conﬁguration already has n safe intervals. If the conﬁguration also starts out safe then there is one more safe interval before the ﬁrst collision interval, making n + 1 safe intervals. Since this is the conﬁguration with the most collision intervals we can say for all conﬁgurations in the environment, the number of safe intervals is no more than n + 1.
+This shows why usually the maximum number of safe intervals is very small, since it isn’t common for large numbers of dynamic obstacles to pass through the same conﬁgurations.
+IV. EXAMPLE
+Here we will go over a small example showing how the algorithm works. Figure 9 shows the initial environment and the ﬁrst 3 actions in the optimal plan. Figure 9(a) shows the initial environment we will be planning on. The robot starts in the cell marked R and it has a goal in the cell marked G. The dynamic obstacle on the right is moving to the left and the dynamic obstacle at the bottom is moving upward. The dynamic obstacles both move at one cell per timestep. The robot moves on a 4-connected grid at a speed of one cell per timestep and can also wait in place. When the planner expands the starting state, it will generate successors in the cells above and below the current state. The cell below the robot’s initial position, c has 3 safe intervals and therefore, 3 states. From the start state, we cannot generate a state in c during the ﬁrst interval, because by the time we move there, we would be in collision with the ﬁrst dynamic obstacle. We can generate a state in the second safe interval, after the ﬁrst dynamic obstacle passes. The earliest time we can do so is by waiting one time step and then moving down. This is a single ”wait and move” action. We cannot generate a state in the third safe interval, because we would be hit by the bottom dynamic obstacle before we could arrive there.
+
+5632
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+R R
+
+G
+
+G
+
+(a)
+
+(b)
+
+R
+
+R
+
+Fig. 10. An example of a lattice type graph
+
+G
+
+G
+
+(c)
+
+(d)
+
+Fig. 9. (a) The initial environment with the robot R trying to get to goal G. The dynamic obstacle on the right moves to the left and the one at the bottom moves up. The dynamic obstacles and the robot can move one cell each timestep. (b) The optimal plan’s ﬁrst step is to wait one timestep and move down. (c) Then the plan moves to the right with no waits. (d) The third action of the plan waits a timestep and then moves to the left.
+
+Figure 9(b) shows the environment after the optimal plan’s ﬁrst action. The cell to the right of the robot, c, has only one safe interval. Moving right immediately, and waiting one timestep and then moving right are both safe moves. Our algorithm only stores one state per (conﬁguration, interval) pair and that is the one with the earliest time reachable. Therefore, moving right immediately is the only action considered for the cell to the right.
+Figure 9(c) shows the environment after the optimal plan’s second action. Here the planner’s next action will be to move to the left into that cell’s third safe interval (after the second dynamic obstacle has passed). That means this action will wait one timestep in place and then move left.
+Figure 9(d) shows the environment after the optimal plan’s third action. The plan’s remaining 3 actions are all downward with no waits.
+V. EXPERIMENTAL RESULTS
+We ran experiments in simulation and on a real robot to show the beneﬁts of using safe intervals, while planning in dynamic environments.
+A. Planner Implementation
+Our test domain is in 4D (x,y,θ,time), with the ﬁrst 3 dimensions (x,y,θ) being used for non-holonomic robots to generate smooth paths that satisfy constraints on the minimum turning radius. The actions used to get successors for states are a set of “motion primitives,” which are short kinematically feasible motions sequences [5] used in a lattice-type planner shown in Figure 10. For our A* heuristic, we initially run a 16-connected 2D Dijkstra search from
+
+the goal to all the (x,y) cells in the environment, assuming the robot is a circular with a radius equal to the actual robot’s inscribed circle. Since our lattice planner also has its orientation dimension discretized into 16 directions, the heuristic value in each cell underestimates the cost to the goal. This stems from the fact that the 2D search essentially assumes the robot can turn in place at no cost and its collision model is its narrowest diameter. This heuristic is computed quickly, relative to our search, because it has much lower dimensionality. However, it is also much more informative than the common Euclidean distance heuristic, since it takes static obstacle information into account.
+B. Simulation
+1) Experiment Design: We compare SIPP against HCA*. This implementation of Silver’s HCA* [10] is in a 4D search space (x,y,θ,time). For the heuristic, this algorithm uses a lower dimensional search from the goal backward that ignores the time dimension and the dynamic obstacles. In our case, this was a 2D search, just over the (x,y) dimensions2. Under the guidance of this informative heuristic, it then plans a path forward in the full state space with the time dimension and taking dynamic obstacles into account.
+In order to test the efﬁciency of the algorithm we made two sets of 50 randomly generated experiments to simulate indoor and outdoor type environments. All environments are 500 by 500 cells with θ being discretized into 16 directions. The time dimension had a resolution of 0.1 seconds. Optimal solutions had an average duration of 12.7 seconds (127 timesteps). The robot’s footprint occupies a single cell on the map and it has a random start and goal for each map. For each environment 200 dynamic obstacles were generated. Each dynamic obstacle could come in a large or small size (chosen randomly) and started at a random conﬁguration in the environment. To generate a trajectory for a dynamic
+2In Silver’s work he used a 2D heuristic for a 3D problem. Although our problem is in 4D, we chose to keep the heuristic as a 2D search. We believe the additional dimension θ would slow down the heuristic part of the search signiﬁcantly.
+
+5633
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+500
+
+500
+
+450
+
+450
+
+400
+
+400
+
+350
+
+350
+
+TABLE I RESULTS FOR INDOOR ENVIRONMENTS (AVERAGES COMPUTED ONLY
+ACROSS TESTS BOTH ALGORITHMS COMPLETED)
+
+300
+
+300
+
+250
+
+250
+
+200
+
+200
+
+150
+
+150
+
+100
+
+100
+
+50
+
+50
+
+Planner Full 4D (HCA*)
+SIPP
+
+Average Expands 2,396,378.64 172,815.61
+
+Average Time(s) 29.61 0.97
+
+% Completed in 5 minute limit 56% 100%
+
+TABLE II
+
+(a) 50 100 150 200 250 300 350 400 450 500
+
+(b) 50 100 150 200 250 300 350 400 450 500
+
+Fig. 11. (a) An example indoor map used for our experiments, (b) An example outdoor map used for our experiments
+
+RESULTS FOR OUTDOOR ENVIRONMENTS (AVERAGES COMPUTED ONLY ACROSS TESTS BOTH ALGORITHMS COMPLETED)
+
+obstacle, random goals were chosen and 2D A* was used to
+
+Planner Full 4D (HCA*)
+SIPP
+
+Average Expands 2,497,147.15 334,878.79
+
+Average Time(s) 47.04 2.88
+
+% Completed in 5 minute limit 94% 100%
+
+ﬁnd a paths to follow between the goal points. The indoor
+
+environments (Figure 11(a)) are Student Version of MATLAB composed of a series of Student Version of MATLAB arms, an omni-directional base, and an array of sensors such
+
+randomly placed narrow hallways and rooms on a grid. The as two lidars (one base scanner and one tilt scanner for
+
+large dynamic obstacles ﬁll the entire width of the hallways, making point clouds), several cameras, and IMU.
+
+so there is no way to pass them while the narrow dynamic
+
+1) Implementation Detail: We wrote a global planner
+
+obstacles only ﬁll half a hallway, so they can be passed. node which plugs in to ROS’s navigation stack. The nav-
+
+The outdoor environments (Figure 11(b)) are very open, with igation stack provides the planner with the robot’s pose and
+
+randomly placed circular obstacles (representing trees, rocks, a map of the environment and expects a path in return. The
+
+etc.) that occupy roughly 20% of the map.
+
+only additional input we had to add were predicted dynamic
+
+2) Results: Table I shows our results from our indoor obstacle trajectories. To do this, we wrote a node, which uses
+
+experiments. The times shown are average planning times. one of the PR2’s lidar sensors to track people. We do a basic
+
+Our safe interval planner found solutions for all 50 trials but clustering of lidar points from each scan and then match the
+
+HCA* was only able to ﬁnd solutions to 28 of the trials, clusters from this scan to clusters from the last iteration. If a
+
+since we have a 5 minute cap on the planning time. The cluster appears to be moving from frame to frame, we mark
+
+results in this table are therefore computed only across the it as a dynamic obstacle and on each iteration, we update its
+
+28 tests that both planners found solutions for. For Table II, pose using a constant velocity motion model, and the cluster
+
+the safe interval planner found solutions for all 50 outdoor matching. By saving a few hundred previous locations (2-
+
+trials and HCA* found solutions for 47 of them within the 4 seconds) for a cluster, we use a linear regression ﬁt to
+
+5 minute limit. Our results show SIPP outperforms HCA* predict the velocity vector of the dynamic obstacle. We then
+
+in both types of tests, however the speed up is signiﬁcantly use a basic linear extrapolation to predict where the dynamic
+
+greater for indoor environments. HCA* also seems to have obstacle will be over the next 20 seconds.
+
+a harder time getting solutions at all, in 5 minutes on the
+
+2) Results: In one of our experiments, the PR2 had to
+
+indoor cases. The major reason is that in the indoor cases, get past a person in a narrow hallway to get to its goal.
+
+the places the robot can move are highly constrained, due to The person was walking toward the robot, so the planner
+
+the tight hallways. This results in the robot often having to had the robot duck into a doorway (Figure 12), wait for
+
+wait in place for an obstacle to move out of a hall or doorway, the person to pass and then proceed to its goal when the
+
+in order to get to the goal. In HCA*, waiting for an obstacle hall was empty. Another one of our cases has a very slow
+
+to go by would require many expands in the time dimension moving person starting in front of the PR2 and walking in the
+
+depending on how long the wait is, while SIPP would only direction of its goal (Figure 13). The hall is initially narrow
+
+expand one state to accomplish the same thing, regardless and the PR2 must wait for the person to get to where the hall
+
+of the length of the wait. In the outdoor environments,
+
+this fact is less important, since there is so much open
+
+area, that the optimal path rarely involves waiting and the
+
+robot usually can just go around the dynamic obstacles.
+
+Across the experiments, we averaged 0.4s to precompute the
+
+safe intervals for 200 dynamic obstacles (this time drops to
+
+almost nothing as we approach a more reasonable number
+
+of dynamic obstacles, shown in our real robot results).
+
+C. Tests on the PR2
+In order to show SIPP works in real world environments, we implemented the planner in ROS and tested it on Willow Garage’s PR2 robot. The PR2 is a mobile manipulation platform with two 7-DOF, mechanically counterbalanced
+
+Fig. 12. The PR2 ducking to a doorway to avoid a person
+
+5634
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 13. The PR2 starting to pass a slow moving person
+Fig. 14. The PR2 weaving between two people
+widens. Then, it drives up along side the person and passes him to get to its goal quickest. The ﬁnal case involved two staggered people coming toward the PR2. The robot had to weave between them in order to reach its goal (Figure 14). In the three experiments we ran, we had an average planning time of 0.49 seconds. Additionally, it took less than 0.01s to precompute the safe intervals. The images of our real robot trials are taken from our accompanying video.
+VI. CONCLUSIONS In this paper, we have developed the concept of safe intervals for planning in dynamic environments. Safe intervals represent time using the indices of contiguous periods, instead of using timesteps. This idea greatly decreases the number of states that need to be searched, without sacriﬁcing the theoretical guarantees on optimality. As shown in our experimental results, this reduction in the state-space results in a planner that ﬁnds solutions signiﬁcantly faster than the standard approach of planning with a timestep variable. While SIPP does have an order of magnitude improvement over standard approaches and often produces plans in under a second, there are still instances of larger environments in which it can take a few seconds to plan. As any provably optimal planning, it doesn’t scale as well as suboptimal approaches to planning. To make it scalable to larger dynamic environments, in our future work, we plan to consider extending it to use a weighted A* search [8], which has proven to be signiﬁcantly faster than optimal search. Weighted A* uses an inﬂated heuristic to trade-off optimality for gains in
+
+efﬁciency, while maintaining bounds on sub-optimality. The challenge is that SIPP with inﬂated heuristics would become incomplete. But if we do succeed in extending SIPP to use inﬂated heuristics, then anytime searches, such as ARA* [6], would be possible, making SIPP suitable for the use on large environments.
+Another concern is fast replanning since dynamic obstacle trajectories are difﬁcult to predict and often change. While having anytime searches would go a long way in ﬁxing this, an incremental extension would be ideal. The challenge with this is that doing an efﬁcient backward search would require the planner to know in advance what the ﬁnal gvalue is so that it could initialize the time of the goal state in order to plan properly through the dynamic obstacles. We are also interested in relaxing some of our assumptions, so that we can handle arbitrary cost functions and more accurately handle the acceleration/deceleration limits of the robot.
+VII. ACKNOWLEDGMENTS
+This research was partially sponsored by the Army Research Laboratory Cooperative Agreement Number W911NF-10-2-0016, ONR grant N00014-09-1-1052, DARPA grant N10AP20011 and DARPA contract W31P4Q10C0202. We also thank Willow Garage for their partial support of this work.
+REFERENCES
+[1] K. Bekris and L. Kavraki. Greedy but safe replanning under kinodynamic constraints. In IEEE International Conference on Robotics and Automation, 2007.
+[2] Dieter Fox, W. Burgard, and Sebastian Thrun. The dynamic window approach to collision avoidance. IEEE Robotics and Automation, 4(1), 1997.
+[3] D. Hsu, R. Kindel, J.-C. Latombe, and S. Rock. Randomized kinodynamic motion planning with moving obstacles. International Journal of Robotics Research, 21:233–255, 2002.
+[4] A. Kushleyev and M. Likhachev. Time-bounded lattice for efﬁcient planning in dynamic environments. Proceedings of the IEEE International Conference on Robotics and Automation (ICRA), 2009.
+[5] M. Likhachev and D. Ferguson. Planning long dynamically-feasible maneuvers for autonomous vehicles. In Proceedings of Robotics: Science and Systems (RSS), 2008.
+[6] M. Likhachev, G. Gordon, and S. Thrun. ARA*: Anytime A* with provable bounds on sub-optimality. In Advances in Neural Information Processing Systems (NIPS) 16. Cambridge, MA: MIT Press, 2003.
+[7] S. Petty and T. Fraichard. Safe motion planning in dynamic environments. In Proceedings of IEEE Int. Conf. on Intelligent Robots and Systems (IROS), pages 3726–3731, 2005.
+[8] I. Pohl. First results on the effect of error in heuristic search. Machine Intelligence, 5:219–236, 1970.
+[9] M Ruﬂi, D Ferguson, and R Siegwart. Smooth path planning in constrained environments. In Proc. of The IEEE International Conference on Robotics and Automation (ICRA), 2009.
+[10] D. Silver. Collaborative pathﬁnding. In Proceedings of AIIDE, 2005. [11] J. van den Berg, D. Ferguson, and J. Kuffner. Anytime path planning
+and replanning in dynamic environments. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA), pages 2366–2371, 2006. [12] Jur P. van den Berg and Mark H. Overmars. Roadmap-based motion planning in dynamic environments. IEEE Transactions on Robotics, 21(5):885–897, 2005. [13] David Wilkie, Jur P. van den Berg, and Dinesh Manocha. Generalized velocity obstacles. In IROS, pages 5573–5578, 2009.
+
+5635
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on July 12,2022 at 14:08:34 UTC from IEEE Xplore. Restrictions apply.
+

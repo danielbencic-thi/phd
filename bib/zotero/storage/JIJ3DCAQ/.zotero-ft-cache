@@ -1,0 +1,771 @@
+Optimal and Efficient Path Planning for Unknown and Dynamic Environments
+Anthony Stentz CMU-RI-TR-93-20
+The Robotics Instilute Carnegie Mellon University Pittsburgh, Pennsylvania 15213
+August 1993
+@ IS93 Carnegle Mellon
+This research was sponsored by ARF’A, under contracts “Perception for Outdoor Navigation” (contract number
+DACA76-89-C-0014,monitored by the US Army TEC)and “UnmannedGround Vehicle System.’ (contract number DAAE07-90-C-R059, monitored by TACOM). Views and conclusions contained in this document are those of the author and should not be inwreted as representing officid policies, either expressed or implied, of ARF’A 01the
+United States Government.
+
+Table of Contents
+1.0 Introduction 5
+2.0 TheD*Algorithm 6 2.1 Definitions 6 2.2 Algorithm Description 7 2.3 Illustration of Operation 9
+3.0 Proofs of Soundness, Optimality, an Completeness 4
+4.0 Motion Planning Applications 21 4.1 Simple Path Planning 2 1 4.2 Field of View Considerations 22 4.3 Shape Considerations 23 4.4 Dynamic Environments and Dead-Reckoning Error 24 4.5 Occupancy Maps and Potential Fields 25 4.6 Map Information and Outdoor Navigation 26
+4.7 Multiple Goal States 31
+4.8 Multiple Robots 32
+5.0 ExperimentalResults 34
+6.0 Conclusions 36 6.1 Summary 36 6.2 Future Work 36
+
+List of Figures
+
+Figure 1 Figure 2 Figure 3 Figure 4 Figure 5 Figure 6 Figure 7 Figure 8 Figure 9 Figure 10 Figure 11 Figure 12 Figure 13 Figure 14 Figure 15 Figure 16 Figure 17 Figure 18 Figure 19 Figure 20 Figure 21 Figure 22
+
+:Backpointers Based on Initial Propagation from Goal State 10 :Robot Discovers First Unknown Obstacle Cell 11 :Robot Moves Up in Search of Path around Obstacle 11 :Robot Moves Down in Search of Path around Obstacle 12 : RAISE States Propagate out of Well 12 : LOWER States Sweep into Well 13 : Final Backpointer Configuration after Robot Reaches Goal 13
+: Possible transitions for states X and Y 17 : Cell Lattice for Path Planning 21
+: Simple Path Planning with an Unknown Potential Well 22
+: Path Planning with a Circular Field of View 23 : Path Planning with a Disc-Shaped Robot 2A
+: Before and After Positions of a Dynamic Obstacle 25
+: Discovering that the Obstacle has Moved 25 : Path Planning with Potential Fields 26 : Path Planning across Natural Terrain with a Complete Map 28 : Path Planning Across Natural Terrain without a Map 29 : Path Planning with a Coarse-Resolution Map 30 : Path Planning with a Medium-Resolution Map 31 : Path Planning with Two Goal States 32 : Path Planning with Two Robots 33 : Typical Environment for Path Planning Comparison 34
+
+Abstract
+
+The lask of planning tmjectories for a mobile robot has received considerable attention in the research literature.
+
+Algorithms exist for handling a variety of robot shapes. configurations, motion constraints,and environments. Most
+
+of the work assumes the robot has a complete and accurate model of its environment before it begins to move; less
+
+attention has been paid to the problem of unknown or partially-hown environments. This situation occurs for an
+
+exploratory robot or one that must move to a goal location without the benefit of a floorplan (indoor) or terrain map
+
+(outdoor). Existing approaches plan an initial global path or route based on known information and then modify the
+
+plan locally as the robot discovers obstacles with its sensors.While this strategy works well in environmenu with
+
+small, sparse obstacles, it can lead to grossly suboptimal and incomplete results in cluttered spaces. An alternative
+
+approach is to replan the global paIb from scratch each time a new obstacle is discovered. While this approach is
+
+optimal, it is grossly inefficient and can require a high-performance computer for real-time operation. This paper
+
+inhoduces a new algorifhm, D*, capable of planningpatbs in unknown,
+
+known,and changing environments
+
+in an efficient, optimal, and complete manner. D* mcdels the environment as a graph, where each node represents a
+
+robot state (e.g., a location in a room), and each arc represents the a t (e.& distance to travel) of moving between
+
+two states. Initially, a path is planned from the goal to the robot’s location using known information. As the robot
+
+moves, its sensors discover obstacles in its path. These discoveries are banded by modifying tbe arc costs. D*
+
+propagates information minimally a b u t these arc changes in the grapb to compute a new op!imal path. The process
+
+repeats until the robot reaches the gcal or determins that it cannot. After a discussion of prior work, the paper
+
+introduces the algorithm, proves its soundness, optimality, and completeness, illustrates some path planning
+
+applications. compares it to an alternative algorithm, and svmmarizes the results.
+
+5
+1.0 Introduction
+?he rcscarch literature has addressed extensively the motion planning problem for one or more robots moving through a field of obstacles to a goal. Most of this work assumes &at the environment is completely known before the robot begins its traverse (see Latombc [lo] for a good survey). The optimal algorithms in this literature search a state space (e& visibility graph, grid cells) using the distance uansform [6l or heuristics 1141to find the lowest cos1patb from the robot’s start stale to the goal state. Cost can be defined to be distance travelled, energy expended, time exposed to danger, etc.
+Unfortunately, the robotmay have partial or no infomtim about the environment before it begins its traverse but is equipped with a sensor that is capable of measuring the environment as it moves. One approach to path planning in this scenario is to generate a “global” path using the known information and then attempt to “locally” circumvent obstacles on the main route detected by the sensors [51. If the main mute is mpletely obstructed, a new global path is planned. Lumelsky [13]initially assumes the environment to be devoid of obstacles and moves the robot directly toward the goal. If an obstacle obstructs the path, the robot moves around the perimeter until the point on the obstacle nearest the goal is found. The robot then prooeeds to move directly toward the goal again. P i a d e h [16] adopts a strategy whereby the robot wanders about the environment until it discovers the goal. The robot repeatedly moves to the adjacent location with lowest cost, and increments the m t of a location each time it visits it to penalize later traverses of the same space. Korf [9]uses initial map information to estimate the cmt to the goal for each state and efficiently updates it with backtracbng costs as the robot moves through the environment.
+While these approaches are complete. they are also suboptimal in the sense that they do not generate the lowest cost path given the sensor information as it is acquired and assuming a l l known, a priori information is correct. It is possible to generate optimal behavior by computing an optimal path from the known map information, moving the
+robot along the path until either it reaches the goal or its sensors detect a discrepancy between the map and the environment, updating the map, and then replanning a new optimal patb from the robot’s current location to the goal. Although this brute-force. replanning approach is optimal, it can be grossly inefficient, particularly in expansive
+environmentswhere the goal is far away and littlemap information exists. Zelisky [22] increases efficiency by using a quad-tree [19] to represent free and obstacle space, thus reducing the number of states to search in the planning space. For natural terrain, however, the map can encode robot traversability at each location ranging over a
+continuum, thus rendering quad-trees inappropriate OT suboptimal.
+This paper presents a new algorithm for generating optimal paths for arobot operating with a sensor and a map of the environment. The map can be complete, empty, or contain partial infarmation about the environment. For regions of the environment that are unknown,the map may contain approximate information, stochastic models for occupancy, or even a heuristic estimates. The algorithm is functionally equivalent to the brute-force, optimal replanner, but it is far more efficient.
+The algorithm is formulated in terms of an optimal End-path problem withii a directed graph, where the arcs are labelled with cost values that can range over a continuum. The robot’s sensor is able to measure arc costs in the vicinity of the robot, and the known and estimated arc values comprise the map. Thus, the algorithm can be used for any planning representation, including visibility graphs 1111 and grid cell structures.
+The paper continues with a description of the algorithm, followed by proofs of its soundness, optimality. and
+completeness. A number of path planning applications are illustrated. Frst,optimal paths are generated for a pointsized robot with no map information. More involved problems are then addressed, including planning with robot shape, dead-reckoning error. dynamic environments, occupancy maps, ptwtial fields, natural terrain environments,
+multiple goals, and multiple robots. The paper concludes with an empirical comparison of the algorithm to the optimal replanner. and the msuluarc summarized.
+
+6
+2.0 The D' Algorithm
+The name of the algorithm, D*, was chosen because it resembles A* [14], except that it is dynamic in thc sense that a t parameters can change during the problem-solving process. Provided that robot motion is properly coupled to the algorithm, D* generates optimal trajectories. This section begins with the definitions and notation used in the algorithm, then presents the D* algorithm. and closes with an illustration of its Operation.
+2.1 Definitions
+The objective of a path planner is to move the robot fromsome location in the world to a goal location, such that it avoids all obstacles and minimizes a positive cost metric (e.&, length of the traverse). The problem space can be formulated as a set of sfafesdenoting robot locations connected by direcfionaIurns. each of which has an associated cost. The robot starts at a particular state and moves across arcs (incming the cost of traversal) to other states until it reaches the g o d state, denoted by G. Every state X except F has a backpoinfer to a next state Y denoted by b(X) = Y. D* uses backpoiinters to represent paths to the goal. ?be cost of traversing an arc from state Y to state X is
+a positive number given by the arc cosf function c(X, YJ .If Y does not have an arc to X, c(X, 0 is undefined. The arc
+cost function can be either directional (i.e., c(X, YJ # c(Y,X)) or bidirectional (i.e., c(X, Yj = c(Y, X ) ). Two states X and
+Y are neighbors in the space if c(X Yj or c(Y,X ) is defined.
+Similar to A*, D* maintainsan OPEN listof states. The OPEN list is used topropagate information about changes to
+?(a. the arc cost function and to calculate path costs to states in the space. Every state X has an associated rug such
+that f(X) = NEW if X has never been on the OPEN l i s l r(X) = OPEN if X is currently on the OPEN list, and r(X) = CLOSED if X is no longer on the OPEN list. F a each state X, D* maintains an estimate of the s u m of the arc costs from X to G given by the parh COSC function h(G, XJ. For the goal state, h(G. G) = 0 . Under the proper conditions, this estimate is equivalentto the optimal (minimal) cost fmm state X to G, given by the function o(G,X). For each state X on the OPEN list (i.e., r(X) = OPEN), the previous cost function p(G, X), is defined to be equal to h(G, XJ before insertion on the OPEN list. Thus, the previous cost function classifiesa state X on the OPEN list into one oftwo types: a RAISE state if p(G,x) <h(G. X ) , and a LOWER state if p(G,x) 2 h(G, X ) ,D* uses RAISE states on the OPEN list to propagate information about path cost increases (e&, due to an increased arc cost) and LOWER states to propagate information about path cost reductions (e.g., due to a reduced arc cost or new path to the goal). The propagation takes place througb the repeated removal of states from the OPEN list. Each time a state is removed from the list, it is elcponded to pass cost changes to its neighbors. Theseneighbors are in turn placed on the OPEN list
+to wntinue the process.
+States on the OPEN list are sorted by their key function value, k(C,X),defined to be min(h(G,X),p(G,a) if
+f(X) = OPEN and undefined if t(XJ# OPEN. The parameter kmin is defined to be min(R(X)) for all X such that
+r(X) = O P E N . The parameter kmin represents an impoftant threshold in D*: path costs less than or equal to kmimare optimal, and those greater than Rmin may not be optimal. The parameter Pot,, is detined to be equal to kminprior to most recent removal of a state from the OPEN Lit. If no states have been removed, k,,, i s undelined.
+An ordering ofstates denoted by IX,.X,) is defined to be a sequence if b(X;+,)= Xj for a l l i such that 1S i < N and Xif Xj for all (ij)such that 15 i cj 5 N . Thus,a sequence &lines a path of backpointers horn XNto XI. A sequence k , X N 1 is defined to be monotonic if (?(Xi=) CLOSED and h(G,Xj)<h(C,Xi+,)o) r (f(Xj)= OPEN and P(G. Xi) <!Z(G,X;+~)) for all i such that 1 S i c N . D* constructs and maintains a monotonic sequence [G.X]. representing decreasing current or previous path costs, for each state X that is or was on the OPEN list. Given a sequence of states (X,,X,l, slate Xi is an uncesforof state Xi if 12 i <j S N and a d@SC@ndOnI of Xj if 12j < iS N .
+For all two-state functions involving the goal state, the following shorthand notation is used: AX, ERG, X ) .Likewise,
+r) for sequences the notation (X} Ii G , X ) is used. The notation is used to refer to a function independenl of its
+domain.
+
+7
+
+2.2 Algorithm Description
+
+The D* algorithm is presented in this section. The algorithm consistsprimarily of two functions: PROCESS - STATE and MODIFY- C O S T . PROCESS- STATE is used to compute optimal path costs to the god, and MODIFY- COST
+is used to change the arc cost function 4')and enter affected states on the OPEN list. Initially. to)is set to NEW for
+all states, h(G) is set to zero, and C is placed on the OPEN list. The first routine, PROCESS-STATE, is repeatedly
+called until the robot's state,x , is removed from the OPEN list (i,e., r(X) = CLOSED) or a value of -1is retnmed, at which point either the sequence { X } has been consmcted or does not exist respectively. I b e robot then proceeds to follow the backpointers in the sequence (X) until it either reaches the goal or discovers an error in the arc cost
+function c(")(e.& due to a detected obstacle). The s m n d routine, MODIFY - COST, is immediately called to c o r n 1
+c(') and place affected states on the OPEN list. Let Y be the robot's state at which it discovers an error in c r ) . By calling PROCESS-STATE until it returns k,,>h(Y), the cost changes are propagated to state Y such that h(Y) = OW.At this p i n t a possibly new sequence { Yl has been constructed, and the robot continues to follow the backpointers in the sequence toward the goal.
+
+The algorithms for PROCESS- STATE and MODIFY- COST are presented below. The embedded routines are MIN-STATE, which returns the state on the OPEN list with minimum kV) value (NULL if the list is empty); G E T - KMIN, which returns kminfor the OPEN list (-1 if the list is empty); DELETKX), which deletes state X from the OPEN list and sets r(X) = CLOSED; and ZNSERTW), which sets r(x) = O P E N , computes k(X) from hQ and
+p ( X ) , and places or re-positions state X on the OPEN list sorted by My.
+In function P R O C E S S - STATE at lines L1 through LA, the state x with the lowest k(') value is removed from the
+OPEN list. Before X increases or reduces the path cost of its neighbors. it first checks if any of its neighbors can reduce its own path cost at lines L5 through L11. Note that the check is l i i to CLOSED neighbors with optimal h(q values (i.e., less than or qual to the old kmb). At lines L12 through L57 each neighbor of X is examined again. All neighbors that receive a new path cost are placed on the O P E N so that they will propagate the cost change to their neighbors. At lines L15 through L20, the path cost is computed from a NEW neighbor Y to the goal. The backpointer is set to X so that the monotonic sequence { is constructed. At lines L23 through L32, all neighbor states Y that have a backpointer to X receive a new path cost, regardless of whether the new cost is gmter than or less than the old. Since these states are descendants of X,any change to the path mt of X affectstheir path costs as well. At lines L36 through L46, state X reduces the path cost of its neighbors (if possible) that an?not immediatedescendants of X and redirects their backpointers to point to X.Note that this reduction is permitted only if X is a LOWER sfate. It is shown in the next section that this requirement is essenmto avoid creating a closed loop in the backpointers. If X is a RAISE state, it is placed back on the OPEN list for future expansion At lineshi9 through L53, the neighbors Y of X that areable to reduce the path cost of X are placed on the OPEN list. Since these neighbor states have path costs greater than the old kmin,their path costs are not guarantFzdto be optimal.Thus, the updating is "postponed" until the neighbors are selected for expansion, at which time they will be optimal. Finally, at line L59 the current k,,, is
+remed.
+
+Function: coskPROCESS-STATE0
+
+L1 X = MIN-STATE( )
+
+L2 i f X = N U L L t h e n E t u r n - l
+
+L3 kold = G E T - KMIN( )
+
+LA DELETE(*
+
+L5 # Reduce h(X) by lowest-cost neighbor if possible
+
+L6 for each neighbor Y of X:
+
+L7
+
+if ?(u)= CLOSED and h ( n < kOldand h(X)>h(Y)+ c(Y,X ) then
+
+L8
+
+b(X) = Y
+
+L9
+
+h(X) = h(Y)+ c(Y,x)
+
+L10
+
+endif
+
+L11 endforeach
+
+8
+
+L12 # Process each neighbor of X
+
+L13 for each neighbor Y of X :
+
+L14
+
+#Propagate cost to NEW s h t e
+
+L15
+
+if r(r) = NEW then
+
+L16
+
+Wu,=X
+
+L17
+
+htU, = h(X)+ c(X, r)
+
+L18
+
+~ ( n= h(Y)
+
+L19
+
+INSER'llr)
+
+L20
+
+endif
+
+L2 1
+
+else
+
+L22
+
+#Propagate cost change along backpoiiter
+
+L23
+
+if b(Y) = X and h ( n f h(X)+ dX, tbe0
+
+L24
+
+if t(n = O P E N tben
+
+L25
+
+if h(U < d r ) then P(Y, = YU
+
+L26
+
+h(W = h(X)+ 4,Y)
+
+L27
+
+endif
+
+L28
+
+else
+
+L29
+
+h ( n = h(X)+C(X W
+
+L30
+
+~ ( n= h(n
+
+L3 1
+
+endelse
+
+L32
+
+INSERqn
+
+L33
+
+endif
+
+L34
+
+else
+
+L35
+
+# Reduce cost of neighbor if possible
+
+L36
+
+ifb(Y)+Xandh(Y)>h(X)+c(X,n tben
+
+L37
+
+if p(X)2 h(X) then
+
+L38
+
+b(n = x
+
+L39
+
+h(Y) = h(X)+c(X, r)
+
+L40
+
+if ifn= CLOSED then p ( n = h(Y)
+
+LA1
+
+INSERUr)
+
+LA2
+
+endif
+
+LA3
+
+else
+
+L44
+
+P(X) = h(X)
+
+LA5
+
+INSERUX)
+
+L46
+
+endelse
+
+LA7
+
+else
+
+LA8
+
+# Sa up cost reduction by neighbor if possible
+
+LA9
+
+if W n t X and h(Xj > h ( n + c(Y, X ) and
+
+L50
+
+r(r) = CLOSED and h ( n >kOldthen
+
+L5 1
+
+~ ( r =) h ( n
+
+L52
+
+INSERFr)
+
+L53
+
+endif
+
+L54
+
+endelse
+
+9
+
+LSS
+
+endelse
+
+L56
+
+endelse
+
+LS7 endforeach
+
+LSS #Return kmin
+
+L59 return G E T - K M I N ( )
+
+L60 endfunction
+
+In function MODIFY- C O S T at line L2, the arc cost function is updated with the changed value. Since the path cost for state Y will change. X is placed on the OPEN list. When X is expanded via PROCESS-STATE, it cornpules a new h ( n = h(X) +dX, fl and places Yon the OPEN list. Additional state expansions propagate the cost to the
+descendants of Y.
+
+Function: coskMODIFY-COST(statc:X, statc:Y,cost: c w l )
+
+L1 #Change the arc m t value
+
+L2 c(X, Y) = c v d
+L3 # Insenstate X on the OPEN list ifit is CLOSED
+
+L4 if I(X, = CLOSED then
+
+LS
+
+P(x) = Wx)
+
+L6
+
+INSERT0
+
+L l endif
+
+L8 # Return kmjn
+
+L9 rem G E T - K M I N ( )
+
+L10 endfunction
+
+2.3 Illustration of Operation
+The role of RAISE and LOWER states is central to theOpxation of the algorithm. The RAISE stam (i.e., h(X)> p ( X ) ) propagate cost increases, and the LOWER states (i.e., h(X, s p ( x ) ) propagate cost reductions. When the cost of traversing an arc is increased, an affected neighbor state is placed on the OPEN list, and the cost increase is propagated via RAISE states through all state sequences containing the arc. As the RAISE states come in contact with neighboring states of lower cost, these LOWER states are placed on &e OPEN list, and they subsequently decrease the cost of previously raised states where ever possible. If the cost of traversing an arc is deaeased, the cost decrease is propagated via LOWER states through all state sequences containing the m,as well as neighboring states whose cost can also be lowered.
+Figure 1through Fignre 7 illustrate the Operation of the algorithm for a "potential well" path planning problem. The planning space consists of a 50 x SO grid of cells. Each cell represents a state and is connectedto its eight neighbors via bidirectionalarcs. The arc cost values are smallfor the freecells and pmhibitively large for the obstacle cells. The robot is point-sized and is equipped with a contact sensor.Figure 1 shows the results of an optimal path calculation from the goal to all states in the planning space. The two grey obstacles are stored m the map, but the black obstacle is not. The mows depict the backpointer function; thus, an optimal path to the goal for any state can be obtained by tracing the mows from the state to the goal. Note h a t the arrows d e k t around the grey, hown obstacles but pass through the black, unknown obstacle.
+In Figure 2, the robot follows the backpointers from its staning location at the center of the left wall toward the goal. Its path is depicted by the horizontal black Lie. When it reaches the unlcnownblack obstacle. it detects a discrepancy hetween the map and the world, updates the map, and enters the state on the OPEN list via MOD/FY - COST. The Cell is changed to grey, indicating that it is now hown to be an obstacle. PROCESS - STATE is called to compute a new path to the robot. The state containing the detected part of the obstacle becomes a RAISE state that passes the
+
+10
+path cost increase to its descendants upon expansion. The RAISE states place the upper neighbor of the detected obstacle on the OPEN list as a LOWER state. This neighbor redirects the robot cell’sbackpointer up and to the right. When the robot attempts to move in this direction, its sensor discovers that this new cell is also an obstacle. Successive calls to MODIFY- COST and PROCESS-STATE lead the robot up along the unknown obstacle (see Figure 3).The dark grey cells in the center of the well are RAISE states, and the light grey cells are LOWER stalcs. Note that the LOWER states have directed the backpointers in the upper half of the well to p i n t toward the upper portion of the unknown obstacle.
+When the robot reaches the top of the unlolown obstacle, it discovers that the ‘‘gap” is sealed (Figure 4). RAISE states propagate this information through the upper half of the well, and then LOWER states expand from the remaining, lower portion of the unknown obstacle to redirect backpointers toward the lower half of the well. The robot then moves down along the obstacle to the lower portion of the well and discovers that the entire gap between the two original map obstacles is sealed (Figure 5 ) . Thus, the path cost to all cells in the well is increased, and this information is propagated via RAISE states which expand out of the well to the left.
+As the RAISE states move out of the well they activate LOWER statesaround the lip which proceed to sweep into the well around the upper and lower obstacles (Figure 6) and redirect the backpointers out of the well. This process is complete when the LOWER states reach the robot’s cell.at which pomt the robot moves around the lower obstacle to the goal (Figure 7). Note that after the traverse, the backpointen are only partially updated. Backpointen within the well point outward, but thosein the leti half of the planning spacestill point mto the well. All states have a path to the goal, but optimal patbs are computed to a limited number of states. This effect illustrates the efficiencyof D*. The backpointer updates needed to guarantee an optimalpatb for the robot are limited to the vicinity of the obstacle.
+Figure 1: BacQointers Based on Initial Propagation from Goal State
+
+11 Figure 2 Robot Discovers First Unknown Obstacle Cell
+Figure 3 Robot Moves Up in Search of Path around Obstacle
+
+12 Figure 4: Robot Moves Down in Search of Path around Obstacle
+Figure 5: RAISE States Propagate out of Well
+
+13 Figure 6: LOWER States Sweep into Well
+Figure 7 Final Backpointer Configurationafter Robot Reaches Goal
+
+14
+3.0 Proofs of Soundness, Optimality, and Completeness
+After all states X have been initialized to t(X) = NEW and G has been entered onto the OPEN list, the function PROCESS - STATE is repeatedly invoked to conshllct state sequences. The Function MODIFY- COST is invoked to make changes to c(O) and to seed these changes on the OPEN list. In this section, D* is shown to have the following properties:
+{a Property 1: If t(x)# N E W , then a sequence is constructed and is monotonic.
+Property 2: When the value kmi, returned by PROCESS- STATE equals or exceeds h ( m , then
+h(X) = o(X).
+Property 3: If a path from X to G exists, and the search spam contains a Iinite number of statcs, then {X} will be constructed after a finite nnmber of calls to PROCESS- STATE. If a path does not exist then PROCESS- STATE will return -1 with t(X) = N E W ,
+Property 1 is a soundness property: once a state has been Visited, a h i t e sequence of backpointers to the goal has been constructed. Property 2 is an optimalityproperty. It defines the conditions under which the chain of backpointers to the goal is optimal. Property 3 is a completenessproperty: if a path from X to G exists, it will be constructed. If no path exists, it will be reported in a finite amount of time. AU three properties hold regardless of the pattern of
+invocation for functions MODIFY- COST and PROCESS - STATE.
+In order to prove that D* has the above properties,a number of theorems needed to lay the groundwork. As D* propagates costs, it redirects backpointers in sucb a way as to create new and optimal state sequences. The first group of theorems defines the conditions under which backpointers can be modi6ed and stiU preserve Property 1. Theorem 1 establishes the uniqueness of a state sequence.
+Theorem 1: If each state has only one backpointer, only cue sequence lX,X,) can exist between
+any two states x,and x,.
+, Proof Let IY,.YMl be another sequence from XIto X,. Clearly, Y, must be X, since the
+sequences must end at the same state. Y,- must be X,- unless Y, or X, has two backpointers. By induction, the sequences must k identical down to and including state XI.If (X,.X,) and {Y,,YMl are of differentlengths, then either the longer sequence does not end at XIor it contains multiple copies of X,,thus violating the debition of a sequence. QED.
+Theorem 2 defines the condition under which a statecan be cut offfrom the goal. If the backpointer of an ancestor of state X is redirected to point to X 01 one of its descendants, then a cycle in the backpointers is introduced in sequences that contain X.
+Theorem 2 Assume thatproperty 1holds for a given set of stam.Given the sequence { CXt , let y
+be the set of states, sucb that Y E y if the sequence IX,Yl exists. If b(X) is sei to some state Ys in y , thennosequence lG,Yl existsfmastate Y i f f YE^.
+Proof: If Y, E y. then any sequence {G.Y,t must conrain the subsequence IGXI (by the definition of y and Theorem 1).But if Wj is redirected to point to amemkr of y, then {GXI must contain X again. This violates the definition of a sequence. Therefore, a l l sfaw Y E y will not have valid sequences. Sinceonly b(X) is m d i i . any states which are not members of y are nnaffecte4and
+property 1 still holds for these states. QED.
+One way to avoid a cycle when redirecting the backpointer of state Y to point to X is to determine whether or not Y is an ancestor of X . Theorem 3 establishes a necessary condition for this determination by capitalizing on the monotonicity of state sequences under Property 1.
+
+15
+Theorem 3: Assume that Property 1 holds for a given set of states. Given a monotonic sequence IX,X,l and a state Z with h(Zj >h(X,), Z cannot be a member of {X,.X,J unless IX,X,l contains at least one RAISE state.
+Proof Assume Z is a member and ~X,,X,J contains no RAISE states. For any pair of adjacent states Xiand Xi+, in the sequence, if r(XJ = CLOSED, then h(X,)<h(X,+,) by definition. If r(XJ = O P E N , then p(Xi) < h(Xi+ ,I. But since Xi must be a LOWER state, then h(XJ <p(Xi), and therefore h(X$ < h(Xi+,). Therefore, by induction and transitivity of the inequality relation,
+h(Xi) <h(X,) for all i such that 1< i < N . So by contradiction, either Z is not a member or the
+sequence contains a RAISE state. QED.
+The following theorem strengthens the condition on the RAISE state for determining state anceshy by establishing a relational test on its k(*) value.
+, Theorem 4 Assume the sequence IX,XNl is monotonic. If any of the elements X, through X,_
+are RAISE states, then for at least one of these RAISE states X,, k(X,) < h(X,).
+Proof: Assume that IXl.XN- , I contains at least one RAISE state, and let X, be the RAISE state
+with the largest index. Therefore, the subsequence IX,+,X,l contains no RAISE states. By the definition of a monotonic sequence, h(Xi) <h(Xi+ ,) for all i such that S < i c N . Therefore, by induction and b-ansitivity of the inequality relation, h(X, + ,) 5 h(X,). (Equality of the h(") values occurs when S + 1 = N . ) Since X, is a RAISE state, then k(X3) = P(X,)<h(X,+,); thus,
+WX,) < WN)Q. ED.
+Therefore, by redirectingbackpointers only to states with h ( O ) less than or qual to the minimum k(") on the OPEN list, it is impssible to create a backpointer cycle. This is formalized in Theorem5 .
+Theorem 5 Assume that Property 1holds for a given set of states. Let X be a state such that
+h(X) <k,;, .Let Xi be a neighhor state ofX such that c(X XJ is defined and h(XJ< h(Xi). If b(XJ is
+set to X, then property 1 is preserved.
+Proof:Consider the two cases:1)Xi is not a member of the sequence ICXJ;and 2) Xi is a member. Case 1: Since X is not a descendant of Xi, then sequences exist for all states with r(0) # NEW after the backpointer is redirected(Theorem 2).Sincethe s e q u e m ICX) is monotonic, h(XJ <h(Xi), and all sequences beginning with X i are monotonic (Property 1). then all resultant sequences are monotonic. Case 2 Since h(X) is less than 01equal to the minimum k(3 value on the OPEN list, then From Theorem 4, no members of the sequence IGXI can he RAISE states. But from Theorem
+3, if no members are RAISE states, then xi cannot be a member of IGXI unless h ( ~L)h(xi). But,
+h(X) c h(X$, so case 2 cannot exist QED.
+In addition to theorems governing the modificationof by), a theorem governing modifications to h y ) is needed to
+preserve monotonicity of the sequences as required under property 1.
+Theorem 6 Assume that Property 1 holds for a given set of states. Consider two states, X and Y,
+such that b(Y) = X. The following modifications can be made to h(Y) while still preserving Property 1. If ftv) = OPEN, then h ( n can be modified to assume any value provided that h ( n >p(X) if r(X) = O P E N and h(y)>h(X) if r(X) = CLOSED. If $0 = CLOSED, then h ( n can be adjusted if it satisfies the same lower bound mstraints and is also not increased.
+Proof: Let y be the set of states such that Y ; Ey iff b(Y> = Y. Consider the case where
+t(n = O P E N . From the de6nition of amonotonic sequence, p(Q must be less than h(Yi) for all Y,
+in y . Modifying h(Yl does not affect p ( n , so the condition still holds. From the definition of a
+monotonic sequence, the value of h(r) must be seater than p(x) if x is OPEN and greater than
+h(X) if X is CLOSED, but these conditions are stated in the theorem. Consider the case where
+
+16
+r(r) = CLOSED. From the definition of a monotonic sequence, h(U,< h(YJ for all Y2in y
+Decreasing h ( n preserves this condition, provided h(Y) satisfies the lower bound constraints stated abovc for the same reasons. Thus, all sequences remain monotonic and P r o p t y 1 holds. QED.
+A corollary can be derived for modiicatiom to p(")
+Corollary 6:Assume that Property 1 holds for a set of states. Given a state X such that r ( x ) = O P E N , if p(X) is reduced then is Property 1preserved.
+Proof: See the proof to Theorem 6. Since p(X) has an upper bound but no lower bound, it can be reduced and Property 1 still holds. QED.
+e) A similar theorem governing modificationsto is needed to preserve sequence monotonicity under Property 1
+Theorem 7 Assume that Property 1holds for a given set of states. If r(X) is changed from OPEN to CLOSED, Property 1is preserved if h(X) <p(X). If r(X) is changed from CLOSED to OPEN,
+Property 1 is p r e m e d if p(X) <h(X),
+ProoE Consider the case where r 0 is set to CLOSED. Let x be the set of stam such that Xi E x iff b ( X J = X . Before closure, p(X) must be less than A(Xi) for all Xiin x , and after closure, h(X) must be less than h(Xi) for all Xi (definition of a monotonic sequence). Thus, if h(X)< p ( W , then h(X)<p(B<h(Xi)for all Xi in x and the theorem holds. Consider the case where ( X ) is set to
+O P E N . If p(X) <h(X), then p(X)<h(Xj <h(Xi)for all Xiin x and the theorem holds. QED.
+The supporting theorems are now in place to prove that D* preserves Properry 1 in all cases.
+Theorem 8 D* preserves Property 1.
+Proof:The portions of PROCESS-STATE and MODIFY- COST that modify the functions b r ) , /I('), p("), and ~(0)need to be examined. In PROCESS- STATE at line L4. X is removed from the
+OPEN list. It is shown below that Property 1 is preserved by modifying the No)values of states
+with backpoiinters to X. At lime L8, b(X) is redirected Since h ( n 5 kOrdSk,,,;, and h ( n <h(X),then by Theorem 5 Property 1 is preserved. At line L9, h(X) is modified. From the conditional, h(W is modified only if it can be decreased, and after modi6catio& h(X)>h ( n . Since both X and Y are
+CLOSED. from meorem 6 Property 1 is preserved. At line L16, b(r) is assigned. Since t(n is
+N E W , it was not previously part of a sequence, and after the assignment of HI'). Y is the last state
+in the sequence. At line L17, NO is assigned such that h ( n > h(X),thus preserving Property 1.At lines L18 and L19, Y is inserted onto me OPEN list. since no other states have backpointers to Y, then p(Y) can assume any value, and Property 1is preserved. At lines L26 and L29, h(Y) is modified so that it is greater than h(X) for all Y such that = X,thus restoring monotonicity possibly lost from the removal of X fromthe OPEN list at line L 4 At line L25, p ( n is reduced. From Corollary 6, Property 1 is preserved. At lineL32,Y is inserted or repositioned on the OPEN
+list. If t(n is changed to OPEN, then since p(Yj = h ( n ,from Theorem 7 Property 1 holds. At line
+L38, b(Y) is redirected. Since h(X) = k,,, <kminand h(X)< h(n,then by Theorem 5 Property 1 is preserved. At line L39. since h ( n is reduced, h(V > WX),and X is either CLOSED or OPEN with p ( X ) = h(X) (lines L44and U S ) , then fmm Theorem 6 Property 1 is preserved. At line L41, Y is inserted or repositioned on the OPEN list. For the same reason as line L32. Propxty 1 holds. At lines L44 and L45, X is placed back on the OPEN list. Since p(X) = h(X), then fmm Theorem 7 Property 1 is preserved. For the same reason, property 1is preserved when Y is placed back on the
+OPEN list at lines L51 and L52.
+The function MODIFY- COST affects r(") but does not modify b r ) , h r ) , or p y ) . Note: p(") is assigned but not changed. At line L6, the CLOSED state X is placed on the OPEN list. Since p ( x ) is set to h(W ,then from Theorem 7 Property 1is preserved. QED.
+
+17
+Thus, Theorem 8 proves that D* will not "cut off" a state X from the goal once the sequence ICXI has been constructed. The sequence may be modified later, but at all times it is possible to trace backpointers from X to G. Thus, D* generates only sound sequences. This property is important for moving the robot toward the goal before information has been fully propagated through the set of states
+The optimalily of D* is shown next, as stated in Property 2. The fust theorem addresses the relationship belwcen states on and off the OPEN list. Figme 8 illustrates the possible combinations and transitions for the r r ) values of a pair of neighbor states X and Y.
+Figure 8: Possible transitions for states X and Y
+
+t(X) = OPEN
+t(Y) =OPEN
+
+to =CLOSED
+t(Y)=NEW
+
+l - 7 t(X) =CLOSED
+s6 t(Y) = CLOSED
+After the states X and Y are initialized,they are both labelled NEW, as shown in box SI. Since a state tag cannot be set to NEW again after initialization. box S1 cannot be reentered (as shown by the arrows).The dangling arrow points to isomorphic copies (not shown) of boxes S2 through S6 with X and Y swapped. Box 52 represents the placement of X on the OPEN list, after which Y can be opened (S3) or X can be closed (S4). The two states can transition between S3, S5, and S6 as the states are individually insertedand deleted from the OPEN list. Again, the
+dangling pointem fromS3 and S6 point m a box isomorphic to S5.
+Using this state transitiondiagram, a theorem about the relationship between mt values forstatesin box S5 is pmvcd below.
+Theorem 9 Given any two states, X and Y,such that c(X, Yj is defined, ifX) = CLOSED, and
+r(n = O P E N , t h e n k ( n < h ( X ) + c ( X , Y j .
+Proof: Initially, X and Y are NEW states as shown in box S1. Since X and Y can be opened by different states, no assumptions an made about their h(") and Ma)values in the transition through box S2 to S3. In the m s i t i o n from 52 through S4 to SS, X is CLOSED and Y is placed on the OPEN list. This transition occnrs at lines L15 through L19 in PROCESS - STATE. In this segment
+h(n k ( n = is set to h(X)+ c(X, u), thus the theorem holds. In the transition from S3 to S S , x is
+
+18
+CLOSED and Y remains O P E N . Consider the two cases: 1) b(n = X; and 2) HU, fX.Case 1: At
+lines L23 through L32, h(t) is set to h(X)+ c(X,Y)and MY) <h(Y); thus,the theorem holds. Case 2:
+Comider two sutcases: 2a) X was a LOWER state;and 2b) X was a RAISE State. Case 2a: At lines
+L37 through IAl, if h(n<h(X)+ c(X, r), then since k(Y) < h ( n and no action is taken the theorem holds. If h(Y) > h(X) +c(X, Y), then h(nis set equal to h(X) + c(X, U,.Since k(Y)5 h ( 9 . the theorem holds. Case 2b: If h(E') h(X)+ c(X, Y), then X is placed back on the OPEN list at lines L44 and
+L45,and X and Y are transitioned back to box S3. In box SS, it is possible fora state other than X to modify h(r), Since reducing h(Y) can only reduce k ( n , only those modilicatinns that increase h(nare of concern (liesL25 amiL26). In this segment, p(Y) is reassigned m order to prevent k( V, from increasing, and the theorem holds.
+In the wansition from SS to 56, consider three cases: 1)an immediatetransition is made within PROCESS- STATE from S6 back to S5: 2) an immediate transition is made from S6 to the box isornorpbicto S5; and 3) the states remain in S6. Case 1: At Lines L44and L45, Y is placed back 00 the OPEN list with k(Y) = h(Y) afma possible reduction of h(r) at l i e s L7 through L9. Since k(Y)
+can only be reduced, k(V 5 h(X)+ c(X, Y) and the theorem holds. Case 2 Y is closed and X is
+opened. At lines L29 through L32 and L36 through L41, p(X, is set to h(Y)+c(Y,X) and the theorem holds. At lines L49 through L52, k(X) is set to h(XJ.Since h(r) >h(X)+ c(X, Y), then k(x? = h(X) < h ( 0 -c(X, Y)< h ( n +c(Y,X) and the theorem holds. Case 3: The only segment of PROCESS - STATE that leaves both states CLOSED is Lines L7 through L9. If h(Y) exceeds h(X)
++a, by more than c(X, u), then h(u) is set to h(X) Yj: thus, h(Y)< h(X)+ c(X, Yj. Note also that
+h(Q s h(Q + c(Y,X ) ; otherwise, X or Y will be placed on the OPEN list at lines L23 through LSZ,
+and the states will transition out of S6. In the hamition from S6 back to S5, Y is placed back on the OPEN list, then HYj = MY) <h(X,+ c(X, YJand the theorem holds. Ifthe transition is made from S6 to the isomorphic box to S5, then HX) = h(XJ<h ( n+ c(Y, and the theoran holds.
+This last case is important for analyzing the effects of function MODIFY- COST. This function is able to change a state from CLOSED to O P E N , Sincebox 54 is only a temparary transition within PROCESS-STATE, it cannot be affected by MODIFY- COST. MODIFY- COST can effect transitions from S5 to 53,but the theorem states nothing about these transitions. The only
+applicable transitions are S6 to S5 and the box isomorphic to S5. Since h(Y) 5 + h(X) c(X, Yj for
+states in S6 (see above), if Y is placed on the OPEN List, then WYj <h(XJ+ c(X u) and the theorem
+holds. This operation OUNH at l i e s L5 and L6of MODIFY- COST. ' h e same msonmg applies to the transition from S6 to the isomorphicbox to SS. QED.
+Thenrem 9 is very powerful, because it proves that CLOSED neighbors of an OPEN state cannot reduce the k(")
+value of the OPEN state. The following corollary derived from the proof for the previous theorem describes the relationship between h(') values fora neighboring pair of CLOSED states.
+Corollary 9 Given two states X and Y such that ?(X) = r(Y) = CLOSED, if c(Y,XJ is defined, then h(X)s h(Y)+ c(Y,x) ,and if c(X, E') is defined, then h(Yj 5 h(XJ+ C(x Y).
+Proof See the proof for Theoran 9. QED.
+From Theorem 9, the monotonicity of the parameter kminis proved m the theorem below.
+Theorem 1 0 Between calls to MODIFY- COST, the paramem k,,, increases or remains at the
+Same value a hite number of times with eacb invocation of PROCESS -STATE.
+hoot Let X be the next state to be removed from the OPEN liss therefore, k(X, = kmin,It will be shown that X can only insert or reposition states on the OPEN list to have 4")values greater than k(X). Since there are a finite number of states on the OPEN list with k(3 values equal to MX), then kmcnmust increase or remain the same for a finite number of iterations. At lines L7 through L9 in PROCESS- STATE, h(X) can be reduced. Since Y is CLOSED, the value of h(X) cannot be
+
+19
+reduced below k(X) (Thmrem9). At lines L15 through L19, Y is inserted onto the OPEN list. Since
+k(Y) = k ( n = k(X)+ c(X, Q > k(X)2 k ( m , the theorem holds. At lines L23 through L32, Y is inserted or repositioned on the OPEN list. Consider the case where Y is already on the OPEN list.
+k(n Reassigning the value of h(Y) can only reduce k(Y) 01leave it unmodified. If is reduced, then
+k(Y) = k(u) = k(X)+ c(X,l'j > k(X, 2 k(X) and the theorem holds. If the value of YYJ is unmodified
+then either it was already greater than k(X) or was equal to it, and the thenrem holds. Consider the case where Y is inserted onto the OPEN list. For the same reasons as lines L15 through L19, the theorem holds.
+At lines L37 through L41, Y is inserted, repositioned, or left in the same place on the OPEN list.
+Since p(X) 2 k w , then h(X) = KX).Since after modification h ( n is greater than k(X), if Y is
+k(n inserted onto the OPEN list, then = h(Y)> h(X) = k(X) and the theorem holds. If Y is already
+on the OPEN list, then either p ( n is less than the modiEed h(Y) and Y is not repositioned, or p ( n is greater than or q u a l to h ( n .and k(Y) = h(y);thus, the theorem holds for the above reasons. At lines L44 and L45, X is re-inserted on the OPEN list. Since p(X) <b@" before re-insertion and p(X) = h(X) afw re-insertion, then k(x) must increase and the theorem holds. At lines LA9 through
+L52, Y is inserted onto the OPEN list. Since MY) = h(Y)>k,,, = k(X), the theorem holds. QED.
+Now that the monotonicity of kminhas been established, the inductive step for optimalily can be constructed. It is shown below that if states with h (") values less than or q u a l to k,,,, at the i-th invocation of PROCESS -STATE are
+optimal, then states with h ( ' ) values less than or equal to the new kmimat the (i+l)-st invocation of PROCESS-STATE are optimal.
+Theorem 11: If k(X) = o(X) for all states X such that h(X)SkOld,then MY) = o(Yl for all states Y
+such that kolds h(Y) 5 k,,, .
+Proof A state Yi,such that k o I d S k ( Y j ) S k m imn ust be either 1) CLOSED or 2) OPEN with k(YJ = k m j n , Order the states Y, by h(*) value such that k o l d 5 h ( Y , ) S h ( Y 2 )S ... s k ( Y i ) ~ R , ~ , .
+Consider YI tirst. Case 1: From the premise, h(Z) = o(Z) for all neighbor states Z (it.,d Z Y , ) is defined) such that h(Z) c MY1).From Comllary 9, none of these optimalneighbor states canreduce k ( Y 1 ) ,Nor can any neighbor states on the OPEN list reduce h(Y1),since the h (") values for states on the OPEN list are greater than or q u a l to kmi,. These OPEN states cannot reduce each other's h(") values below kmi,. nor can their CLOSED neighbors (Theorem 9). Thus, since h(Y1)Sk,;,. then k(Y1) = o ( Y , ) .Case 2: Since MY,) = k(YI),then from Theorem 9, a neighbor state X with h(X) = o(X) < h(Y1)cannot reduce h ( r , ) .Thus, MY1) = o(Y,). The above argument canbe repeated for the remaining states in &, and by induction, h(YJ = c(YJ lor i = 2 lhmugh i = N . QED.
+The monotonicity of k,,, established in Thecaem 10 combined with the inductive step established in Theorem 11 is used below to prove the optimality of D* as given i n Property 2, regardless of the calling sequence of PROCESS- STATE and MODIFY- COST.
+Theorem 12:D* preserves Property 2.
+Proof:Initially, the goal state C is placed on the OPEN list with h(G) = o(.G)= 0. There are no CLOSED states since ?(') = NEW for all states except G.When PROCESS- STATE removes and expands a state from the OPEN list, kOld is set to kmin and R,, is increased monotonically (Theorem 10). From Theorem 11. for the states X such that k O l d ~ h ( X ) < k m ihn(,X) = o(X); therefore, k(X) = o(X) if h(X) s kmin.
+n Assume that c(X, is modified, and the change is seeded via MODIFY- COST.If X is OPEN,
+then the change to c(X,l'j cannot affect optimdity of states with h(') less than or equal to kmi,,
+since k(X) can be reducedno lower than kmin(Theorem9). Since h(X)+ c(x.)'I must be greater than
+kmi,, then h(O) values equal to or lower than kmjncannot be reduced rhus, the premise to Theorem 1 I is still true and PROCESS-STATE can be invoked to propagate the modification. If X is
+
+20
+CLOSED, then MODIFY- COST ensures that kmiash(v by placing X on the OPEN list. This
+operation preserves the truth of the premise to Theorem 11, since reducing kmimselects a subset of the optimal CLOSED states. Thus, Property 2 is preserved regardless of the pattern of cost modification and propagation. QED.
+The theorem below shows that D* finds a monotonic sequence to any state X that is reachable from the goal.
+Theorem 13: D* preserves property 3.
+Proof: Assume that a state x, is reachable from the goal (i.e.. tXIXNl exists. where c = X,).
+Initially, G is placed on the OPEN list. When state Xi is expanded, it places or repositions X i + , on the O P E N list and redirects its backpointer if necessary (lines L15 through L19, L23 through L32, and L37 through L41 in PROCESS-STATE). By induction, the sequence CXIX,l will be
+constructed unless some state X, exists in the sequence IXIXN)such that r(Xs) = OPEN, and X, is never selected for expansion. Once a state X, has been placed on the OPEN list, its k(") value cannot be increased, since all modifications to No)for OPEN states are reductions. Lines L24 through L26 are the exception, where p(") is reassigned to prevent k(O) from increasing. Thus, due to the monotonicity of kmin(Theorem lo), X, will be eventually removed from the OPEN list.
+If a state X, is unreachable from the goal, eventually all reachable states will be placed on the OPEN list(viahesL15 throughL19in PROCESS-STATE)andwillberemovedgiventheabove reasoning. Since the number of search states is finite, the list w i l l empty after a linite number of calls to P R O C E S S - X T A T E , a n d - I willberetumedwihr(XN) = N E W . Q m .
+The significance of the results in this section is that when PROCESS-STATE visits a state X (Le,, r(X) # N E W ) , it constructs a sequence {X) to the goal. Thereafter, a sequence is maintained regardless of subsequent arc cost modificationsand propagation. If PROCESS- STATE returns -1before X is visited, then no path exists fmm X to the goal. If PROCESS-STATE is invoked repeatedly until k,, is greater than or equal to h(X), then the optimal sequence {X } to the goal has been found. The possible uses of D* formobile mbot path planning are discussed in the next section.
+
+21
+4.0 Motion Planning Applications
+In this section, D* is used to solve a number of problems, beginning with a simple indoor mobile robot path planning problem and then extending to more difficult and relevant planning problems. All of the examples in this section were generated using an implementation of D*.
+4.1 Simple Path Planning For all of the path planniig problemsin this section, the environmentmodel is an 8-connectedCartesian lattice or grid of cells as shown in Figure 9. Note that D* is not limited to this representation;instead, it requires only that the planning space be a graph of states. A state.is d e h e d to be the center of a cellin thelattice.For a given state X , c(Xi,X , is defined for i = 1 to 8 , Thus, it is possible to move From state X to neighboring states whose cells share an edge or c m e r in the lartice.The arc cost of moving from X to Xiis defined to be equal to the cost of moving from Xi to X; thus, c(X, Xi) = .(Xi, X ) .Let function r(X) be the presumed cosf of traversing the width of the cell containing slate X .
+and let function a(X) be the ucfulcosf of traversing the cell.From the figure, c(X+X ) = s ( X ) / 2 + s(Xi)/2 if X and X i share an edge, and c(X, XI = ( s o +sWiH ( h/2)if X and Xi share a comer.
+Figure 9 Cell Latticefor Path Planning
+
+x1
+
+x2
+
+x3
+
+X6
+
+xa
+
+-For the simple path plannmg problem, the following assumptions are made about the robot and its environment: OmnidirectionaUty:the robot is capableof moving fromstate Y to any state X for which c(X, Y) is defined. -For the above environmentmodel, the robotcan move in any of the eight directions. Point Size: the d o t has zero physical extenr thus, its workspace equals its configuration space.
+* Minimal Field of view (FOV): be mbot is equipped with a sensor capable.of measuring the u r ) value of the cell in which it resides or that of a neighboring cell.
+DeterministicMotion: the robot accuratelyfollows plannedpaths so that "safety buffers" around obstaclesare not needed.
+-+ Static Environment: the a(")values of the cells are static &e., they do not change in time). Binary Obstacle Representation: the s(O) and a(")values for a given cell can takeon one of two values: EMPTY,asmallpositivevaluerepresentingthecostotfraversingadfreeofobstac1es;and OBSTACLE,alarge positive value indicating the cell cwtains an obstacle and is untraversable. Note: these values must be chosen so that thepath cost for any sequence of states through EMPTY cells is less than OBSTACLE. * No Initial Map Information: nothing is know0 about the environmentinitially, and it is presumed that
+-s(X) = EMPTY for a l l states X. Single Goal State: only one state has an h(") value of zero.
+Single Robot: only one robot moves through the environment
+
+22
+Let S be the stale in which the robot begins. To use D*, the goal state is placed on the OPEN list with k(G) = h(G) = 0, and PROCESS- STATE is dedrepeatedly until h(S) is less than or equal to k,,,. At this point an optimal path has been computed from S to G . (Since all cells are presumed EMPTY, this path is direct.) The robot p m e d s to step toward the goal, following thebackpomters m the state sequence, until either it reaches the goal or its sensor detects that s(X)# 4x1for a state X . In the latter case, the robot has detected an obstacle, and s(X, is set to a(xI, dX,’) and 4’.X , are updated for all neighboring states, and the changes are entered onto the OPEN list via function MODIFY- COST. ?be routine PROCESS - STATE is repeatedly called until kmin equals or exceeds the h(q value of the state containing the robot. At this point, a new optimal path has been computed, and the above process repeats until the goal is reached or until kmi, equals or exceeds OBSTACLE. In the latter case, the optimal path contains an obstacle; therefore, no obstacle-freepaths exist tn the goal. Figure 10 illustrates simple motion planning with an unknown potential well. Unless otherwise stated, all environments in this section are 200 x 200 cells. Unlike the example in Figure 1 through Figure 7, the robot assumes the environment is devoid of obstacles when it begins its traverse. Initially, the robot moves smigbt toward the goal When it encounters the obstacle’s perimeter, the robot moves down in an attempt to find an opening through the barrier, edges up slightly along the lower wall as it detects it, and then doubles back up before finally moving along an interior wall and around the exterior lo the goal. The OBSTACLE cells detected by the robot’s sensor a~ shown in grey, and the unsensed cells are shown in black.
+Figure 1 0 Sinple Path Planningwith an Unknown PotentialWell
+4.2 Field of View Considaratlons Except for contact sensors,most robot sensors(e&, sonars,laser rangehders. vidm cameras) have a field of view
+WV)covering an area in the vicinity of the robor.D* can easily accommodatea sensor with a FOV of any size.
+When the robot is moved from state X to state Y and new sensor datais taken So is comparedto QQ for all states 2 in the FOV. If SQ f ~ ( ZfJor any state in theFOV, s(Z) is set to 43,c(Z, ”) and cy, Z)are revised via
+MODIFY- COST, and PROCESS - STATE is repeatedly calleduntil kminZ h(Q .Thus, the only revision to the simple
+path planning algorithm is that potentially mote than one cell’s cost is updated per sensorreading. Figure 11 shows the same path planning problem as Figure IO, except thar the robot is equipped with a circular-FOV senwr with a radius of 15 cells. For ease of implementation, the FOV was chosen to include all cells in the circle without wclusion. Since the robot can $AX the “bottom” of the well before reaching it, it changes course and follows the exterior perimeter. In general, the larger the robot’s n)V, the shorter the path it will traverse, since it can see obstacles before it ‘%bumps”them and will begm to avoid them sooner.
+
+23
+Figure 11: Path Planning with a Circular Field of View
+
+I
+
+4.3 Shape Conslderations
+
+Real robots have non-zero size;thus, a path planning algorithm must ultimately be able to model robot shape. D* can
+
+handle robot shape by constructing the comiguration space [Ill as the m b t ' s smsm discovers obstacles m the envi-
+n, ronment. Define threefunctions: u p , the acrual C-spaceobstacle COSI of EMPTY or OBSTACLE at robot config-
+
+uration Y due to an obstacle at location X: a,(YJ,the actual C-space total cost for con6guration Y equal to
+
+OBSTACLE if any UJX, Yj = OBSTACLE forapplicable X ; and s,(Q, thepresumed C-spacetotal con for configura-
+
+tion Y.Whenever the sensor discovers a discrepancy between the map and the environment (Le., S(XJ # 4 ~ ) s)(x.) is
+
+n set to 4X),and aC( is computed using a& YJ for all applicable Y.For each configuration Y for which
+
+aC(n SJYJ f a,(I?, JJU,is set to
+
+, MODIFY - COST is called to update 4")using ~ ~ (r0ath) er than s?), and
+
+PROCESS - STATE is called repeatedly until a new optimalpath is found.
+
+Figure 12 illustrates the results for a disc-shaped robot. In this example, tbe configuration space and the workspace are both two-dimensional, so the two spaces are shown in the same figure. Tbe black area represents an unknown obstacle in the workspace (i.e., a(O) values), and the grey represents the known C-spaceobstacle (i,e., sC(a) values) for cells exterior to the black square and the known workspace obsraCle (Le., J(O) values) for cells interior to the square. The field of view of the robot is 20 cells. and the radius of its disc shape is 10 cells. Note that the configuration space is generatd as the robot discovers the unknown obstacle, and it moves around the obstacle at a stand-off distance equal to its radius. Of course, the field of view of the robot must be at least as great as the robot's radius or collisions
+cannot be avoided. This approach can be extended to higher-dimensional configuration spaces (e.g.. three dimensional for translation and rotation of a polygonal mbt) by increasing the dimensionality of the planning space.
+
+24
+Figure 12: Path Planningwith a Dix-Shaped Robot
+I
+4.4 Dynamic Environmentsand Dead-Reckoning Error In many cases, it is inappropriate to assume the robot’s world is static [21[31[41[~.Obstacles may move around within the environment, new obstacles may enter, and old ones may leave. These changes may mnr while the robot is enroute to the goal. D* is capable of bandling dynamic envimnmem. Changes in the environment are detected by the. robot’s sensor. These sensor readings modify the function 4”)W. henever a discrepancy is seen between the actual world and the presumed world (Le., @) f s(D) for at least one state), the changes are e n d on the OPEN list and the robot’s trajectory is modified if needed to preserve optimality~These changes can be of two types: 1) an EMPTY cell becomes an OBSTACLE; and 2) an OBSTACLE cellbecomes EMPTY.
+Figure 13 shows an environment in which the obstacle has moved without the robot’s knowledge. The grey rectangle shows the original,presumed position, and theblack rectangle shows the c m n t , unknown position. Figure 14 shows the trajectory of the robot through the environment. Believing the obstacle to be in the grey position, the robot initially de0ecn toward the bottom. When it &es the center of the enviroOmens it encounters the obstacle in its current location. It moves along the obstacle toward the lower boundary of the environment. entering the new
+location of the obstacle into the map and “coloring” it grey. After discovering the lower mute is obshucted, it doubles back to the top whereupon it discovers there is no obstacle in the original location. The obstacle is deleted from the map as the robot moves around the top of the obstruction and to the goal. Note that part of the original obstacle
+remains in the map, since this portion was unseen by tbe robot’s sensm. In the presence of inaccurate map data,it is possible for the robot to mistakenlybelieve that no path exists to the goal.
+This condition is detected by the function PROCESS - STATE renUning a value equal to or greater than OBSTACLE.
+thus indicating that the shortest path to the goal passes through at least one OBSTACLE state. This condition should not be confused with a returned value of ‘-l’,indicating tbatno sequence of arcs of even OBSTACLE cost exists to the goal. In the event that a value of OBSTACLE or greater is returned, one swtegy is to set s r ) to EMPTY for all states in the map, enter the goal state on the OPEN l i t , invoke PROCESS-STATE repeatedly until kminis greater than or equal to h(X), where X is the current state of the robot, and then move the robot. This action has the effect of discounting a l l map information and forcing the robot to verify that the obshuctions stillexist m discover that they do not.
+
+25 Figure 13Before and After Positions of a wnamic Obstacle
+
+Figure 1 4 Discovering that the Obstacle has Moved
+
+7
+
+S
+
+J
+
+D* can also handle uncertainty in the mbot’smotion (e.g., dead-reckoning error). If the robot is locatedat state X but its position estimation system reports that it is at Y,its m s o r will perceive (incorrectly) discrepanciesbetween the map and the real world (e.&, shift in an obstacle’s location). The discrepancies will be entered onto the OPEN list via
+MODIFY- COST and propagated via PROCESS - STATE to compute a new trajectory. This new trajectory will correctly avoid the obstacles in the current FOV at their “new” lwations. Provided the motion error is small
+compared to the size of the free-space comdors in the envimnment, the robot will plan a correct local trajectory (i.e., for obstacle avoidance) wiihout adversely affecIing its global trajectory be., route to the goal).
+4.5 Occupancy Maps and Potential Fields
+In some applications, a binary obstacle representation is inadequate.Due to sensor uncertainty, the robot cannot always determinewhether a cell is occupied or empty but can assign a probability of occupcy[l] [20].Other applications may call for a safety buffer around the obstacles to minimize the probability of collision. This technique can
+
+26
+be used to account for robot motion e m . A potential field 181 on be conshucted by assigning high cos1 valucs to cells containing an obstacle or near an obstacle and lower cost values that decrease to zero to cells farther away.
+e), D* is capable of handling continuous values for ~(o),and consequently c r ) . Define three functions: u,(U, the
+actual tozalpoiential at state Y ; s,(n, the presumed total potential at state Y ; and aJX, 0,the actual obstacle
+potentiaI at state Y due to an obstacle at state X. In the example below, for each state X for which s(X, # 4x1, s ( X , is
+set to 4x1. aAY) is computed for each affected Y by summing ap(X, 0 over all applicable X . For each state Y for
+which s , ( Y ) # a L n , s,(n is set to ~,(l'),MODIFY- COST is called to update c(3 using st(II) rather than s?), and
+PROCESS- STATE is called repeatedly until a new optimalpath is found.
+Figure 15 illustratespath planning with potential fields. The robot has no knowledge of d e obstacles before it begins its traverse; thus, it can consbuct the potential field only when an obstacle appears in its field of view. The sensor's &Id of view is 10cells. and the potential field decreasesproponionally to min(MAXCOST, I/?), where MAXCOST is a maximum cost value and r is the distance from the obstacle. The two L-shaped unknown obstacles (black) are changed to light grey as the robot's sensor detects them. The grey "blur" along the obstacle edges is the potential field created from the detected portion of the obstacles. Initiauy, the robot presumes the environment is EMPTY and heads directly toward d e goal. It is repelled by the potential field in d e narrow channel and movm along the boundary of the upper obstacle. Once it has moved sufficiently far from the goal, it doubles back along the boundary of the lower obstacle until the estimated cost of the longer path around the obstacle exceeds that of the more direct route through the potential field. Thus, the planner chooses a shorter path through a riskier area (Le.. close to obstacles) rather than a longer, safer one and heads for the goal.
+Figure 15 Path Planning with PotentialFields
+I
+4.6 Map Informationand Outdoor Navigation So far in this section, the planning applications have assumed little or no a priMmap information.Map information
+is useful because it can guide the r o b t amund obstacles or clear of impasses long before they appear in its sensor's 6eld of view. Even incomplete or approximate information is often more beneficial thao no map information. In gen-
+e)), eral, the better the presumed map informationapproximates the actual world (i.e., s(q = the lower the cost of the
+trajectory driven by the robot A priori data or map information, can assume a number of forms. Three possibilities
+-are listed below: Dense Resolution: each cell is assigned an s(') value corresponding to a separate measurement from a dense set. An example of this typeof map is a surveyed room or field. The resolution ofthe map data is commensurate with the survey data.
+
+27
+- Coarse Resolution: each cell is assigned the s(') value of a sparsemeasurement taken near the cell or an inter-
+polated value between measurements.An example of thistype of map is 1Wmeterelevation data recorded aeri-
+-ally thal is interpolated to fill a I-meter resolution map. Feature Data:cells correspondingto large or significantfeatures in the world (e.& hills, lakes, buildings, roads) are labelled appropriately, and the rest of the cells are presumed to be EMPTY.
+Maps for outdoor navigation t y p i d y record cost information for difhculty of haverse. For example, steep hills have high sY) values since extra fuel must be expended to propel the robot Likewise,pothole-ridden terrain has high I(')
+values since a bumpy ride is undesirable. Extremely steep terrain and stumps, boulders, and other we objects have prohibitively high s(') values, since these terrain features are essentially obstacles and cannot be traversed at any
+cost. Paved roads have low s r ) values and are preferred.D* is capable of representing terrain costs since sY) , and
+therefore c("),can represent a continuum of values.
+Figure 16 shows path planniig across fractally-generated natural terrain using a complete, dense map of the terrain. The environment is 450 x 450 cells, and the robot's field of view is 20 cells.The start state is the lower left comer, and the goal state is the upper riatcomer.Black regions are obstacles and cannot be traversed at any cost. The grey scales represent a continuum of a t values such that dark grey regions five times more difficult to traverse than white regions. Since the map is complete, u v )= s?), and the complete and h a l path can be planned to the goal before the robot begins its traverse. Tbe cost of the path is 40,426. This path is referred to as omniscienf optimal, since it is the lowest-costpath given complete and accuratea priori map information.
+
+28 Figure 16: Path Planning across Natural Terrain wiTh a Complete Map
+
+Figure 17 illustrates path planning in the same terrain with no a priori map information. In this case,the optimistic assumption is made that the environment consists only of the lowest-cost (white) cells. Initially, the robot heads directly for the goal and optimizes its path “locally” within its field of view. Unfortunately, given the lack of a priori information the robot chooses to go to the right of the large black obstacle region upon its first encounter and finds itself moving around the long side looking for an opening in the direction of the goal. After wandering into a dead end, the robot backtracks around the last obstacle and finds the goal. The cost of the traversed path is 107.608 over twice that of the omniscient optimal path. Even though the path is of higher cost than omniscient optimal, it is still optimal given the infonnation the mbot had when it acquired it.
+
+.
+
+.
+
+.-. .
+
+29 Figure 17: Path Planning Across Natural Terrain withoui a Map
+These two examples illustrate opposite ends of a continuous spectrum, and for most applications they are unrealistic. In general, some a priori map information is available. Figwe 18 illustrates planning over the same terrain with coarse map information, perhaps measured from a satellite or aircraft. In this example, the coarse map was created by averaging the 4”)values in each axme cell (i.e., square region) and writing the average into s(0) for each dense cell in the region. Each coarse cell is 56 x 56 dense cells.Themfore, s(X) # n(X) for most X,but for the most part, s(O) is an approximation to 43.The map information is accurate enough to properly guide the robot around the Large obstructions,and the resultant path is “globally” similarto hat in F i p 16 barring some ‘‘local‘‘ variations. The cost
+of the path in Figure 18is 42,882. Thus, it oversboots the omniscient-optimalpath by 6%in cost. Figure 19 is simiiar to Figure 18except that a higher-resolution map is used &e.,c o a m cells = 7 x 7 dense cells). The cost of this path is 41,079, and it oversboors the omniscient-optimal patb by 1.6%.From this set of examples, it can be concluded that the more accurate the prior map dam the Lower the mt of the traverse.
+
+30
+Figure 18 Path Planning with a Coarse-Resolution Map
+
+31 Figure 19: Path Planning with a Medium-Resolution Map
+4.7 Multiple Goal States In the description of D* in Section 2.0, it is assumed that only ore state has an h(') value of zero (Le.. there is only
+one goal state). D* permits more than one goal state. This feature has several uses. For example, any part of a designated area on the floormay suffice as a goal; thus, all cells in the area are equivalent goals. Furthemnore, two widelyseparated doors leading out of a room may be considered equivalentgoals. It may even become important to introducenew goal states while the robot is moving though the environment. For example, the robot may be heading for the one, hown door in a mom when it detects a second door with its sensor. In this case, the new goal state X with k(X) = 0 is entered on the OPEN list and PROCESS-STATE is called repeatedly until kmi, equalsor exceeds h ( n , where Y is the robot's current state.
+
+32
+Figure 20 illustrates the use of two goal states in path planning. The a priori map contains only EMPTY cells, and therefore the robot does not h o w about the T-shaped obstacle. Initially, both goal states, G, and G 2 ,are entemi on the OPEN list with h(G1) = h(Gz) = 0 . The routine PROCESS - STATE is called repeatedly until the robot's stan state has an optimal path. Note that initially the robot moves toward GI since G,is closer, and it presumes the straight-line path is unobstructed. When the robot detects the obstacle, it attempts to move around it to the top and then doubles back down and to the right. Evenhlally it works itself mto a position where G2 is closer than G1 and proceeds to move to G2 instead.The robot's field of view in this example is 10cells.
+Figure 2 0 Path Planning with Two Goal States
+G2
+4.8 Multiple Robots In some applications, two or more robots operate in an environment [15][21]. For example, consider two robot scouts
+returning to a home base a m s s largely unknown terrainafterperfmming a reconnaissance mission. Both robots are equipped with sensors to measure terrain properties. Assuming the robots cannot interfere with each other, a simple way of implementing thismission is to equip batb mbots with apriori maps and instruct them to move independently toward the goal. It is clear from previous sectionshow to implement this missinn with D*. With this arrangement, however, neither robot benefits from the sensor teadings of the other robot. If the two robots share a map, then obsta-
+cles detected by one robot ~IEavailable to the other. Consider the example in Figure 21. Robots R , and R2 are equipped with a onecell FQV. They move toward the goal state G using a map ofthe environment containing the grey obstacle. Because they are unaware of the black obstacle,
+both robots plan to move over the top of the ~ r eoybstacle and down to the goal. R , is ahead of R, .As both robots
+move forward. R, discovers that the black obstacle obsh-ucts its pth.This information is effectively communicated to R, via the sharedmap, and R2 chooses an alternatemute and changes course long before it reaches the impasse. In order to use D* in a shared mangement, whenever a discrepancy is discovered between the presumed world and the actual world (i.e.,s(x) # for some state X ) by either robot's sensor, the changes B T e~ntered onto the OPEN list via MODIFY- COST.and PROCESS- STATE is called repeatedly until kmi, exceeds the A(") values of both robots. Each robot is free to move (optimauy) when its own h(") value equals or is exceeded by kmin.D* is most efficient when the two robotsare located on cells with approximately the same h ( O ) value.
+
+33 Figure 21: Path Planning with Two Robots
+
+34
+5.0 Experimental Results
+D* was compared to the optimal replanner to verify its optimality and to determine its performance improvement. The optimal replanner initially plans a single path from the goal to the start state. The robot proceeds to follow the path until its sensor detects an error in the map @e.. s(X, # o(X) for some X).The robot updates the map, plans a new path from the goal to its cmem location, and repeats until the goalis reached. An optimisticheuristic function %(X,is used to focus the search, such that j ( x ) equals the “straight-line”cost of the path from X to the robot’s location assuming all cells in between are EMPTY.The replanner repeatedly expands states on the OPEN list with the mini-
+mum j ( X , +h(X, value. Since g(X) is a lower bound on the actual cost from X to the robot for all X ,the replanner is
+optimal [141. The two algorithms were compared on planning problems of varying size. Fa& environment was square, consisting of a start sfate in the center of the left wall and a goal state in center of the tight wall. Each environment consisted of
+a mix of map obstacles (i.e., available to robot before traverse) and unknown obstacles measurable by the robot’s sensor. The sensor used was omnidirectional with a l&cell field of view. Figure 22 shows an environment model with 100,OOOstates. The map obstacles are.sbownin grey and the unlrnowo obstacles in black.
+Figure 22: Typical Environment for Path Planning Comparison
+Table 1shows theresults of the comparison for environments of size lo00 through 1.o00,OOO cells The runtimes in CPU time for a Sun Microsystems SPARC-10 processor are listed almg with the speed-up factor of D*over the optimal replanner. For each environment size, the two algorithms were compared on five randomly-generated environments, and the runtimes were averaged. The speed-up factors for each environment size were computed by averaging the speed-up factors for the five nials.
+
+35
+
+The runtime for each algorithm is highly dependent on the complexity of the environment, including the number, size, and placement of the obstacles, and the ratio of map to unknown obstacles. The results indicate that as the environment increases in size, the performance of D* over the optimal replanner inerea.~rapidly. The intuition for this result is that D* replans locally when it detects an unknown obstacle, but the optimal replanner generates a new global trajectory As the environment increases in size, the local trajectories remain constant in complexity, but the global trajectories inaease in complexity.
+Note that even for large environments(e.g., 1,OOO.oOO cells),D* is a real-timealgorithm. If the environmentconsists of squaremeter resolution cells, then a 1,oDD,ooO-cellenvironmentis a square kilometer. If a robot drives the width of thesquare-shaped terrain using the optimal replanner,its average speed will be limited to 1.2kmhr at best. If D* is used, the speed will be limited by the robot itself. This is important since any planner for unknown and dynamic environmentsmust necessarily operate in lock-step with a moving and sensing robot.
+Table 1: Comparison of D*to Optimal Replanner
+
+Algorithm Replanner
+
+1,ooO 427msec
+
+1o.OOO 14.45 sec
+
+100,ooo 10.86 min
+
+1,OOO.OOO 50.82 min
+
+I I Speed-Up 1.67
+
+I 10.14
+
+135.30
+
+1229.30
+
+I
+
+36
+6.0 Conclusions
+6.1 Summaty This paper presents D*, a provably optimal and efficient patb planning algorithm for sensor-equipped robots. 'me algorithm can handle the full specnum of a priori map information, ranging from complete and accurate map information to the absence of map information. A number of applications are illushated. including planning with robot shape, field of view considerations, dead-reckoning error,cbanging environments, occupancy maps, potential fields, natural terrain, multiple goals, and multiple robots.
+D* is a very general algorithm and can be applied to problems in artificial intelligence other than robot motion planning. In its most general form, D* can handle any path cost optimization problem where the cost parameters change during the search for the solution.D* is most efficient when these changes are detected near the current starting point in the search space, which is the case with a robot equipped with an on-boardsensor.
+6.2 Future Work For unhown or m y lmown m a i n s , recent resemA literature bas addressed the explorationand map building problems [121[161[171[181[22] inaddition tothe path finding problem. Usinga strategyofmising costs for previously visited states, D* can be extended to support exploration or acquisition tasks.
+Quad trees have limited use in environments with cost values ranging over a continuum, unless the environment includes large regions with constant travmbility costs.Future work will inoorporate the quad tree representatim for these environments as well as those with binary cost values (e.g.. OBSTACLE and EMPTY) in order to reduce
+memory requirements [221.
+Although D f has been shown to be efficient, thereis room forimprovement. Presently, tbe effects of a cost change are propagated out from the modified rpl: in all directions.It may be possible to bias this propagation in tk direction of the robot by using a heuristic function similar to that employed in A* [141, thus resulting in a new optimal path to the robot's state with fewer state expansions. A function 11")must be selected that provides a lower bound on the true cost 8(') from the modifiedarc to the robot's state to preserve optimality. There are two complications. First, the robot is in motion, so g(O) must be recomputed for each state on the OPEN list. Second, using rp(7+g(") instead of
+h(") will q u i r e a new delinition for k(") that preserves completeness and optimality.
+Acknowledgments
+?be author thanks Alonzo Kelly and Paul Keller for graphics software and ideas for generating fractal terrain The author also thanks chuck 'Iborpe for commentson the document and the Unmanned Ground Vehicle and Autoncmous Planetary Exploration groups at CMU forfeedback on uses for the algaitbm.
+
+37
+References
+[I] Elfes, A., ‘‘Occupancy Grids: A ProbabilisticFramework forRobot Perception and Navigation,” Ph.D. thesis, Electricaland ComputerEngineeringDepartment / Robotics Institute, Cmegie Mellon University, May, 1989.
+[2] Erdmann, M., LozanwPerez, T., “OnMultiple Moving Obstacles,”Tecbnical Report AIM-883. MIT Artificial
+Intelligence Laboratory, 1986.
+[3] Fujimura, K., “On Motion Planning amidst Transient Obstacles”, Proc.of the E E E International Conferenceon Robotics and Automation, May, 1992.
+[4] Fujimura, K., Samet H., “Motion Planning in a DynamicDomain,” in Proc.IEEE International Conferenceon Robotics and Automation, May, 1990.
+151Goto, Y.,Stentz, A,, “Mobile Robot Navigation: The CMU System,” IEEEExpert Vol. 2, No. 4, Wnter, 1987.
+[6] Jarvis, R. A,, “Collision-Free Trajectory Planning Using the DistanceTransforms,”MechanicalEngineering Trans. of the Institution of Engineers. Australia, Vol. MElO, No. 3. September,1985.
+[7] Jarvis, R. A,. “Collision-Free PaIb Planning in Tie-Varying Environments,” RSJ International Workshop on Intelligent Robots and Systems, September, 1989.
+181Khatib, 0..“Real-Tie Obstacle Avoidance for Manipulators and Mobile Robots”, the InternationalJournal of Robotics Researcb, Vol. 5 , No. 1,Spring. 1986.
+[9] Korf, R. E., “Real-Tie Heuristic Search: First Results.” Roc. Sixth National Conference on M c i a l Intelligence. July, 1987.
+I101 Latombe. J.X., “RobotMotion Planning”, Kluwer Academicpublishers, 1991.
+t111 Lozano-Perez,T., “SpatialPlanning: A Configuration Space Approach”, IEEETransactions on Computers, Vol. C-32, No. 2, February, 1983.
+[121 Lumelsky, V. J.. Mukhopadhyay, S., Sun,K.. “DynamicPath Planning in Sensor-BasedTerrain Acquisition”. IEEE Transactions on Robotics and Automation, Vol. 6, No. 4. August, 1990.
+t131Lumelsky,V. J .,Stepanov,A. A,, ‘‘Dynamic Path planning for a Mobile Automaton with Limited Information on the Environment’: IEEETransactions on Automatic Control Vol. AC-31, No. 11,November, 1986.
+[141 Nilsson, N. J., “Principlesof Artificial Intelligence”, lioga PublishingCompany, 1980.
+[151Parsons, D., Canny, J.. “A Motion plannerfor Multiple Mobile Robots,”in FVoc IEEE InternationalConference on Robotics and Automation, May, 1990.
+1161Pirzadeh, A., Snyder. W., ”A Unified Solution to Coverageand Search in Explored and Unexplored Terrains Using Indirect Control”, Proc. of theIEEEInternationalConferencem Robotics and Automation, May, 1990.
+(171 Rao. N. S . V., ”AnAlgorithmicFramework for Navigation in Unknown Tenains”, IEEEComputer, June, 1989.
+[I81 Rao, N.S.V., Stolkfus, N.. Iyengar, S. S., ”A ‘Retraction’Method for Learned Navigation in Unknown Terrains for a Circular Robot,” IEEE Transactions on Robotics and Automation, Vol. 7, No. 5 , October,1991.
+I191 Samet H., “An Overview of Quadtrees. Ocrrees and Related Hierarchical Data Structures,” in NAM AS1 Series, Vol. F40, Theoretical Foundations of Computer Graphics. Berlin: Springer-Verlag. 1988.
+
+38
+[ZO]S h m q R., “A Probabilistic Framework for Dynamic Motion Planning in partially Known Environments”,
+Proc. of the IEEE International Conferenceon RobMics and Automation, May, 1992.
+[21]Warren, C. W.,“MultipleRobot Patb CoordinationUsing Artif~ciaPlotential Fields,” in Proc.IEEEInternational
+Conference on Robotics and Automation, May, 1990.
+1221Zelinsky, A., “A Mobile Robot Exploration Algorithm”, IEEE Transactionson Robotics and Automation, Vol. 8, No. 6, December, 1992.
+

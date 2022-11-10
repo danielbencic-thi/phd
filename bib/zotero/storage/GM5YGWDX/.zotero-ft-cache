@@ -1,0 +1,1902 @@
+Generalized Lazy Search for Robot Motion Planning: Interleaving Search and Edge Evaluation via Event-based Toggles
+
+Aditya Mandalika
+University of Washington adityavk@cs.uw.edu ∗
+
+Sanjiban Choudhury
+
+Oren Salzman
+
+Siddhartha Srinivasa
+
+University of Washington Carnegie Mellon University University of Washington sanjibac@cs.uw.edu ∗ osalzman@andrew.cmu.edu ∗ siddh@cs.uw.edu ∗
+
+arXiv:1904.02795v4 [cs.RO] 22 Jul 2019
+
+Abstract
+Lazy search algorithms can eﬃciently solve problems where edge evaluation is the bottleneck in computation, as is the case for robotic motion planning. The optimal algorithm in this class, LazySP, lazily restricts edge evaluation to only the shortest path. Doing so comes at the expense of search effort, i.e., LazySP must recompute the search tree every time an edge is found to be invalid. This becomes prohibitively expensive when dealing with large graphs or highly cluttered environments. Our key insight is the need to balance both edge evaluation and search eﬀort to minimize the total planning time. Our contribution is two-fold. First, we propose a framework, Generalized Lazy Search (GLS), that seamlessly toggles between search and evaluation to prevent wasted eﬀorts. We show that for a choice of toggle, GLS is provably more eﬃcient than LazySP. Second, we leverage prior experience of edge probabilities to derive GLS policies that minimize expected planning time. We show that GLS equipped with such priors signiﬁcantly outperforms competitive baselines for many simulated environments in R2, SE(2) and 7-DoF manipulation.
+1 Introduction
+We focus on the problem of ﬁnding the shortest path on a graph while minimizing total planning time. This is critical in applications such as robotic motion planning (LaValle 2006), where collision-free paths must be computed in real time. A typical search algorithm expands a wavefront from the start, evaluating edges discovered until it ﬁnds the shortest feasible path to the goal. The planning time then becomes the sum of the time spent in two phases – search eﬀort and edge evaluation. While edge evaluation is generally more expensive in motion planning (Hauser 2015), the actual ratio of these times varies with problem instances and graph sizes. Our goal is to design a framework of algorithms that let us balance this trade-oﬀ.
+Unfortunately, current shortest path algorithms do not provide a framework ﬂexible enough to traverse the pareto curve between search eﬀort and edge evaluation. On one
+∗This work was (partially) funded by the National Institute of Health R01 (#R01EB019335), National Science Foundation CPS (#1544797), National Science Foundation NRI (#1637748), the Ofﬁce of Naval Research, the RCTA, Amazon, and Honda. Copyright © 2019, Association for the Advancement of Artiﬁcial Intelligence (www.aaai.org). All rights reserved.
+
+Start
+
+Update Graph
+
+EVENT
+
+N
+
+Extend Lazy Search Tree
+
+Y
+Evaluate an edge on shortest subpath
+
+Subpath Edge
+
+SELECTOR
+
+N
+
+Is path to
+
+goal feasible?
+
+Y
+
+Stop
+
+Figure 1: The Generalized Lazy Search (GLS) framework
+
+with two parameters - E and S
+
+(blue)
+
+end of the spectrum, A* and its variants (Hart, Nilsson, and Raphael 1968; Yoshizumi, Miura, and Ishida 2000; Korf 1985) evaluate edges as soon as they are discovered. Hence although A* is optimal in terms of search effort, it is at the cost of excessive edge evaluations. On the other hand, LazySP (Dellin and Srinivasa 2016) amongst other lazy search techniques (Bohlin and Kavraki 2000; Cohen, Phillips, and Likhachev 2014; Hauser 2015), expands the search wavefront all the way to the goal before evaluating edges. Hence LazySP is optimal in terms of edge evaluation but has to replan everytime an edge is invalidated.
+In this work, we propose a framework for algorithmically toggling between search eﬀort and edge evaluation. We are guaranteed to ﬁnd the shortest path as long as the following holds true; the search tree must always be repaired to be consistent, and edge evaluation must be restricted to the shortest subpath in the tree. Our framework, Generalized Lazy Search (GLS), has two modules - E and S (Fig. 1). The algorithm expands a lazy search tree without evaluating any edges till the E is triggered. A S is then invoked to evaluate an edge on the shortest subpath in the lazily expanded search tree. We show that by choosing
+
+Extend Tree
+
+EVENT Done
+(a)
+
+Evaluate (SELECTOR)
+
+Extend Tree
+
+EVENT Done
+(b)
+
+Evaluate (SELECTOR)
+
+Extend Tree
+
+EVENT Done
+(c)
+
+Evaluate (SELECTOR)
+
+Extend Tree
+
+EVENT Done
+(d)
+
+Evaluate (SELECTOR)
+
+Figure 2: Mechanics of the GLS framework (Algorithm 1) for an ideal E and S
+
+combination.
+
+diﬀerent E and S
+
+pairs, we can recover sev-
+
+eral existing lazy search algorithms such as LazySP (Dellin
+
+and Srinivasa 2016), LWA* (Cohen, Phillips, and Likhachev
+
+2014) and LRA* (Mandalika, Salzman, and Srinivasa 2018).
+
+What constitutes an optimal trade-oﬀ and can this be cap-
+
+tured by GLS? Consider the ideal scenario, one with an om-
+
+niscient oracle (Haghtalab et al. 2018) that knows ahead of
+
+time which edges are valid or invalid. In fact, the oracle can compute the minimal set of invalid edges I that must be in-
+
+validated to arrive at the shortest feasible path. How can we
+
+utilize such an oracle in GLS? A simple strategy is as follows;
+
+as the search wavefront expands from start to goal, the oracle
+
+monitors the new edges that are discovered and triggers an
+
+E if it belongs to I. A S
+
+then evaluates that
+
+edge. This minimizes edge evaluation and curtails wasted
+
+search eﬀort.
+
+This insight extends to the more practical setting where we
+
+have priors on edge validity that are learned from experience.
+
+We derive E and S
+
+that minimize the expected
+
+planning time. This produces behaviors similar to the omni-
+
+scient oracle (Fig. 2); the search proceeds until the E is
+
+triggered due to the appearance of low probability edges on
+
+the current subpath; the S
+
+then selects these edges
+
+to invalidate the subpath; and the process continues until the
+
+shortest feasible path is found.
+
+We make the following contributions:
+
+1. We propose a class of algorithms, GLS (Section 4), that minimize computational eﬀort, deﬁned as a function of both edge evaluation and vertex rewiring (Section 3).
+
+2. We recover diﬀerent lazy search algorithms as instantiations of GLS. We further prove that one such instantiation is edge optimal and causes fewer rewires than LazySP
+(Section 4, Theorem 4.3).
+
+3. We derive instantiations of GLS that exploit the availability of edge priors to minimize expected computational eﬀort (Section 5, Theorem 5.2).
+
+4. We show that GLS informed with edge priors can outperform competitive baselines on a spectrum of planning domains (Section 6).
+
+2 Related Work
+Graphs lend powerful tractability to robotic motion planning (LaValle 2006). They can be explicit, i.e., constructed as part of a pre-processing stage (Kavraki et al. 1996; Karaman and Frazzoli 2011; Janson et al. 2015), or implicit, i.e., discovered incrementally during search (Likhachev, Gordon, and Thrun 2004; Gammell, Srinivasa, and Barfoot 2015; Salzman and Halperin 2015).
+A* (Hart, Nilsson, and Raphael 1968) and its variants have enjoyed widespread success in ﬁnding the shortest path with an optimal number of vertex expansions. However, in domains where edge evaluations are expensive and dominate the planning time, a lazy approach is often employed (Bohlin and Kavraki 2000; Hauser 2015; Kim, Kwon, and Yoon 2018). In this approach, the graph is constructed without testing if edges are collision-free. Only a subset of edges are evaluated to save computation time. LazySP (Dellin and Srinivasa 2016) extends the graph up to the goal before checking edges. LWA* (Cohen, Phillips, and Likhachev 2014) extends the graph a single step before evaluation. LRA* (Mandalika, Salzman, and Srinivasa 2018) trades oﬀ these approaches, allowing the search to proceed to an arbitrary lookahead. We generalize this further by introducing an event-based toggle.
+Several works have explored the use of priors in search. FuzzyPRM (Nielsen and Kavraki 2000) evaluates paths that minimize the probability of collision. The Anytime Edge Evaluation (AEE*) framework (Narayanan and Likhachev 2017) uses an anytime strategy for edge evaluation informed by priors. POMP (Choudhury, Dellin, and Srinivasa 2016) deﬁnes surrogate objectives using priors to improve anytime planning. BISECT (Choudhury et al. 2017) and DIRECT (Choudhury, Srinivasa, and Scherer 2018) cast search as Bayesian active learning to derive edge evaluation. Egraphs (Phillips et al. 2012) uses priors in heuristics. We focus on using priors to ﬁnd the shortest path while minimizing expected planning time.
+Several alternate approaches speed up planning by creating eﬃcient data structures (Bialkowski et al. 2016), modeling belief over the conﬁguration space (Huh and Lee 2016),
+
+sampling vertices in promising regions (Bialkowski, Otte, and Frazzoli 2013; Burns and Brock 2005) or using specialized hardware (Murray et al. 2016). Other approaches forego optimality and computing near-optimal paths (Salzman and Halperin 2016; Dobson and Bekris 2014). Our work also draws inspiration from approaches that interleave planning and execution, such as LRTA* (Korf 1990) and LSSLRTA* (Koenig and Sun 2009).
+
+3 Problem Formulation
+
+Our goal is to design an algorithm that can solve the Sin-
+gle Source Shortest Path (SSSP) problem while minimiz-
+ing computational eﬀort. We begin with the SSSP problem. Let G = (V, E) be a graph, where V denotes the set of vertices and E the set of edges. Given a pair of source and target vertices (vs, vt) ∈ V, a path σ is represented as a sequence of vertices (v1, v2, . . . , vl) such that v1 = vs, vl = vt, ∀i, (vi, vi+1) ∈ E. We deﬁne a world φ : E → {0, 1} as a mapping from edges to valid (1) or invalid (0). A path is said to be feasible if all edges are valid, i.e., ∀e ∈ σ, φ(e) = 1. Let w : E → R+ be the length of
+an edge. The length of a path is the sum of edge costs, i.e., w(σ) = e∈σ w(e). The objective of the SSSP problem is
+to ﬁnd the shortest feasible path:
+
+min w(σ) s.t. ∀e ∈ σ, φ(e) = 1
+
+(1)
+
+σ
+
+Given an SSSP, we deﬁne a shortest path algorithm A (G, vs, vt, φ) that takes as input the graph G, the sourcetarget pair (vs, vt), and the underlying world φ. The algorithm typically solves the problem by building, verifying and
+rewiring a shortest path tree from source to target.
+Maintaining the search tree and verifying the shortest fea-
+sible path are primarily characterized by two atomic opera-
+tions: edge evaluation and vertex rewiring.
+
+Deﬁnition 3.1 (Edge Evaluation). The operation of querying the world φ(e) to check if an edge e is valid.
+
+Deﬁnition 3.2 (Vertex Rewiring). The operation of ﬁnding and assigning a new parent for a vertex u when an invalid
+edge is discovered.
+The algorithm returns three terms, i.e, σ∗, Eeval, Vrwr = A (G, vs, vt, φ). Here, σ∗ is the shortest feasible path, Eeval is the set of edges evaluated during the search, and Vrwr is the multiset1 of vertices rewired. A ensures the following
+certiﬁcate:
+1. Returned path σ∗ is veriﬁed to be feasible, i.e., ∀e ∈ σ∗, e ∈ Eeval, φ(e) = 1
+2. All paths shorter than σ∗ are veriﬁed to be infeasible, i.e., ∀σi, w(σi) ≤ w(σ∗), ∃e ∈ σi, e ∈ Eeval, φ(e) = 0
+
+We now deﬁne the computational cost (planning time), of solving the SSSP problem as a function of Vrwr and Eeval. Let ce be the average cost of evaluating an edge, and cr be
+the average cost of rewiring a vertex. We approximate the
+total planning time as a linear combination:
+
+C(Eeval, Vrwr) = ce |Eeval| + cr |Vrwr|
+
+(2)
+
+1Vrwr is a multiset since a vertex can potentially be rewired multiple times during the planning cycle.
+
+Algorithm 1: Generalized Lazy Search
+
+Input
+
+: Graph G, source vs, target vt, world φ
+
+Parameter : E , S
+
+Output : σ∗, Eeval, Vrwr
+
+1 Eeval ← ∅, Vrwr ← ∅ 2 Tlazy ← {vs}
+
+Initialize
+
+3 repeat
+
+4
+
+Tlazy ← E
+
+T (E , Tlazy) Add Vrwr
+
+5 σsub ← G S
+
+P T L (Tlazy)
+
+6E
+
+E (S
+
+, σsub)
+
+Add Eeval
+
+7 until shortest feasible path found s.t.∀e ∈ σ∗, φ(e) = 1;
+
+Our motivation for deﬁning the cost will become clearer in the following section, where we propose a general framework for A . This framework lets us explicitly reason about the terms Eeval and Vrwr in order to balance them.
+
+4 Generalized Lazy Search
+We propose a framework, Generalized Lazy Search (GLS), to solve the problem deﬁned in Section 3. The general concept idea is to toggle between lazily searching to a horizon and evaluating edges along the current estimated shortest path. This toggle must be chosen appropriately to balance the competing computational costs of edge evaluation and vertex rewiring.
+
+4.1 The Algorithm
+
+Algorithm 1 describes the GLS framework for the shortest path algorithm A (G, vs, vt, φ) referred to in Section 3. This
+
+framework requires two functions: E and S
+
+.
+
+To solve the SSSP problem, we maintain a shortest path search tree over G. We assume that every call to φ, which
+populates Eeval, is expensive. Therefore, we initially assume that all edges in G are valid and maintain this search tree
+lazily. Our algorithm initializes the search tree Tlazy rooted at vs (Line 1). It begins by iteratively extending Tlazy into G
+
+(Line 4). The search is guided with an admissible heuristic h(v, vt).
+
+The procedure E T additionally takes as input a function E . Extending Tlazy triggers the E by def-
+
+inition. The algorithm, at this point, discontinues the extension of Tlazy and switches to validate the already constructed
+
+search tree. Therefore, the E acts as a toggle between
+
+lazy seach and edge evaluation.
+
+Deﬁnition 4.1 (E ). A function that deﬁnes the toggle
+
+between extending the lazy search tree and validating it.
+
+To solve the SSSP problem and validate Tlazy, the algorithm picks the path, σsub, to a leaf vertex with the lowest
+
+estimated total cost to reach the goal (Line 5). It then evalu-
+
+ates an edge along σsub to validate the search tree (Line 6). In
+
+addition to σsub, the procedure E
+
+E also takes as
+
+input a function S
+
+. The S
+
+acts on σsub and
+
+returns an edge belonging to it that the algorithm evaluates.
+
+Deﬁnition 4.2 (S
+
+). A function that deﬁnes the strat-
+
+egy to select an edge along a subpath to evaluate.
+
+Edge evaluation is followed by the extension of Tlazy until
+
+the E is triggered again. If the edge were invalid, the
+
+subtree emanating from the edge has to be rewired. We can
+
+do this eﬃciently using the mechanics of LPA* (Koenig,
+
+Likhachev, and Furcy 2004).
+
+This process of interleaving search with edge evaluation
+
+continues until the algorithm terminates with the shortest
+
+feasible path from source to goal, if one exists. While the al-
+
+gorithm is guaranteed to return the shortest path, the frame-
+
+work permits the design of E and S
+
+to reduce
+
+the total computation cost of solving the SSSP problem.
+
+Algorithm 2: Candidate E Deﬁnitions 1 v ← leaf vertex in Tlazy with least estimated cost to vt
+
+2 Function ShortestPath() 3 if v = vt then
+
+4
+
+return true;
+
+5 end
+6 Function ConstantDepth(depth α) 7 σsub ← path from vs to v 8 αv ← number of unevaluated edges in σsub 9 if αv = α or v = vt then
+
+10
+
+return true;
+
+11 end
+
+12 Function HeuristicProgress
+
+13
+
+hmin ← min(u ,v )∈Eeval h(v , vt)
+
+14 if h(v, vt) < hmin or v = vt then
+
+15
+
+return true;
+
+16 end
+
+17 return;
+18 Function SubpathExistence(probability δ) 19 σsub ← path from vs to v 20 p ← e∈σ p(e) 21 if p ≤ δ or v = vt then
+
+22
+
+return true;
+
+23 end
+
+Algorithm 3: Candidate S
+
+Deﬁnitions
+
+1 Function Forward() 2 return {ﬁrst unevaluated edge closest to vs};
+3 Function Alternate()
+
+4 if Iteration Number is Odd then
+
+5
+
+return {ﬁrst unevaluated edge closest to vs};
+
+6 end
+
+7 else
+
+8
+
+return {ﬁrst unevaluated edge closest to vt};
+
+9 end
+
+10 Function FailFast() 11 return {arg min p(e)};
+e ∈σsub
+
+assuming edges are collision free. However, extending the
+
+search tree beyond edges that are in collision can waste com-
+
+putational eﬀort. The E acts as a toggle to halt a search
+
+deemed wasteful. The S
+
+aims to quickly invalidate
+
+the path. Fig. 2 illustrates the ideal behavior of such an algo-
+
+rithm. Interestingly, the framework can also capture existing
+
+lazy search algorithms as diﬀerent combinations of event and
+
+selectors, as shown in Table. 1.
+
+E . When triggered, events must ensure that the shortest subpath σsub in Tlazy has at least one unevaluated edge
+
+(Theorem 4.1). Algorithm 2 deﬁnes some candidate events.
+
+S
+
+P (SP) is triggered when a shortest path to
+
+vt has been determined during the lazy extension of Tlazy.
+
+Therefore, in every iteration, this E presents the S with the candidate shortest path from vs to vt on G. Note
+
+that S
+
+P exhibits algorithmic behavior similar to
+
+LazySP and LazyPRM.
+
+C
+
+D (CD) is triggered when the procedure E -
+
+T chooses to extend a leaf vertex v ∈ Tlazy such that
+
+the subpath from vsto v has exactly α number of unevalu-
+
+ated edges. Therefore, in every iteration, this E presents
+
+the S
+
+with σsub that is characterized by a constant
+
+number of unevaluated edges.
+
+H
+
+P
+
+(HP) is triggered whenever the search
+
+expands a vertex whose heuristic value is lower than any
+
+vertex whose incident edge has been evaluated. It does
+
+so by recording the minimum heurisitic value of a ver-
+
+tex with a parent that has been evaluated, i.e., hmin ←
+
+min(u ,v )∈Eeval h(v , vt). The event is triggered whenever
+
+E
+
+T chooses to extend a leaf vertex v ∈ Tlazy with
+
+a heuristic value smaller than hmin.
+
+S
+
+. Selectors must ensure that they select at least
+
+one unevaluated edge (Theorem 4.1). Algorithm 3 deﬁnes
+
+some candidate selectors.
+
+Given σsub, F
+
+(F) evaluates the ﬁrst unevaluated
+
+edge on σsub that is closest to vs. Given a forward search, this
+
+constitutes one of the most natural S
+
+s available. A -
+
+(A) toggles between evaluating the ﬁrst unevaluated edge closest to vs and vt in every iteration. This approach is
+
+motivated by bi-directional search algorithms. Both S -
+
+s were ﬁrst used in (Dellin and Srinivasa 2016).
+
+Algorithm
+
+E
+
+S
+
+LazyPRM (2000) S
+
+LazySP (2016)
+
+S
+
+LWA* (2014)
+
+C
+
+LRA* (2018)
+
+C
+
+P
+
+Any
+
+P
+
+Any
+
+D (1) F D (α) F
+
+Table 1: Equivalence of GLS to existing lazy algorithms
+
+4.2 Role of E and S Since the lazy search paradigm operates based on the concept of optimism under uncertainty, the search tree is extended
+
+4.3 Analysis
+For any choice of E correct.
+
+and S
+
+, GLS is complete and
+
+Theorem 4.1 (Completeness). Let E be a function that
+
+on halting ensures there is at least one unevaluated edge
+
+on the current shortest path or that the goal is reached.
+
+Let S
+
+be a function that evaluates at least one un-
+
+evaluated edge (if it exists). GLS implemented using E -
+
+T (E ) and E graph G is complete.
+
+E (S
+
+) on a ﬁnite
+
+Proof In each iteration, E T (E ) ensures
+
+there is atleast one unevaluated edge on the shortest
+
+path (unless the goal has been reached). The E -
+
+E (S
+
+) evaluates atleast one edge. Since there
+
+are a ﬁnite number of edges, the algorithm will eventually
+
+terminate.
+
+Theorem 4.2 (Correctness). If the heuristic h(v, vt) is admissible, then GLS terminates with the shortest feasible path.
+
+Proof Let σ∗ be the shortest feasible path with respect to w(·) and world φ. For any vertex v∗ ∈ σ∗, we denote its f-value to be f (v∗) = w(σvs,v∗ ) + h(v∗, vt), where σvs,v∗ is the subpath from the start to vertex v∗. As our heuristic function is admissible, we have that f (v∗) ≤ w(σ∗). Recall
+
+that in each iteration, the inner G S
+
+P T L ()
+
+returns a vertex vret with the smallest f-value among all the leaves of the tree τlazy. Let vl∗eaf be the leaf vertex on τlazy that lies on the shortest feasible path σ∗. Hence, f (vret) ≤ f (vl∗eaf ) ≤ w(σ∗). If GLS terminates with vret, this implies σvs,vret is veriﬁed to be feasible and vret = vt. Let the veriﬁed path that is returned be σret such that σret = σvs,vt . In that case w(σret) = f (vt) ≤ w(σ∗).
+
+LazySP with the F
+
+selector was proved to be edge
+
+optimal2 in the class of all shortest path algorithms that
+
+use a F
+
+selector (Mandalika, Salzman, and Srinivasa
+
+2018). We now show that GLS lets us derive another algo-
+
+rithm that is also edge-optimal but reduces number of vertex
+
+rewires.
+
+Theorem 4.3 (Edge Optimality). GLS evaluates the same number of edges Eeval as LazySP, i.e., is edge optimal, while having a smaller number of vertex rewires Vrwr under the
+following setting:
+
+1. Heuristic: Distance on the unevaluated graph hG(v, vt)
+
+2. E : H
+
+P
+
+3. S
+
+:F
+
+Proof We are going to prove this via induction over iter-
+
+ations of LazySP and GLS. In each iteration cycles through
+
+algorithm by invoking E
+
+E (S
+
+), E -
+
+T (E ) and S S
+
+S
+
+().
+
+At iteration i, let Eeival,LSP and Vriwr,LSP be the edges
+
+evaluated and vertex rewired respectively by LazySP. Let σi
+
+be the candidate shortest path. Let Eeival,GLS and Vriwr,GLS be the edges evaluated and ver-
+tices rewired, respectively, by GLS at iteration i. Let hG(v, vt)
+
+be the heuristic used by the search which corresponds to the distance on the graph G. Let vi be the leaf vertex correspond-
+ing to the current shortest subpath from the start σvs,vi . This
+
+2See (Mandalika, Salzman, and Srinivasa 2018) for the formal computational model
+
+implies vi corresponds to the vertex with the smallest f-value w(σvs,vi ) + hG (vi, vt).
+We also introduce the lazy edge status function φlazy(σ, Eeval) which determines if a path σ is valid depending on edges evaluated thus far in Eeval.
+Following are the conditions for the induction:
+
+A Both algorithms have the same set of evaluated edges Eeival,GLS = Eeival,LSP.
+
+B Both algorithms share the same subpath σvis,v ⊆ σi.
+For i = 1, Ee1val,GLS = Ee1val,LSP because no edges have been evaluated. Hence (A) is true. Since hG(v, vt) is the distance on the unevaluated graph, the leaf vertex vi considered by GLS lies on σ1, i.e. σv1s,v ⊆ σ1. Hence (B) is true.
+We will show these conditions hold for i + 1.
+
+Since both LazySP and GLS use F
+
+, share the same
+
+subpath (A) and have the same evaluation status (B) - they
+both evaluate the same edge e. Both algorithms increase their evaluated set Eeiv+a1l,LSP = Eeiv+a1l,GLS ← Eeival,GLS ∪ e. Hence
+
+(A) holds. If e is valid, neither algorithms rewire vertices. However, if
+
+an edge is in collision, LazySP rewires at least the remainder of the path σi+1. GLS does not have to rewire the remainder
+of the subpath σvi,vt as it was never expanded during the
+search. Hence GLS can only result in smaller rewires, i.e. |Vriw+r1,GLS| ≤ |Vriw+r1,LSP| − |σvi,vt |.
+We will now show that σvs,vi+1 ⊆ σi+1. LazySP ﬁnds the next candidate shortest path σi+1 by
+
+solving the following search problem
+
+σi+1 ← arg min w(σ)
+
+σ
+
+(3)
+
+s.t. φlazy(σ, Eeiv+a1l,LSP) = 1
+
+GLS invokes the E T (E ) which proceeds till
+
+H
+
+P
+
+toggles oﬀ the search. The search stops
+
+at vertex vi+1 which satisﬁes the following:
+
+vi+1 ← arg min w(σvs,v) + hG(v, vt)
+
+v
+
+(4)
+
+s.t. hG(v, vt) < hmin
+
+Note that φlazy(σvs,v, Eeiv+a1l,GLS) = 1, i.e. the subpath from
+
+the start to any vertex is valid according to the lazy estimate. By deﬁnition, the heuristic hG(v, vt) = w(σv,vt ) is
+the weight of the shortest path on the unevaluated graph σv,vt . The heuristic progress threshold hmin is by deﬁni-
+tion the minimum heuristic value of the child vertex of any evaluated edge, i.e. hmin = min(u ,v )∈Eeiv+a1l,GLS hG (v , vt). Since hG(v, vt) is consistent, hG(v, vt) < hmin < min(u ,v )∈Eeiv+a1l,GLS hG (v , vt) implies that none of the edges (u , v ) ∈ σv,vt belong to Eeiv+a1l,GLS have been evaluated.
+
+This means that the subpath to goal is valid according to the lazy estimate, i.e. φlazy(σv,vt , Eeiv+a1l,GLS) = 1.
+
+Hence (4) can be re-written as
+
+vi+1 ← arg min w(σvs,v) + w(σv,vt )
+v
+
+s.t. φlazy(σvs,v, Eeiv+a1l,GLS) = 1 (5)
+
+φlazy(σv,vt , Eeiv+a1l,GLS) = 1
+
+Since Eeiv+a1l,GLS = Eeiv+a1l,LSP, (3) and (5) are the same optimization. Hence σvs,vi+1 ⊆ σi+1 and (B) holds. As a
+result, the induction holds.
+
+This process continues till both algorithms discover the
+
+shortest feasible path σ∗ at the end of iteration N . Both
+
+evaluate the same number of edges EeNva+l,1LSP = EeNva+l,1GLS.
+
+But GLS saves on more vertices being rewired than LazySP,
+
+i.e. |VrNwr,GLS| ≤ |VrNwr,LSP| −
+
+N i=1
+
+|σvi
+
+,vt
+
+|.
+
+Corollary 4.1. There is a graph G for which the number of vertex rewires Vrwr for LazySP over GLS is linear over
+logarithmic.
+
+Proof
+
+l vertices
+start
+
+A
+
+A and B are bottlenecks
+
+goal
+
+All but one of these edges
+are invalid
+
+B
+
+N vertices
+
+Figure 3: Counter examples
+
+We are going to construct a counter example that shows
+a particularly bad case of vertex rewiring undertaken by LazySP.
+
+Scenario. Consider the graph in Fig. 3. It has a set of l vertices connected to the start. The upper half of the l vertices are connected to vertex A. The lower half is connected to B. Each of A and B is connected to a chain of N vertices going to the goal. |V| = N + l, |E| = 3N + 2l − 1.
+The graph is such that one of l edges connected to the start
+is valid, the rest is invalid. The remaining edges are all valid.
+The weights of the graph are such that the shortest path
+alternates between the top and bottom halves of the graph. Assume that all l − 1 shortest paths are invalid and the last one is valid. Finally assume that A and B alternate being the optimal parent to the N vertices.
+
+LazySP computation .
+For LazySP, the only computation is vertex rewiring. The
+graph is such that successive shortest paths alternate between
+the upper and lower halves. The shortest paths in the upper
+half pass through A and lower half pass through B. Hence every edge that is invalidated, causes all N vertices to rewire to either vertex A or B. This is the optimistic thrashing scenario explained in LazyPRM*. Since l edges have to be invalidated, the number of rewires is O(N l)
+
+GLS computation There are two computation steps to account for - heuristic computation and vertex rewiring.
+The heuristic computation is a Djikstra operation.
+
+O(|V| log |V| + |E|)
+
+O((N + l) log(N + l) + 3N + 2l − 1)
+
+(6)
+
+O((N + l) log(N + l))
+
+Since the search never proceeds beyond the ﬁrst set of edges, the amount of vertex rewiring is 0.
+Hence the complexity of LazySP is O(N l) while GLS is O((N + l) log(N + l)). The ratio is linear over logarithmic
+growth.
+
+5 Leveraging Edge Priors in GLS
+
+The GLS framework is powerful because one can optimize
+
+E and S
+
+to minimize computational costs while
+
+still retaining guarantees. Here, we show its expressive power
+
+in a scenario where we have additional side information, such
+
+as priors on the validity of edges. Such information can be
+
+collected from datasets of prior experience or generated from
+
+approximations of the world representation.
+
+5.1 Modiﬁed Problem Formulation
+
+We assume that the validity of each edge is an independent
+Bernoulli random variable. We are given a vector of probabilities p ∈ [0, 1]|E|, such that P (φ(e) = 1) = p(e), i.e., for each edge e, we have access to p(e), which deﬁnes the probability of the edge being valid in the current world φ.
+We allow the shortest path algorithm A (G, vs, vt, φ, p) to leverage knowledge of edge probabilities p to minimize
+the expected computation cost as follows:
+
+min Eφ∼p [C(Eeval, Vrwr)]
+
+s.t. Eeval, Vrwr = A (G, vs, vt, φ, p)
+
+(7)
+
+5.2 E and S
+
+Design
+
+Event. The E restricts lazy search from proceeding
+
+beyond a point when the search is likely to be ineﬀective, i.e.
+
+to a point that potentially increases the amount of rewires Vrwr. One such case is when the current shortest subpath is
+
+likely to be in collision, i.e., the probability of being valid drops below a threshold δ. We describe this event, S -
+
+E
+
+(SE), in Algorithm 2. We show that we can
+
+bound the performance of this event.
+
+Theorem 5.1. For any S
+
+, the expected planning time
+
+of S
+
+E
+
+(δ) can be upper bounded as:
+
+K
+
+ce
+
+(1
+
+1 −
+
+δ)
+
++
+
+cr
+
+b log(δ) log(pmax)
+
+(8)
+
+where K is the number of shortest-paths that are infeasible, b is the maximum branching factor, and pmax is the maximum
+value of an edge prior.
+
+Proof We ﬁrst describe the GLS algorithm with S -
+
+E
+
+(δ). The algorithm searches till the probabil-
+
+ity of the current shortest subpath drops below δ. It toggles
+
+edge evaluation which will either eliminate the subpath or
+
+check an edge such that the probability rises above δ. The search continues forward. This repeats till the shortest path has been found. For this proof, we assume we have an oracular selector that can invalidate a subpath if it is truly invalid.
+We begin by upper bounding the number of edge evaluations. Let σ∗ be the shortest feasible path. Let there be K shorter paths than σ∗ that are infeasible and that the algorithm has to eliminate. Since we are showing an upper bound, we can relax the condition that the paths have overlapping edges since they will only reduce edge evaluations (eliminating one implies the other is eliminated).
+Consider one of K paths that we have to eliminate. If we pick an edge from the subpath, with probability 1 − δ we will ﬁnd a witness that the path is invalid. A selector either invalidates a subpath with probability 1 − δ or results in a wasted edge evaluation. This process is repeated till a path is eventually eliminated. The expected number of edge evaluated to eliminate the path is:
+
+Ep [Eeval] ≤ (1 − δ) + 2δ(1 − δ) + 3δ2(1 − δ) + . . .
+
+≤ (1 − δ) 1 + 2δ + 3δ2 + . . .
+
+≤
+
+(1
+
+−
+
+δ)
+
+(1
+
+1 −
+
+δ)2
+
+(9)
+
+1 ≤ (1 − δ)
+
+Hence the total expected cost of edge evaluation is bounded
+
+by
+
+ceK
+
+1 (1−δ)
+
+.
+
+Note
+
+as
+
+δ
+
+→
+
+1,
+
+this
+
+term
+
+goes
+
+to
+
+∞.
+
+This
+
+is
+
+backed by the intuition that triggering the event often results
+
+in increased edge evaluation.
+
+We will now upper bound the number of vertex rewiring.
+We assume that the search is using as heuristic the distance on the graph hG(v, vt). Hence when one of the K subpaths are eliminated, only the vertices of that subpath is rewired.
+Since we are deriving an upper bound, we will ignore overlap
+between subpaths (which can only help).
+Consider one of K paths that we have to eliminate. Let pmax be the maximum probability of an edge being valid. Then the maximum length of any subpath L(δ) is
+
+pLma(xδ) ≥ δ
+
+L(δ) ≤ log(δ)
+
+(10)
+
+log(pmax)
+
+When the subpath is eliminated, the rewiring is restricted
+only to vertices belonging to the subpath. Hence the maximum vertex rewire that can occur is Vrwr = bL(δ) where b is the maximum branching factor. A selector either invalidates a subpath with probability 1 − δ and results in rewiring or the
+process continues without any penalty. The expected number
+of vertices rewired before the path is eliminated can be upper
+
+bounded:
+
+Ep [Vrwr] ≤ (1 − δ)bL(δ) + δ(1 − δ)bL(δ) + . . .
+
+≤ (1 − δ)bL(δ) 1 + δ + δ2 + . . .
+
+≤
+
+(1
+
+−
+
+δ)bL(δ)
+
+(1
+
+1 −
+
+δ)
+
+(11)
+
+≤ bL(δ)
+
+b log(δ) ≤ log(pmax)
+
+Hence the total expected cost of vertex rewiring is upper
+
+bounded
+
+by
+
+cr
+
+K
+
+b
+
+log(δ) log(pmax
+
+)
+
+.
+
+Note
+
+as
+
+δ
+
+→
+
+0,
+
+this
+
+term
+
+goes
+
+to
+
+∞. This is backed by the intuition that triggering the event
+
+less often results in increased vertex rewiring.
+
+Low values of δ result in lower edge evaluations but more edge rewiring, and vice-versa.
+
+Corollary 5.1. There exists a critical threshold δ ∈ (0, 1) that upper bounds the expected computational cost.
+
+Proof The total expected planning time can be bounded as:
+
+Ep [C(Eeval, Vrwr)] = ce |Eeval| + cr |Vrwr|
+
+=
+
+ceK
+
+(1
+
+1 −
+
+δ)
+
++
+
+cr K
+
+b log(δ) log(pmax)
+
+=K
+
+ce
+
+(1
+
+1 −
+
+δ)
+
++
+
+cr
+
+b log(δ) log(pmax)
+
+(12)
+
+We will now show that there exists a critical point δ that minimizes this. Solving for that critical point, we have:
+
+∂ ∂δ
+
+K
+
+ce
+
+(1
+
+1 −
+
+δ)
+
++
+
+cr
+
+b log(δ) log(pmax)
+
+=0
+
+(1
+
+ce − δ)2
+
++
+
+cr log(pmax)
+
+b δ
+
+=
+
+0
+
+(1
+
+−
+
+δ)2
+
+−
+
+ce bcr
+
+log
+
+1 pmax
+
+δ=0
+
+(13)
+
+δ2 −
+
+ce bcr
+
+log(
+
+1 pmax
+
+)
+
++
+
+2
+
+δ+1=0
+
+Let η =
+
+ce bcr
+
+log(
+
+1 pmax
+
+)
+
++
+
+2
+
+. The critical point is:
+
+δ= η−
+
+η2 − 4 2
+
+(14)
+
+When ce ≈ cr, η is close to 2 and δ → 1. When ce cr,
+
+we have η 2. Hence, the critical point is:
+
+δ= η−
+
+η2 − 4 2
+
+η 1−
+
+1
+
+−
+
+4 η2
+
+=
+
+2
+
+η =
+
+1−
+
+1
+
+−
+
+4 2η2
+
+(15)
+
+2
+
+=
+
+1 η
+
+=
+
+1
+
+ce bcr
+
+log(
+
+1 pmax
+
+)
+
++
+
+2
+
+The
+
+critical
+
+point
+
+is
+
+inversely
+
+proportional
+
+to
+
+the
+
+ratio
+
+ce cr
+
+.
+
+Selector. The S
+
+invalidates as many subpaths as
+
+quickly as possible, which restricts the size of Eeval. One
+
+strategy for doing so is to invalidate the current subpath as
+
+quickly as possible. We describe a selector, F F (FF),
+
+in Algorithm 3 that evaluates the edge on the subpath with
+
+the highest probability of being in collision. We show that
+
+this selector is the optimal strategy to invalidate a subpath.
+
+Theorem 5.2. Given a path σ, F F minimizes the expected number of edges from σ that must be evaluated to invalidate σ.
+
+Proof Given a path σ, and a sequence of edges S = {e1, e2, . . . , en} belonging to the path, and the corresponding priors of the edges being valid (p1, p2, . . . , pn), let the expected number of edge evaluations to invalidate the σ be
+Eeval(S) which is given by
+
+Ep [Eeval(S)] = (1 − p1) + 2p1(1 − p2) + . . .
+
+n l−1
+
+=
+
+pm (1 − pl) l
+
+(16)
+
+l=1 m=1
+Without loss of generality, let pi > pi+1 for a given i. Consider the alternate sequence of evaluations S = {e1, e2, . . . , ei+1, ei . . . , en} where the positions of the edges ei, ei+1 are swapped. Consider the diﬀerence:
+
+Ep [Eeval(S)] − Ep [Eeval(S )]
+
+i−1
+
+= . . . + pm [(1 − pi)i + pi(1 − pi+1)(i + 1)] + . . .
+
+m=1
+
+i−1
+− . . . + pm [(1 − pi+1)i + pi+1(1 − pi)(i + 1)] + . . .
+
+m=1
+
+i−1
+
+= pm [−i(pi − pi+1) + (i + 1)(pi − pi+1)]
+
+m=1
+
+i−1
+
+=
+
+pm(pi − pi+1)
+
+m=1
+
+>0
+
+(17)
+
+Since each such swap results in monotonic decrease in the
+objective, there exists an unique ﬁxed point, i.e., the optimal sequence S∗ has p1 ≤ p2 ≤ . . . ≤ pn.
+
+5.3 Hypotheses
+
+Based on our theoretical analysis and insight, we state three hypotheses that we intend to test:
+
+H 1. For any S
+
+, the event S
+
+less planning time compared to S
+
+D.
+
+E
+
+requires
+
+P and C
+
+-
+
+This follows from Theorem 5.1, which upper bounds the
+
+planning time for S
+
+E
+
+.S
+
+P corre-
+
+sponds to δ = 0 and can increase planning time. C
+
+-
+
+D has a ﬁxed lookahead and does not adapt as priors
+
+change.
+
+H 2. For any E , F F evaluates fewer edges than
+
+F
+
+and A
+
+.
+
+This follows from Theorem 5.2, which shows that F -
+
+F is optimal in expectation for eliminating a path. From
+
+H 1 and H 2, we hypothesize that the combination of S -
+
+E
+
+and F F will have the lowest planning
+
+time.
+
+H 3. The performance gain of S
+
+E
+
+over S -
+
+P increases with both graph size and problem diﬃ-
+
+culty.
+
+S
+
+P assumes that Vrwr is negligible. As graph
+
+size increases, the size of vertices Vrwr that S
+
+P
+
+rewires also increases. Similarly, as problem diﬃculty in-
+
+creases, so does the number of shortest paths that S P must invalidate, which also increases Vrwr. S -
+
+E
+
+, on the other hand, makes no such assump-
+
+tion.
+
+6 Experiments
+
+Algorithm Details. We implemented 3 E s and 3 S -
+
+s described in Algorithms 2 and 3 to get a total of
+9 algorithms. To analyze the trade-oﬀs, we test on a diverse set of R2 datasets. We then ﬁnalize on 3 algorithms: LazySP
+
+(S
+
+P , F F ), LRA* (C
+
+D ,F -
+
+F ) and GLS (S
+
+E
+
+, F F ). We evaluate
+
+these on a Piano Movers’ problem in SE(2) and manipula-
+
+tion problems in R7 using HERB (Srinivasa et al. 2009), a
+
+mobile robot with 7DoF arms. 3
+
+Analysis on R2 datasets. We use 5 datasets of R2 problems from (Choudhury et al. 2017). Each dataset corresponds to diﬀerent parametric distribution of obstacles from which we sample 1000 worlds. A graph of 2000 vertices is sampled using a low dispersion sampler (Halton 1964) with an optimal connection radius (Janson et al. 2015). Priors are computed by collision checking the graph on the training data and averaging edge outcomes. The prior and some samples from R2 datasets are shown in Fig. 4(a). We pick one representative dataset, TwoWall, to show detailed plots.
+3Code is publicly available as an OMPL Planner at: https://github.com/personalrobotics/gls
+
+(c)
+
+(d)
+
+(a)
+
+(b)
+
+(c)
+
+Figure 4: (a) Samples and the prior for R2 datasets. (b) Events, Selectors and (c) Algorithms, ranked by planning times on R2 environments. Each cell indicates percentage of problems on which corresponding rank has been obtained.
+
+SP + F SP + A SP + FF CD + F CD + A CD + FF SE + F SE + A SE + FF
+
+Square Total Planning Time # Edge Evaluations # Vertex Rewires
+
+0.331 190 7058.5
+
+0.454 308 8502.5
+
+0.372 137 9859
+
+0.221 273 1076.5
+
+0.259 344.5 641.5
+
+0.222 315.5 69.5
+
+0.171 200.5 1104.5
+
+0.161 206 603.5
+
+0.116 153 318.5
+
+Two Wall Total Planning Time # Edge Evaluations # Vertex Rewires
+
+0.419 224 9360
+
+0.394 242.5 7997
+
+0.377 144 9870
+
+0.262 310 1594.6
+
+0.301 393 914.5
+
+0.290 407 165.5
+
+0.220 287 697
+
+0.169 224.5 435
+
+0.161 202.5 711.5
+
+Mazes Total Planning Time # Edge Evaluations # Vertex Rewires
+
+1.334 531 34359
+
+1.292 471 34379.5
+
+1.272 307.5 37750
+
+0.574 630 4769
+
+0.776 895 5357.5
+
+0.560 785.5 326
+
+0.615 588 7266.5
+
+0.578 544.5 7039.5
+
+0.337 352.5 3213
+
+Forest Total Planning Time # Edge Evaluations # Vertex Rewires
+
+0.277 174.5 5524.5
+
+0.267 184.5 4936
+
+0.269 165.5 5467.5
+
+0.574 306.5 579
+
+0.776 342.5 346
+
+0.559 450.5 95.5
+
+0.219 190 3075
+
+0.234 220 2855
+
+0.229 174.5 3827.5
+
+Table 2: Planning Time(millisec.) and number of operations by algorithms under GLS. (Median reported on 100 tests.)
+
+We choose evaluation metrics (a) number of edge eval-
+uations (b) number of vertex rewires and c) total planning time: weighted combination of (a), (b) (see Eq. 2). Since R2
+problems are not expensive to evaluate, we choose weights
+based on empirical data from manipulation planning problems in R7 (avg. eval time: 3.35 × 10−4s, avg. rewire time 1.1 × 10−5s, ratio 29.04).
+Finally, for parameter selection, we choose δ in S -
+
+E
+
+from the pareto curve of vertices rewired vs
+
+edges evaluated computed on the training data. The slope of
+
+the line is the ratio of their relative cost – the point of interesection corresponds to the δ : 0.01 that minimizes planning
+
+time. For C
+
+D , we use the recommended value
+
+from (Mandalika, Salzman, and Srinivasa 2018).
+
+Table 2 shows the planning times of various algorithms under GLS. The planning times are the median quantities
+
+SEARCH PROGRESSION
+
+TERMINATION
+
+SHORTESTPATH
+
+SUBPATHEXISTENCE (0.01) CONSTANTDEPTH (1)
+
+Figure 5: Snapshots of search and evaluation by GLS with F
+
+selector and diﬀerent events. Edges evaluated to be valid
+
+(blue), invalid (red) and subtree of vertices to be rewired (black) are shown. From top to bottom at termination: the number of
+
+edge evaluations are (49, 97, 62) and the number of vertex rewires are (361, 21, 69).
+
+Figure 6: All valid (blue) and invalid (red) edges evaluated at
+
+termination of GLS with F
+
+(49 edges) and F F
+
+(32 edges) with S
+
+E
+
+.
+
+obtained from experiments over 100 diﬀerent worlds sampled
+
+within the environment type. Fig. 4(c) shows the ranking of
+
+the planning times of the algorithms across the 400 worlds
+
+considered across the four datasets (lower plannning time in a problem translates to a better rank). We note that GLS with
+
+S
+
+E
+
+and F F consistently outperforms
+
+remaining algorithms on a majority of environments.
+
+We found strong evidence to support H 1 - S
+
+E-
+
+exhibits lowest planning times in 99% of the problems
+
+(Fig. 4(b, left)) Corresponding median planning times sup-
+
+porting the hypothesis are reported in Table 2. Fig. 5 shows a
+
+comparison of the events S
+
+P ,C
+
+D
+
+and S
+
+E
+
+(for the F
+
+selector) on a
+
+problem from the TwoWall dataset. We can see that S -
+
+P checks small number of edges but rewires signiﬁcant
+
+portion of the search tree. The trend is reversed in C
+
+-
+
+D when using a depth of 1. S
+
+E
+
+is able
+
+to balance both by exploiting priors - it triggers events when
+
+the search reaches the walls thus reducing rewires.
+
+We also found strong evidence to support H 2 - F F
+
+exhibits the lowest planning times in 83% (Fig. 4(b, right))
+
+of the problems across the four datasets. In Table 2, we note
+
+that for a given event, F F has the lowest planning time
+
+in majority of the datasets. Fig. 6 shows a comparison of
+
+F
+
+and F F (for S
+
+P event) - F -
+
+F quickly eliminates paths by checking the weakest link
+
+(supporting Theorem 5.2).
+
+We found strong evidence to support H 3. Fig. 7b shows
+
+that as graphs get larger, planning times of S
+
+P
+
+grows at a faster rate than S
+
+E
+
+. Fig. 7c shows
+
+that as the density of obstacles increase, the planning times
+
+of S
+
+P grows linearly while S
+
+E
+
+eventually saturates.
+
+Analysis on SE(2) problems and R7 problems. We consider the Piano Movers’ problem in SE(2) from the Apart-
+ment scenario in OMPL (Şucan, Moll, and Kavraki 2012). For the R7 environment, we consider two manipulation tasks
+
+Number of Vertex Rewires Planning Time (sec) Planning Time (sec) Time (sec)
+
+8000 6000 4000 2000
+0
+
+ce/cr = 29.04
+
+0.25
+
+0.20
+
+0.15
+
+0.10
+
+0.05
+
+200
+
+400
+
+600
+
+Number of Edge Evaluations
+
+SP + FF SE + FF
+
+1000
+
+2000
+
+Graph Size
+
+3
+
+SP + FF
+
+0.3
+
+SE + FF
+
+2
+
+0.2 1 74.39
+
+0.1
+
+3000
+
+25.61
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0 SE
+
+Density
+
+33.94
+
+Rewire Evaluation
+
+66.06 CD Event
+
+88.61
+11.39 SP
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 7: (a) Pareto curve obtained by varying δ in S
+
+E
+
+(b) Planning times as the size of the graph in TwoWall is
+
+increased. (c) Planning time as the density of obstacles in Forest is increased (d) Planning time in R7 problem (with 95% C.I.)
+
+Figure 8: HERB Task 1: Robot reaches into the shelf with its right arm while avoiding the table and the object.
+Table 3: Mean Planning Times (in seconds) of GLS, LazySP and LRA* on SE(2), R7 problems.
+GLS LRA* LazySP
+Piano Movers’ Total Planning Time 1.00 1.13 1.25 Edge Evaluation Time 0.17 0.49 0.10 Vertex Rewire Time 0.83 0.64 1.15
+HERB Task 1 Total Planning Time 1.17 1.81 1.53 Edge Evaluation Time 0.38 1.19 0.29 Vertex Rewire Time 0.79 0.62 1.24
+HERB Task 2 Total Planning Time 1.64 2.77 2.02 Edge Evaluation Time 0.42 1.83 0.23 Vertex Rewire Time 1.22 0.94 1.79
+
+with a 7-DoF arm (Srinivasa et al. 2009) in a cluttered kitchen
+environment (Fig. 8). We used graphs of 8000 vertices and 30,000 vertices for the SE(2) and R7 problems respectively.
+
+In Table 3, we report the mean planning times across 100
+
+problems each. We see that GLS(S
+
+E
+
+,F -
+
+F ) outperforms the other algorithms in planning time on
+
+all three problems. Additionally, Fig. 7d shows a breakdown
+
+of the planning time for each of the three events on HERB Task 2. GLS signiﬁcantly lowers rewiring time while having a minimal increase in evaluation time.
+Figures 9, 10 compare the performance of LazySP and GLS with F F selector. They illustrate the savings of GLS on the Piano Movers’ problem (Fig. 9) and on a simpliﬁed manipulation scene (Fig. 10). In both cases, LazySP has to rewire a large search tree everytime a path is found to be in collision. GLS, on the other hand, halts the search as soon as it enters a region of low probability, eliminates the paths and hence drastically minimizes rewiring time at the cost of few additional edge evaluations over LazySP.
+
+7 Discussion
+
+We presented a general framework for lazy search (GLS).
+
+The staple framework interleaves two phases, search and
+
+evaluation. In the search phase, it extends a lazy shortest-path
+
+tree forward without evaluating any edges until an E is
+
+triggered. It then switches to evaluation phase. It ﬁnds the
+
+shortest subpath to a leaf node of the tree and invokes a
+
+S
+
+to evaluate an edge on it. Careful choice of E
+
+and S
+
+allows the balance of search eﬀort with edge
+
+evaluation to minimize overall planning time.
+
+The framework, quite expressive, lets us capture a range of
+
+lazy search algorithms (Table 1). While it draws inspiration
+
+from prior work interleaving search and evaluation, such as LRA* (Mandalika, Salzman, and Srinivasa 2018), the key dif-
+
+ference lies in our deﬁnition of the E , which makes the
+
+algorithm adaptive. This lets us derive new algorithms that
+
+are edge optimal while saving on search eﬀort (Theorem 4.3).
+
+In future work, we plan to examine more sophisticated S -
+
+policies (Choudhury, Srinivasa, and Scherer 2018)
+
+that exploit correlations amongst edges to minimize evaluation cost. We also plan to extend GLS to an anytime paradigm;
+
+this would let us use heuristics that exploit edge priors to
+
+guide the search through regions of high probability (Nielsen
+
+and Kavraki 2000), for signiﬁcant speed-ups. Finally, we plan
+
+to explore problems where multiple lazy estimates of weight
+
+functions are available, e.g., in kinodynamic planning, where
+
+diﬀerent relaxations of the boundary value problem can be obtained. We believe GLS can interleave search eﬃciently
+
+over multiple resolutions of approximation.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+Figure 9: (a) Edge priors: darker edges have higher prior. (d) Solution path on the graph. Second and Third columns visualize
+
+the search and evaluation by LazySP(top) and GLS(S
+
+E
+
+) (bottom). (b) and (e): subtree of vertices rewired in the
+
+ﬁrst iteration (12,495 and 1235 resp. at termination). (c) and (f): edges evaluated at termination (63 and 171 resp.).
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 10: Search and evaluation by LazySP (top) and
+
+GLS(S
+
+E
+
+) (bottom). (a), (c): subtree of ver-
+
+tices rewired in the ﬁrst iteration (21,178; 11,342 resp. at
+
+termination). (b), (d): edges evaluated (136; 243 resp.).
+
+References
+[Bialkowski et al. 2016] Bialkowski, J.; Otte, M. W.; Karaman, S.; and Frazzoli, E. 2016. Eﬃcient collision checking in samplingbased motion planning via safety certiﬁcates. I. J. Robotics Res. 35(7):767–796.
+[Bialkowski, Otte, and Frazzoli 2013] Bialkowski, J.; Otte, M.; and Frazzoli, E. 2013. Free-conﬁguration biased sampling for motion planning. In IROS, 1272–1279. IEEE.
+[Bohlin and Kavraki 2000] Bohlin, R., and Kavraki, L. E. 2000. Path planning using lazy PRM. In ICRA, volume 1, 521–528. IEEE.
+
+[Burns and Brock 2005] Burns, B., and Brock, O. 2005. Samplingbased motion planning using predictive models. In Robotics and Automation, 2005. ICRA 2005. Proceedings of the 2005 IEEE International Conference on, 3120–3125. IEEE.
+[Choudhury et al. 2017] Choudhury, S.; Javdani, S.; Srinivasa, S.; and Scherer, S. 2017. Near-optimal edge evaluation in explicit generalized binomial graphs. In NIPS, 4634–4644.
+[Choudhury, Dellin, and Srinivasa 2016] Choudhury, S.; Dellin, C. M.; and Srinivasa, S. S. 2016. Pareto-optimal search over conﬁguration space beliefs for anytime motion planning. In IROS, 3742–3749.
+[Choudhury, Srinivasa, and Scherer 2018] Choudhury, S.; Srinivasa, S.; and Scherer, S. 2018. Bayesian Active Edge Evaluation on Expensive Graphs. In IJCAI, 4890–4897.
+[Cohen, Phillips, and Likhachev 2014] Cohen, B. J.; Phillips, M.; and Likhachev, M. 2014. Planning Single-arm Manipulations with n-Arm Robots. In RSS.
+[Dellin and Srinivasa 2016] Dellin, C. M., and Srinivasa, S. S. 2016. A unifying formalism for shortest path problems with expensive edge evaluations via lazy best-ﬁrst search over paths with edge selectors. In ICAPS, 459–467.
+[Dobson and Bekris 2014] Dobson, A., and Bekris, K. E. 2014. Sparse roadmap spanners for asymptotically near-optimal motion planning. I. J. Robotics Res. 33(1):18–47.
+[Gammell, Srinivasa, and Barfoot 2015] Gammell, J. D.; Srinivasa, S. S.; and Barfoot, T. D. 2015. Batch informed trees (BIT*): Sampling-based optimal planning via the heuristically guided search of implicit random geometric graphs. In ICRA, 3067–3074.
+[Haghtalab et al. 2018] Haghtalab, N.; Mackenzie, S.; Procaccia, A. D.; Salzman, O.; and Srinivasa, S. S. 2018. The Provable Virtue of Laziness in Motion Planning. In ICAPS, 106–113.
+[Halton 1964] Halton, J. H. 1964. Algorithm 247: Radical-inverse quasi-random point sequence. Commun. ACM 7(12):701–702.
+[Hart, Nilsson, and Raphael 1968] Hart, P. E.; Nilsson, N. J.; and Raphael, B. 1968. A formal basis for the heuristic determination of
+
+minimum cost paths. IEEE Transactions on Systems Science and Cybernetics 4(2):100–107.
+[Hauser 2015] Hauser, K. 2015. Lazy collision checking in asymptotically-optimal motion planning. In ICRA, 2951–2957.
+[Huh and Lee 2016] Huh, J., and Lee, D. D. 2016. Learning highdimensional mixture models for fast collision detection in rapidlyexploring random trees. In ICRA.
+[Janson et al. 2015] Janson, L.; Schmerling, E.; Clark, A. A.; and Pavone, M. 2015. Fast marching tree: A fast marching samplingbased method for optimal motion planning in many dimensions. I. J. Robotics Res. 34(7):883–921.
+[Karaman and Frazzoli 2011] Karaman, S., and Frazzoli, E. 2011. Sampling-based algorithms for optimal motion planning. I. J. Robotics Res. 30(7):846–894.
+[Kavraki et al. 1996] Kavraki, L. E.; Svestka, P.; Latombe, J.-C.; and Overmars, M. H. 1996. Probabilistic roadmaps for path planning in high-dimensional conﬁguration spaces. IEEE Trans. Robotics and Automation 12(4):566–580.
+[Kim, Kwon, and Yoon 2018] Kim, D.; Kwon, Y.; and Yoon, S.-e. 2018. Adaptive lazy collision checking for optimal sampling-based motion planning. In UR, 320–327. IEEE.
+[Koenig and Sun 2009] Koenig, S., and Sun, X. 2009. Comparing real-time and incremental heuristic search for real-time situated agents. Autonomous Agents and Multi-Agent Systems 18(3):313– 341.
+[Koenig, Likhachev, and Furcy 2004] Koenig, S.; Likhachev, M.; and Furcy, D. 2004. Lifelong planning A*. Artif. Intell. 155(12):93–146.
+[Korf 1985] Korf, R. E. 1985. Depth-ﬁrst iterative-deepening: An optimal admissible tree search. Artiﬁcial Intelligence 27(1):97 – 109.
+[Korf 1990] Korf, R. E. 1990. Real-time heuristic search. Artiﬁcial Intelligence 42(2):189 – 211.
+[LaValle 2006] LaValle, S. M. 2006. Planning Algorithms. Cambridge University Press.
+[Likhachev, Gordon, and Thrun 2004] Likhachev, M.; Gordon,
+
+G. J.; and Thrun, S. 2004. ARA*: Anytime A* with provable bounds on sub-optimality. In Advances in neural information processing systems, 767–774.
+[Mandalika, Salzman, and Srinivasa 2018] Mandalika, A.; Salzman, O.; and Srinivasa, S. 2018. Lazy Receding Horizon A* for Eﬃcient Path Planning in Graphs with Expensive-to-Evaluate Edges. In ICAPS, 476–484.
+[Murray et al. 2016] Murray, S.; Floyd-Jones, W.; Qi, Y.; Sorin, D. J.; and Konidaris, G. 2016. Robot motion planning on a chip. In RSS.
+[Narayanan and Likhachev 2017] Narayanan, V., and Likhachev, M. 2017. Heuristic search on graphs with existence priors for expensive-to-evaluate edges. In ICAPS.
+[Nielsen and Kavraki 2000] Nielsen, C. L., and Kavraki, L. E. 2000. A 2 level fuzzy prm for manipulation planning. In IROS.
+[Phillips et al. 2012] Phillips, M.; Cohen, B.; Chitta, S.; and Likhachev, M. 2012. E-graphs: Bootstrapping planning with experience graphs. In Proceedings of Robotics: Science and Systems.
+[Salzman and Halperin 2015] Salzman, O., and Halperin, D. 2015. Asymptotically-optimal Motion Planning using lower bounds on cost. In ICRA, 4167–4172.
+[Salzman and Halperin 2016] Salzman, O., and Halperin, D. 2016. Asymptotically Near-Optimal RRT for Fast, High-Quality Motion Planning. IEEE Trans. Robotics 32(3):473–483.
+[Srinivasa et al. 2009] Srinivasa, S. S.; Ferguson, D.; Helfrich, C. J.; Berenson, D.; Collet, A.; Diankov, R.; Gallagher, G.; Hollinger, G.; Kuﬀner, J.; and Weghe, M. V. 2009. HERB: a home exploring robotic butler. Autonomous Robots 28(1):5.
+[Şucan, Moll, and Kavraki 2012] Şucan, I. A.; Moll, M.; and Kavraki, L. E. 2012. The Open Motion Planning Library. IEEE Robotics & Automation Magazine 19(4):72–82. http://ompl. kavrakilab.org.
+[Yoshizumi, Miura, and Ishida 2000] Yoshizumi, T.; Miura, T.; and Ishida, T. 2000. A* with partial expansion for large branching factor problems. In AAAI, 923–929.
+

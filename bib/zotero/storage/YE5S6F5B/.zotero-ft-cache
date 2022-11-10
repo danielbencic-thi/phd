@@ -1,0 +1,3028 @@
+1
+
+Incremental Sampling-based Algorithms
+
+for Optimal Motion Planning
+
+Sertac Karaman
+
+Emilio Frazzoli
+
+arXiv:1005.0416v1 [cs.RO] 3 May 2010
+
+Abstract— During the last decade, incremental sampling-based motion planning algorithms, such as the Rapidly-exploring Random Trees (RRTs) have been shown to work well in practice and to possess theoretical guarantees such as probabilistic completeness. However, no theoretical bounds on the quality of the solution obtained by these algorithms have been established so far. The ﬁrst contribution of this paper is a negative result: it is proven that, under mild technical conditions, the cost of the best path in the RRT converges almost surely to a non-optimal value. Second, a new algorithm is considered, called the Rapidlyexploring Random Graph (RRG), and it is shown that the cost of the best path in the RRG converges to the optimum almost surely. Third, a tree version of RRG is introduced, called the RRT∗ algorithm, which preserves the asymptotic optimality of RRG while maintaining a tree structure like RRT. The analysis of the new algorithms hinges on novel connections between samplingbased motion planning algorithms and the theory of random geometric graphs. In terms of computational complexity, it is shown that the number of simple operations required by both the RRG and RRT∗ algorithms is asymptotically within a constant factor of that required by RRT.
+I. INTRODUCTION
+The robotic motion planning problem has received a considerable amount of attention, especially over the last decade, as robots started becoming a vital part of modern industry as well as our daily life. Even though modern robots may possess signiﬁcant differences in sensing, actuation, size, workspace, application, etc., the problem of navigating through a complex environment is embedded and essential in almost all robotics applications. Moreover, this problem has several applications in other disciplines such as veriﬁcation, computational biology, and computer animation [1]–[6].
+Informally speaking, given a robot with a description of its dynamics, a description of the environment, an initial state, and a set of goal states, the motion planning problem is to ﬁnd a sequence of control inputs so as the drive the robot from its initial state to one of the goal states while obeying the rules of the environment, e.g., not colliding with the surrounding obstacles. An algorithm that solves this problem is said to be complete if it returns a solution when one exists and returns failure otherwise.
+Early algorithmic approaches to the motion planning problem mainly focused on developing complete planners for, e.g., polygonal robots moving among polygonal obstacles [7], and later for more general cases using algebraic techniques [8]. These algorithms, however, suffered severely from computational complexity, which prohibited their practical implementations; for instance, the algorithm in [8] had doubly
+The authors are with the Laboratory for Information and Decision Systems, Massachusetts Institute of Technology, Cambridge, MA.
+Manuscript submitted to International Journal of Robotics Research.
+
+exponential time complexity. Regarding the computational complexity of the problem, a remarkable result was proven as early as 1979: Reif showed that a most basic version of the motion planning problem, called the piano movers problem, was PSPACE-hard [9], which strongly suggested that complete planners are would be unsuitable for practical applications.
+Practical planners came around with the development of cell decomposition methods [10], [11], potential ﬁelds [12], and roadmap methods [13]. These approaches relaxed the completeness requirement to, for instance, resolution completeness, which guarantees completeness only when the resolution parameter of the algorithm is set ﬁne enough. These planners demonstrated remarkable performance in accomplishing various tasks in complex environments within reasonable time bounds [14]. However, their practical applications were mostly limited to state spaces with up to ﬁve dimensions, since decomposition-based methods suffered from large number of cells, and potential ﬁeld methods from local minima [1], [15].
+Arguably, some of the most inﬂuential recent advances in robotic motion planning can be found in sampling-based algorithms [16]–[18], which attracted a large amount of attention over the last decade, including very recent work (see, e.g., [19]–[25]). In summary, sampling-based algorithms connect a set of points that are chosen randomly from the obstacle-free space in order to build a roadmap, which is used to form a strong hypothesis of the connectivity of the environment, in particular the connectivitiy of the initial state and the set of goal states. Informally speaking, sampling-based methods provide large amounts of computational savings by avoiding explicit construction of obstacles in the state space, as opposed to most complete motion planning algorithms. Even though these algorithms do not achieve completeness, they provide probabilistic completeness guarantees in the sense that the probability that the planner fails to return a solution, if one exists, decays to zero as the number of samples approaches inﬁnity [26]. Moreover, the rate of decay of the probability of failure is exponential, under the assumption that the environment has good “visibility” properties [26]. More recently, the empirical success of sampling-based algorithms was argued to be strongly tied to the hypothesis that most practical robotic applications, even though involving robots with many degrees of freedom, feature environments with such good visibility properties [27].
+A. Sampling-Based Algorithms
+In practical applications, the class of sampling-based motion planning algorithms, including, for instance, Probabilistic Roadmaps (PRMs) [17], [28], and Rapidly-exploring Random
+
+2
+
+Trees (RRTs) [18], [29], is one of the most widely-used approaches to the motion planning problem [30], [31]. Even though the idea of connecting samples from the state space is essential in both approaches, these two algorithms mainly differ in the way that they construct the roadmap.
+The PRM algorithm and its variants are multiple-query methods that ﬁrst construct a graph (the roadmap), which represents a large portion of the collision-free trajectories, and then answer queries by computing a shortest path that connects the initial state with a ﬁnal state through the graph. Shortly after their introduction in the literature, PRMs have been reported to extend to high-dimensional state spaces [17], since they avoid explicit construction of obstacles in the state space of the robot. Subsequently, it was shown that the PRM algorithm is probabilistically complete and the probability of failure decays to zero exponentially [28]. During the last decade, the PRM algorithm has been a focus of robotics research. In particular, several improvements were suggested by many authors and the reasons to why it performs well in several practical cases were better understood (see, e.g., [27], [32], [33] for some examples).
+Even though multiple-query methods are valuable in highly structured environments such as factory ﬂoors, most online planning problems do not require multiple queries, since, for instance, the robot moves from one environment to another, or the environment is not known a priori. Moreover, in some applications, computing a roadmap a priori may be computationally challenging or even infeasible. Tailored mainly for these applications, incremental sampling-based planning algorithms have emerged as an online counterparts to the PRMs (see, e.g., [29], [34]). The incremental nature of these algorithms allows termination as soon as a solution is found. Furthermore, slight changes in the environment do not require planning from scratch, since most of the trajectories in the tree are still feasible (this is a property shared with most other roadmap-based methods) or can be improved to produce feasible trajectories quickly. These properties provide signiﬁcant computational savings making online real-time implementations possible.
+A widely-studied incremental algorithm is the RRT. Closely after its introduction in the literature, several theoretical guarantees provided by the RRT algorithm were shown, including probabilistic completeness [29] and exponential rate of decay of the probability of failure [35]. Subsequently, the RRT algorithm has been improved and found many applications in the robotics domain and elsewhere (see for instance [2]– [4], [35]–[37]). In particular, RRTs have been shown to work effectively for systems with differential constraints, nonlinear dynamics, and non-holonomic constraints [18], [35] as well as purely discrete or hybrid systems [36]. Moreover, the RRT algorithm was demonstrated in major robotics events on various experimental robotic platforms [38]–[42].
+An interesting extension of the RRT that is worth mentioning at this point is the Rapidly-exploring Random Graph (RRG) algorithm [43]. The RRG algorithm was proposed as an incremental sampling-based method in order to extend RRTs to generate feasible trajectories for satisfying speciﬁcations other than the usual “avoid obstacles and reach the goal”. In [43], the authors have shown that the RRG algorithm
+
+can handle any speciﬁcation given in the form of µ-calculus, which includes the widely-used speciﬁcation language Linear Temporal Logic (LTL) as a strict subclass. The RRG algorithm incrementally builds a graph, instead of a tree, since several speciﬁcations in LTL (e.g., ω-regular properties [44]) require cyclic trajectories, which are not included in trees.
+B. Optimal Motion Planning
+Generally, the standard robotic motion planning problem does not take the “quality” of the solution into account. That is, the focus of the problem is to ﬁnd a trajectory that starts from the initial state and reaches one of the goal states while staying inside the obstacle-free portion of the state space. Let us note that, as mentioned earlier, even this form of the problem is computationally challenging [9]. Consequently, there has been a signiﬁcant amount of research effort devoted to constructing feasible solutions in a computationally effective manner. Hence, most of the existing algorithms pay almost no attention to the other properties of solution, e.g., its length, or its cost. As a result, the analysis of the quality of the solution returned by the algorithm, or algorithms tailored to provably improve the quality of the solution if kept running, have received relatively little attention, even though their importance is mentioned in early seminal papers [18]. In fact, in many ﬁeld implementations of such algorithms (see, e.g., [39]), it is often the case that a feasible path is found quickly, and additional computation time is devoted to improving the solution with heuristics until the solution is executed.
+Yet, the importance of the quality of the solution returned by the planners have been noticed, in particular, from the point of view of incremental sampling-based motion planning. In [45], Urmson and Simmons have proposed heuristics to bias the tree growth in the RRT towards those regions that result in low-cost solutions. They have also shown experimental results evaluating the performance of different heuristics in terms of the quality of the solution returned. In [46], Ferguson and Stentz have considered running the RRT algorithm multiple times in order to progressively improve the quality of the solution. They showed that each run of the algorithm results in a path with smaller cost, even though the procedure is not guaranteed to converge to an optimum solution. (Criteria for restarting multiple RRT runs, in a different context, were also proposed in [47].)
+A different approach that also offers optimality guarantees is based on graph search algorithms (such as A∗) applied over a grid that is generated ofﬂine. Recently, these algorithms received a large amount of research attention. In particular, they were extended to run in an anytime fashion [48], [49], deal with dynamic environments [49], [50], and handle systems with differential constraints [51]. The have also been successfully demonstrated on various robotic platforms [51], [52]. However, optimality guarantees of these algorithms are only ensured up to the grid resolution. Moreover, since the number of grid points grows exponentially with the dimensionality of the state-space, so does the (worst-case) running time of these algorithms.
+
+3
+
+C. Statement of Contributions
+To the best of our knowledge, this paper provides the ﬁrst thorough analysis of optimality properties of incremental sampling-based motion planning algorithms. In particular, we show that the probability that the RRT converges to an optimum solution, as the number of samples approaches inﬁnity, is zero under some reasonable technical assumptions. In fact, we give a formal proof of the fact that the RRT algorithm almost always converges to a suboptimal solution. Second, we show that the probability of the same event for the RRG algorithm is one. That is, the RRG algorithm is asymptotically optimal in the sense that it converges to an optimal solution almost surely as the number of samples approaches inﬁnity. Third, we propose a novel variant of the RRG algorithm, called RRT∗, which inherits the asymptotic optimality of the RRG algorithm while maintaining a tree structure. To do so, the RRT∗ algorithm essentially “rewires” the tree structure as it discovers new lower-cost paths reaching the nodes that are already in the tree. Finally, we show that the asymptotic computational complexity of the RRG and RRT∗ algorithms is essentially the same as that of RRTs. We also provide experimental evidence supporting our theoretical computational complexity results. We discuss the relation between the proposed algorithms and PRM-based methods, and propose a PRM-like algorithm that improves the efﬁciency of PRM while maintaining the same feasibility and optimality properties.
+To our knowledge, the algorithms considered in this paper are the ﬁrst computationally efﬁcient incremental samplingbased motion planning algorithms with asymptotic optimality guarantees. Indeed, our results imply that these algorithms are optimal also from an asymptotic computational complexity point of view, since they closely match lower bounds for computing nearest neighbors. The key insight is that connections between vertices in the graph should be sought within balls whose radius vanishes with a certain rate as the size of the graph increases, and is based on new connections between motion planning and the theory of random geometric graphs [53], [54].
+In this paper, we consider the problem of navigating through a connected bounded subset of a d-dimensional Euclidean space. As in the early seminal papers on incremental samplingbased motion planning algorithms such as [29], we assume no differential constraints, but our methods can be easily extended to planning in conﬁguration spaces and applied to several practical problems of interest. We defer the extension to systems with differential constraints to another paper.
+D. Paper Organization
+This paper is organized as follows. In Section II, lays the ground in terms of notation and problem formulation. Section III is devoted to the introduction of the RRT and RRG algorithms. In Section IV, these algorithms are analyzed in terms of probabilistic completeness, asymptotic optimality, and computational complexity. The RRT∗ algorithm is presented in Section V, where it is shown that RRT∗ inherits the theoretical guarantees of the RRG algorithm. Experimental results are presented and discussed in Section VI. Concluding
+
+remarks are given in Section VII. In order not to disrupt the ﬂow of the presentation, proofs of important results are presented in the Appendix.
+
+II. PRELIMINARY MATERIAL
+
+A. Notation
+
+Let N denote the set of non-negative integers and R denote
+
+the set of reals. Let R>0 and R≥0 denote the sets of positive
+
+and non-negative reals, respectively. The set N>0 is deﬁned
+
+similarly. A sequence on a set A is a mapping from N to
+
+A, denoted as {ai}i∈N, where ai ∈ A is the element that i ∈ N is mapped to. Given a, b ∈ R, closed and open intervals
+
+between a and b are denoted by [a, b] and (a, b), respectively.
+
+More generally, if a, b ∈ Rd, then [a, b] is used to denote the
+
+line segment that connects a with b, i.e., [a, b] := {τ a + (1 −
+
+τ )b | τ ∈ R, 0 ≤ τ ≤ 1}. The Euclidean norm is denoted by · . Given a set X ⊂ Rd, the closure of X is denoted by
+cl(X). The closed ball of radius r > 0 centered at x ∈ Rd is deﬁned as Bx,r := {y ∈ Rd | y − x ≤ r}; Bx,r is also called the r−ball centered at x. Given a set X ⊆ Rd, the
+
+Lebesgue measure of X, i.e., its volume, is denoted by µ(X).
+
+The volume of the unit ball in Rd is denoted by ζd. Given a set X ⊂ Rd, and a scalar s ≥ 0, a path
+
+in X is a continuous function σ : [0, s] → X, where
+
+s is the length of the path deﬁned in the usual way as
+
+sup{n∈N,0=τ0 <τ1 <···<τn =s}
+
+n i=1
+
+σ(τi) − σ(τi−1) .
+
+Given
+
+two paths in X, σ1 : [0, s1] → X, and σ2 : [0, s2] → X,
+
+with σ1(s1) = σ2(0), their concatenation is denoted by σ1|σ2.
+
+More precisely, σ = σ1|σ2 : [0, s1 + s2] → X is deﬁned as
+
+σ(s) = σ1(s) for all s ∈ [0, s1], and σ(s) = σ2(s − s1) for all
+
+s ∈ [s1, s1 + s2]. More generally, a concatenation of multiple
+
+paths σ1|σ2| · · · |σn is deﬁned as (· · · ((σ1|σ2)|σ3)| · · · |σn).
+
+The set of all paths in X with nonzero length is denoted
+
+by ΣX . The straight continuous path between two points x1, x2 ∈ Rd is denoted by Line(x1, x2).
+
+Given a probability space (Ω, F, P), where Ω is a sample space, F ⊆ 2Ω is a σ−algebra, and P is a probability measure,
+
+an event A is an element of F. The complement of an event
+A is denoted by Ac. Given a sequence of events {Ai}i∈N, the event ∩∞ j=1 ∪∞ i=j Ai is denoted by lim supi→∞ Ai (also called the event that Ai occurs inﬁnitely often). A (real) random
+
+variable is a measurable function that maps Ω into R. An
+
+extended (real) random variable can also take the values ±∞.
+
+A sequence of random variables {Yi}i∈N is said to converge surely to a random variable Y if limi→∞ Yi(ω) = Y(ω)
+
+for all ω ∈ Ω; the sequence is said to converge almost
+
+surely if P({limi→∞ Yi = Y}) = 1. Finally, if ϕ(ω) is
+
+a property that is either true or false for a given ω ∈ Ω,
+
+the event that denotes the set of all samples ω for which
+
+ϕ(ω) holds, i.e., {ω ∈ Ω | ϕ(ω) holds}, is written as {ϕ},
+
+e.g., {ω ∈ Ω | limi→∞ Yi(ω) = Y(ω)} is simply written as
+
+{limi→∞ Yi = Y}.
+
+Let f (n) and g(n) be two functions with domain and range
+
+N. The function f (n) is said to be O(g(n)), denoted as f (n) ∈
+
+O(g(n)), if there exists two constants M and n0 such that
+
+f (n) ≤ M g(n) for all n ≥ n0. The function f (n) is said
+
+to be Ω(g(n)), denoted as f (n) ∈ Ω(g(n)), if there exists
+
+4
+
+constants M and n0 such that f (n) ≥ M g(n) for all n ≥ n0. The function f (n) is said to be Θ(g(n)), denoted as f (n) ∈ Θ(g(n)), if f (n) ∈ O(g(n)) and f (n) ∈ Ω(g(n)).
+Let X be a subset of Rd. A (directed) graph G = (V, E) on X is composed of a vertex set V and an edge set E, such that V is a ﬁnite subset of X, and E is a subset of V × V . The set of all directed graphs on X is denoted by GX . A directed path on G is a sequence (v1, v2, . . . , vn) of vertices such that (vi, vi+1) ∈ E for all 1 ≤ i ≤ n − 1. Given a vertex v ∈ V , the sets {u ∈ V | (u, v) ∈ E} and {u ∈ V | (v, u) ∈ E} are said to be its incoming neighbors and outgoing neighbors, respectively. A (directed) tree is a directed graph, in which each vertex but one has a unique incoming neighbor; the vertex with no incoming neighbor is called the root vertex. Vertices of a tree are often also called nodes.
+B. Problem Formulation
+In this section, two variants of the path planning problem are presented. First, the feasibility problem in path planning is formalized, then the optimality problem is introduced.
+Let X be a bounded connected open subset of Rd, where d ∈ N, d ≥ 2. Let Xobs and Xgoal, called the obstacle region and the goal region, respectively, be open subsets of X. Let us denote the obstacle-free space, i.e., X \ Xobs, as Xfree. Let the initial state, xinit, be an element of Xfree. In the sequel, a path in Xfree is said to be a collision-free path. A collision-free path that starts at xinit and ends in the goal region is said to be a feasible path, i.e., a collision-free path σ : [0, s] → Xfree is feasible if and only if σ(0) = xinit and σ(s) ∈ Xgoal.
+The feasibility problem of path planning is to ﬁnd a feasible path, if one exists, and report failure otherwise. The problem can be formalized as follows.
+Problem 1 (Feasible planning) Given a bounded connected open set X ⊂ Rd, an obstacle space Xobs ⊂ X, an initial state xinit ∈ Xfree, and a goal region Xgoal ⊂ Xfree, ﬁnd a path σ : [0, s] → Xfree such that σ(0) = xinit and σ(s) ∈ Xgoal, if one exists. If no such path exists, then report failure.
+Let c : ΣXfree → R>0 be a function, called the cost function, which assigns a non-negative cost to all nontrivial collision-free paths. The optimality problem of path planning asks for ﬁnding a feasible path with minimal cost, formalized as follows.
+Problem 2 (Optimal planning) Given a bounded connected open set X, an obstacle space Xobs, an initial state xinit, and a goal region Xgoal, ﬁnd a path σ∗ : [0, s] → cl(Xfree) such that (i) σ∗(0) = xinit and σ∗(s) ∈ Xgoal, and (ii) c(σ∗) = minσ∈Σcl(Xfree) c(σ). If no such path exists, then report failure.
+III. ALGORITHMS
+In this section, two incremental sampling-based motion planning algorithms, namely the RRT and the RRG algorithms, are introduced. Before formalizing the algorithms, let us note the primitive procedures that they rely on.
+Sampling: The function Sample : N → Xfree returns independent identically distributed (i.i.d.) samples from Xfree.
+
+Steering: Given two points x, y ∈ X, the function Steer : (x, y) → z returns a point z ∈ Rd such that z is “closer” to y than x is. Throughout the paper, the point z returned by the
+function Steer will be such that z minimizes z − y while
+at the same time maintaining z − x ≤ η, for a prespeciﬁed η > 0,1 i.e.,
+
+Steer(x, y) = argminz∈Rd, z−x ≤η z − y .
+Nearest Neighbor: Given a graph G = (V, E) ∈ GXfree and a point x ∈ Xfree , the function Nearest : (G, x) → v returns a vertex v ∈ V that is “closest” to x in terms of a given distance function. In this paper, we will use Euclidean distance (see, e.g., [18] for alternative choices), i.e.,
+
+Nearest(G = (V, E), x) = argminv∈V x − v .
+
+Near Vertices: Given a graph G = (V, E) ∈ GXfree , a point x ∈ Xfree, and a number n ∈ N, the function Near : (G, x, n) → V returns a set V of vertices such that V ⊆ V . The Near procedure can be thought of as a generalization of the nearest neighbor procedure in the sense that the former returns a collection of vertices that are close to x, whereas the latter returns only one such vertex that is the closest. Just like the Nearest procedure, there are many ways to deﬁne the Near procedure, each of which leads to different algorithmic properties. For technical reasons to become clear later, we deﬁne Near(G, x, n) to be the set of all vertices within the closed ball of radius rn centered at x, where
+
+rn = min
+
+γ log n 1/d ,η ,
+ζd n
+
+and γ is a constant. Hence, the volume of this ball is
+
+min{γ
+
+log n
+
+n
+
+,
+
+ζd
+
+ηd
+
+}.
+
+Collision Test: Given two points x, x ∈ Xfree, the Boolean
+
+function ObstacleFree(x, x ) returns True iff the line seg-
+
+ment between x and x lies in Xfree, i.e., [x, x ] ⊂ Xfree.
+
+Both the RRT and the RRG algorithms are similar to most
+
+other incremental sampling-based planning algorithms (see
+
+Algorithm 1). Initially, the algorithms start with the graph that
+
+includes the initial state as its single vertex and no edges; then,
+
+they incrementally grow a graph on Xfree by sampling a state xrand from Xfree at random and extending the graph towards xrand. In the sequel, every such step of sampling followed by extensions (Lines 2-5 of Algorithm 1) is called a single
+
+iteration of the incremental sampling-based algorithm.
+
+Hence, the body of both algorithms, given in Algorithm 1, is
+
+the same. However, RRGs and RRTs differ in the choice of the
+
+vertices to be extended. The Extend procedures for the RRT
+
+and the RRG algorithms are provided in Algorithms 2 and 3,
+
+respectively. Informally speaking, the RRT algorithm extends
+
+the nearest vertex towards the sample. The RRG algorithm ﬁrst
+
+extends the nearest vertex, and if such extension is successful,
+
+it also extends all vertices returned by the Near procedure. In
+
+both cases, all extensions resulting in collision-free trajectories
+
+1This steering procedure is used widely in the robotics literature, since its introduction in [29]. Our results also extend to the Rapidly-exploring Random Dense Trees (see, e.g., [30]), which are slightly modiﬁed versions of the RRTs that do not require tuning any prespeciﬁed parameters such as η in this case.
+
+5
+
+are added to the graph as edges, and their terminal points as new vertices.
+Algorithm 1: Body of RRT and RRG Algorithms 1 V ← {xinit}; E ← ∅; i ← 0; 2 while i < N do 3 G ← (V, E); 4 xrand ← Sample(i); i ← i + 1; 5 (V, E) ← Extend(G, xrand);
+Algorithm 2: ExtendRRT 1 V ← V ; E ← E; 2 xnearest ← Nearest(G, x); 3 xnew ← Steer(xnearest, x); 4 if ObstacleFree(xnearest, xnew) then 5 V ← V ∪ {xnew}; 6 E ← E ∪ {(xnearest, xnew)}; 7 return G = (V , E )
+
+this randomness, we deﬁne the sample space Ω to be the inﬁnite cartesian product Xf∞ree. Intuitively, a single element ω of Ω denotes a sequence {Sample(i)}i∈N of inﬁnitely many samples drawn from Xfree, and Ω denotes the set of all such sequences.
+Sets of vertices and edges of the graphs maintained by the RRT and the RRG algorithms, then, can be deﬁned as functions from the sample space Ω to appropriate sets. More precisely, let {ViRRT}i∈N and {ViRRG}i∈N, sequences of functions deﬁned from Ω into ﬁnite subsets of Xfree, be the sets of vertices in the RRT and the RRG, respectively, at the end of iteration i. By convention, we deﬁne V0RRT = V0RRG = {xinit}. Similarly, let EiRRT and EiRRG, deﬁned for all i ∈ N, denote the set of edges in the RRT and the RRG, respectively, at the end of iteration i. Clearly, E0RRT = E0RRG = ∅.
+An important lemma used for proving the equivalency between the RRT and the RRG algorithms is the following.
+Lemma 3 For all i ∈ N and all ω ∈ Ω, ViRRT(ω) = ViRRG(ω) and EiRRT(ω) ⊆ EiRRG(ω).
+
+Algorithm 3: ExtendRRG
+
+1 V ← V ; E ← E;
+
+2 xnearest ← Nearest(G, x); 3 xnew ← Steer(xnearest, x);
+
+4 if ObstacleFree(xnearest, xnew) then
+
+5 V ← V ∪ {xnew}; 6 E ← E ∪ {(xnearest, xnew), (xnew, xnearest)};
+
+7 Xnear ← Near(G, xnew, |V |);
+
+8 for all xnear ∈ Xnear do
+
+9
+
+if ObstacleFree(xnew, xnear) then
+
+10
+
+E ← E ∪ {(xnear, xnew), (xnew, xnear)};
+
+11 return G = (V , E )
+
+Notice that the graph G maintained by the RRT algorithm is a tree, whereas that maintained by the RRG can, in general, include vertices with more than one incoming neighbor.
+IV. ANALYSIS
+A. Convergence to a Feasible Solution
+In this section, the feasibility problem is considered. It is proven that the RRG algorithm inherits the probabilistic completeness as well as the exponential decay of the probability of failure (as the number of samples increase) from the RRT. These results imply that the RRT and RRG algorithms have the same performance in producing a solution to the feasibility problem as the number of samples increase. Before formalizing these claims, let us introduce some notation and preliminaries.
+Note that the only randomness in Algorithms 1-3 may arise from the sampling procedure denoted as Sample.2 To model
+2We will not address the case in which the sampling procedure is deterministic, but refer the reader to [55], which contains an in-depth discussion of the relative merits of randomness and determinism in sampling-based motion planning algorithms.
+
+Lemma 3 implies that the paths discovered by the RRT algorithm by the end of iteration i is, essentially, a subset of those discovered by the RRG by the end of the same iteration.
+An algorithm addressing Problem 1 is said to be probabilistically complete if it ﬁnds a feasible path with probability approaching one as the number of iterations approaches inﬁnity. Note that there exists a collision-free path starting from xinit to any vertex in the tree maintained by the RRT, since the RRT maintains a connected graph on Xfree that necessarily includes xinit. Using this fact, the probabilistic completeness property of the RRT is stated alternatively as follows.
+
+Theorem 4 (see [18]) If there exists a feasible solution to Problem 1, then limi→∞ P ViRRT ∩ Xgoal = ∅ = 1.
+
+Moreover, under certain assumptions on the environment,
+
+the probability that the RRT fails to ﬁnd a feasible path, even
+
+though one exists, decays to zero exponentially (see, e.g.,
+
+[18], [34]). We state these assumptions here and then state
+
+the theorem in our notation.
+
+An attraction sequence [18] is deﬁned as a ﬁnite sequence
+
+A = {A1, A2, . . . , Ak} of sets as follows: (i) A0 = {xinit}, and (ii) for each set Ai, there exists a set Bi, called the basin such that for any x ∈ Ai−1, y ∈ Ai, and z ∈ X \ Bi, there holds x − y ≤ x − z 3. Given an attraction sequence A of
+
+length k, let pk denote mini∈{1,2,...,k}
+
+. µ(Ai)
+µ(Xfree )
+
+The following theorem states that the probability that the
+
+RRT algorithm fails to return a solution, when one exists,
+
+decays to zero exponentially fast.
+
+Theorem 5 (see [18]) If there exists an attraction sequence
+
+A of length k, then P
+
+ViRRT ∩ Xgoal = ∅
+
+≤
+
+e−
+
+1 2
+
+(i
+
+pk
+
+−2k)
+
+.
+
+As noted in [18], the convergence gets faster as the length of the attraction sequence gets smaller and the volume of
+
+3Since we do not consider any differential constraints, some of the other assumptions introduced in [18] are immediately satisﬁed.
+
+6
+
+the minimum volume set in the attraction sequence gets larger. Such properties are achieved when the environment does not involve narrow passages and, essentially, has good “visibility” properties. (See, e.g., [27] for dependence of the performance of probabilistic planners such as PRMs on the visibility properties of the environment).
+With Lemma 3 and Theorems 4 and 5, the following theorem is immediate.
+
+Theorem 6 If there exists a feasible solution to Prob-
+
+lem 1, then limi→∞ P ViRRG ∩ Xgoal = ∅ = 1. More-
+
+over, if an attraction sequence A of length k exists, then
+
+P
+
+ViRRG ∩ Xgoal = ∅
+
+≤
+
+e−
+
+1 2
+
+(i
+
+pk−2 k).
+
+B. Asymptotic Optimality
+This section is devoted to the investigation of optimality properties of the RRT and the RRG algorithms. First, under some mild technical assumptions, we show that the probability that the RRT converges to an optimal solution is zero. However, the convergence of this random variable is guaranteed, which implies that the RRT converges to a nonoptimum solution with probability one. On the contrary, we subsequently show that the RRG algorithm converges to an optimum solution almost-surely.
+Let {YiRRT}i∈N be a sequence of extended random variables that denote the cost of a minimum-cost path contained within the tree maintained by the RRT algorithm at the end of iteration i. The extended random variable YiRRG is deﬁned similarly. Let c∗ denote the cost of a minimum-cost path in cl(Xfree), i.e., the cost of a path that solves Problem 2.
+Let us note that the limits of these two extended random variable sequences as i approaches inﬁnity exist. More formally, notice that YiR+R1T(ω) ≤ YiRRT(ω) holds for all i ∈ N and all ω ∈ Ω. Moreover, we have that YiRRT(ω) ≥ c∗ for all i ∈ N and all ω ∈ Ω, by optimality of c∗. Hence, {YiRRT}i∈N is a surely non-increasing sequence of random variables that is surely lower-bounded by c∗. Thus, for all ω ∈ Ω, the limit limi→∞ YiRRT(ω) exists. The same argument also holds for the sequence {YiRRG}i∈N.
+1) Almost Sure Suboptimality of the RRT: Let us note the following assumptions, which will be required to show the almost-sure sub-optimality of the RRT. Let Σ∗ denote the set of all optimal paths, i.e., the set of all paths that solve Problem 2, and Xopt denote the set of states that an optimal path in Σ∗ passes through, i.e.,
+Xopt = ∪σ∗∈Σ∗ ∪τ ∈[0,s∗] {σ∗(τ )}
+
+Assumption 9 (Monotonicity of the Cost Function) For all σ1, σ2 ∈ ΣXfree , the cost function c satisﬁes the following: c(σ1) ≤ c(σ1|σ2).
+Assumptions 7 rules out trivial cases, in which the RRT algorithm can sample exactly an optimal path with non-zero probability. Note that this assumption is placed on the problem instance rather than the algorithm. Most cost functions and problem instances of interest satisfy this assumption, including, e.g., the Euclidean length of the path. Let us note that this assumption does not imply that there is a single optimal path; indeed, there are problem instances with uncountably many optimal paths, for which Assumption 7 holds. Assumption 8 also ensures that the sampling procedure can not be tuned to construct the optimal path exactly. Finally, Assumption 9 merely states that extending a path to produce a longer path can not decrease its cost.
+Recall that d denotes the dimensionality of the state space. The negative result of this section is formalized as follows.
+
+Theorem 10 Let Assumptions 7, 8, and 9 hold. Then, the probability that the cost of the minimum-cost path in the RRT converges to the optimal cost is zero, i.e.,
+
+P whenever d ≥ 2.
+
+lim
+i→∞
+
+YiRRT
+
+=
+
+c∗
+
+= 0,
+
+As noted before, the limit limi→∞ YiRRT(ω) exists and is a random variable. However, Theorem 10 directly implies that this limit is strictly greater than c∗ with probability one, i.e., P {limi→∞ YiRRT > c∗} = 1. In other words, we establish, as a corollary, that the RRT algorithm converges to
+a suboptimal solution with probability one.
+
+Remark 11 (Effectiveness of Multiple RRTs) Since the cost of the best path returned by the RRT algorithm converges to a random variable, say Y∞ RRT, Theorem 10 provides new insight explaining the effectiveness of approaches as in [46]. In fact, running multiple instances of the RRT algorithm amounts to drawing multiple samples of Y∞ RRT .
+2) Almost Sure Optimality of the RRG: Let us note the following set of assumptions, which will be required to show the asymptotic optimality of the RRG.
+
+Assumption 12 (Additivity of the Cost Function) For all
+σ1, σ2 ∈ ΣXfree , the cost function c satisﬁes the following: c(σ1|σ2) = c(σ1) + c(σ2).
+
+Assumption 7 (Zero-measure Optimal Paths) The set of all points in the state-space that an optimal trajectory passes through has measure zero, i.e., µ (Xopt) = 0.
+Assumption 8 (Sampling Procedure) The sampling procedure is such that the samples {Sample(i)}i∈N are drawn from an absolutely continuous distribution with a continuous density function f (x) bounded away from zero on Xfree.
+
+Assumption 13 (Continuity of the Cost Function) The cost function c is Lipschitz continuous in the following sense: there exists some constant κ such that for any two paths σ1 : [0, s1] → Xfree and σ2 : [0, s2] → Xfree,
+|c(σ1) − c(σ2)| ≤ κ sup σ1(τ s1) − σ2(τ s2) .
+τ ∈[0,1]
+Assumption 14 (Obstacle Spacing) There exists a constant δ ∈ R+ such that for any point x ∈ Xfree, there exists x ∈
+
+7
+
+Xfree, such that (i) the δ-ball centered at x lies inside Xfree, i.e., Bx ,δ ⊂ Xfree, and (ii) x lies inside the δ-ball centered at x , i.e., x ∈ Bx ,δ.
+
+Assumption 13 ensures that two paths that are very close
+
+to each other have similar costs. Let us note that several cost
+
+functions of practical interest satisfy Assumptions 12 and 13.
+
+An example that is widely used, e.g., in optimal control, is
+
+the line integral of a continuous function g : Xfree → R>0
+
+over trajectories of bounded length, i.e., c(σ) =
+
+s 0
+
+g(σ(τ
+
+))dτ
+
+.
+
+Assumption 14 is a rather technical assumption, which ensures
+
+existence of some free space around the optimal trajectories
+
+to allow convergence. We also assume for simplicity that
+
+the sampling is uniform, although our results can be easily
+
+extended to more general sampling procedures.
+
+Recall that d is the dimensionality of the state-space X,
+
+and γ is the constant deﬁned in the Near procedure. The
+
+positive result that states the asymptotic optimality of the RRG
+
+algorithm can be formalized as follows.
+
+Theorem 15 Let Assumptions 12, 13, and 14 hold, and as-
+
+sume that Problem 1 admits a feasible solution. Then, the cost of the minimum-cost path in the RRG converges to c∗ almost
+
+surely, i.e.,
+
+P
+
+lim
+i→∞
+
+YiRRG
+
+=
+
+c∗
+
+= 1,
+
+whenever d ≥ 2 and γ > γL := 2d(1 + 1/d)µ(Xfree).
+
+C. Computational Complexity
+The objective of this section is to compare the computational complexity of RRTs and RRGs. It is shown that these algorithms share essentially the same asymptotic computational complexity in terms of the number of calls to simple operations such as comparisons, additions, and multiplications. Simple operations should not be confused with primitive procedures outlined in Section III, which are higher level functions that may have different asymptotic computational complexities in terms of the number of simple operations that they perform. Note that the objective of this section is not the evaluation of the computational complexity in absolute terms, but to compare the relative complexity of the two algorithms, hence the input of interest is the number of iterations, as opposed to parameters describing the problem instance.
+Let us ﬁrst investigate the computational complexity of the RRT and the RRG algorithms in terms of the number of calls to the primitive procedures. Notice that, in every iteration, the number of calls to Sample, Steer, and Nearest procedures are the same in both algorithms. However, number of calls to Near and ObstacleFree procedures differ: the former is never called by the RRT and is called at most once by the RRG, whereas the latter is called exactly once by the RRT and at least once by the RRG. Informally speaking, we ﬁrst show that the expected number of calls to the ObstacleFree procedure by the RRG algorithm is O(log n), where n is the number of vertices in the graph.
+Let OiRRG be a random variable that denotes the number of calls to the ObstacleFree procedure by the RRG algorithm in iteration i. Notice that, as an immediate corollary of Lemma 3,
+
+the number of vertices in the RRT and RRG algorithms is the same at any given iteration. Let Ni be the number of vertices in these algorithms at the end of iteration i. The following theorem establishes that the expected number of calls to the ObstacleFree procedure in iteration i by the RRG algorithm scales logarithmically with the number of vertices in the graph as i approaches inﬁnity.
+
+Lemma 16 In the limit as i approaches inﬁnity, the random
+
+variable OiRRG/ log(Ni) is no more than a constant in expec-
+
+tation, i.e.,
+
+lim sup E
+i→∞
+
+OiRRG log(Ni)
+
+≤ φ,
+
+where φ ∈ R>0 is a constant that depends only on the problem instance.
+
+Hence, informally speaking, we have established that the RRG algorithm has an overhead of order log n calls to the ObstacleFree procedure and one call to the Near procedure, where n is the number of vertices in the RRG; otherwise, both algorithms scale the same in terms of number of calls to the primitive procedures.
+However, some primitive procedures clearly take more computation time to execute than others. For a more fair comparison, we also evaluate the time required to execute each primitive procedure in terms of the number of simple operations (also called steps in this paper) that they perform. This analysis shows that the expected number of simple operations performed by the RRG is asymptotically within a constant factor of that performed by the RRT, which establishes that the RRT and the RRG algorithms have the same asymptotic computational complexity in terms of number of calls to the simple operations.
+First, notice that Sample, Steer, and ObstacleFree procedures can be performed in a constant number of steps, i.e., independent of the number of vertices in the graph. (Although all these procedures clearly depend on parameters such as the dimensionality of the state-space and the number of obstacles, these are ﬁxed for each problem instance.)
+Second, let us consider the computational complexity of the Nearest procedure. Indeed, the nearest neighbor search problem has been widely studied in the literature, since it has many applications in, e.g., computer graphics, database systems, image processing, data mining, patern recognition, etc. [56], [57]. Let us assume that the distance computation between two points can be done in O(d) time (note that for the purposes of comparing distances, the Euclidean distance can be evaluated without computing any roots). Clearly, a bruteforce algorithm that examines every vertex runs in O(d n) time and requires O(1) space. However, in many online realtime applications such as robotics, it is highly desirable to reduce the computation time of each iteration under sublinear bounds, especially for anytime algorithms, which provide better solutions as the number of iterations increase.
+Fortunately, it is possible to design nearest neighbor computation algorithms that run in sublinear time. Generally, such efﬁcient computations of nearest neighbors are based on constructing a tree structure online so as to reduce the
+
+8
+
+query time [57]. Indeed, using k-d trees, nearest neighbor search can be performed within sublinear time bounds, in the worst case [57]. In fact, let us note that the k-d tree algorithm was extended to arbitrary topological manifolds and used for nearest neighbor computation in RRTs [58].
+Worst case logarithmic time, however, is hard to achieve in many cases of practical interest. Note that when d = 1, a binary tree [59] will allow answering nearest neighbor queries in O(log n) time using O(n) space, in the worst case. When d = 2, similar logarithmic time bounds can also be achieved by, for instance, computing a Voronoi diagram [60]. However, the time complexity of computing Voronoi diagrams is known to be O(n d/2 ) when d > 2. Several algorithms that achieve a worst-case query time that is logarithmic in the number of vertices and polynomial in the number of dimensions were designed (see, e.g., [61]). However, these algorithms use space that is exponential in d, which may be impractical. Unfortunately, no exact nearest neighbor algorithm that does not scale exponentially with the number of dimensions and runs queries in logarithmic time using roughly linear space is known [62].
+Fortunately, computing an “approximate” nearest neighbor instead of an exact one is computationally easier. In the sequel, a vertex y is said to be an ε-approximate nearest neighbor of a point x if y − x ≤ (1 + ε) z − x , where z is the true nearest neighbor of x. An approximate nearest neighbor can be computed using balanced-box decomposition (BBD) trees, which achieves O(cd,ε log n) query time using O(d n) space [62], where cd,ε ≤ d 1 + 6d/ε d. This algorithm is computationally optimal in ﬁxed dimensions, since it closely matches a lower bound for algorithms that use a tree structure stored in roughly linear space [62]. Let us note that using approximate nearest neighbor computation in the context of both PRMs and RRTs was also discussed very recently [63].
+Assuming that the Nearest procedure computes an approximate nearest neighbor using the algorithm given in [62], in ﬁxed dimensions the NearestNeighbor algorithm has to run in Ω(log n) time as formalized in the following lemma. Let MRi RT be the random variable that denotes the number of steps taken by the RRT algorithm in iteration i.
+
+Lemma 17 Assuming that Nearest is implemented using the
+
+algorithm given in [62], which is optimal in ﬁxed dimensions,
+
+the number of steps executed by the RRT algorithm at each
+
+iteration is at least order log(Ni) in expectation in the limit, i.e., there exists a constant φRRT ∈ R>0 such that
+
+lim inf E
+i→∞
+
+MRi RT log(Ni)
+
+≥ φRRT .
+
+Likewise, problems similar to that solved by the Near procedure are also widely-studied in the literature, generally under the name of range search problems, as they have many applications in, for instance, computer graphics and spatial database systems [57]. In the worst case and in ﬁxed dimensions, computing the exact set of vertices that reside in a ball of radius rn centered at a query point x takes O(n1−1/d + m) time using k-d trees [64], where m is the number of vertices returned by the search. In [65], a thorough
+
+analysis of the average case performance is also provided under certain conditions.
+Similar to the nearest neighbor search, computing approximate solutions to the range search problem is computationally easier. A range search algorithm is said to be ε-approximate if it returns all vertices that reside in the ball of size rn and no vertices outside a ball of radius (1 + ε) rn, but may or may not return the vertices that lie outside the former ball and inside the latter ball. Computing ε-appro√ximate solutions using BBD-trees requires O(2d log n + d2(3 d/ε)d−1) time when using O(d n) space, in the worst case [66]. Thus, in ﬁxed dimensions, the complexity of this algorithm is O(log n+ (1/ε)d−1), which is known to be optimal, closely matching a lower bound [66]. More recently, algorithms that can provide trade-offs between time and space were also proposed [67].
+Note that the Near procedure can be implemented as an approximate range search while maintaining the asymptotic optimality guarantee. Notice that the expected number of vertices returned by the Near procedure also does not change, except by a constant factor. Hence, the Near procedure can be implemented to run in order log n expected time in the limit and linear space in ﬁxed dimensions.
+Let MRi RG denote the number of steps performed by the RRG algorithm in iteration i. Then, together with Lemma 16, the discussion above implies the following lemma.
+
+Lemma 18 The number of steps executed by the RRG algo-
+
+rithm at each iteration is at most order log(Ni) in expectation in the limit, i.e., there exists a constant φRRG ∈ R>0 such that
+
+lim sup E
+i→∞
+
+MRi RG log(Ni)
+
+≤ φRRG.
+
+Finally, by Lemmas 17 and 18, we conclude that the RRT and the RRG algorithms have the same asymptotic computational complexity as stated in the following theorem.
+
+Theorem 19 Under the assumptions of Lemmas 17 and 18, there exists a constant φ ∈ R>0 such that
+
+lim sup E
+i→∞
+
+MRi RG MRi RT
+
+≤ φ.
+
+In section VI, we also provide some experimental evidence supporting Theorem 19.
+
+D. On the efﬁcient construction of Probabilistic RoadMaps
+At this point, let us note that our results also imply an efﬁcient PRM planning algorithm. The PRM algorithm samples a set of n vertices from the state-space, and checks connectivity of each pair of samples via the Steer and ObstacleFree procedures to build a graph (called the roadmap) as follows. Any two vertices x1 and x2 are connected by an edge, if the path Steer(x1, x2) that connects these two samples lies within the obstacle-free space4. It is known that this algorithm
+4In practice, some variations of the PRM algorithm attempt to connect every vertex to the vertices that lie within a ﬁxed distance. However, this variation does not change the theoretical properties such as probabilistic completeness or the asymptotic computational complexity.
+
+9
+
+is probabilistically complete and, under certain assumptions,
+
+the probability of failure, if a solution exists, decays to zero ex-
+
+ponentially. However, notice that, from an asymptotic compu-
+
+tational complexity point of view, creating this graph requires O(n2) calls to the Steer and ObstacleFree procedures.
+
+On the contrary, our results imply that in a modiﬁed version
+
+of this algorithm, if each vertex is attempted connection to
+
+vertices
+
+within
+
+a
+
+ball
+
+of
+
+volume
+
+γL
+
+log n
+
+n
+
+,
+
+then,
+
+theoretically
+
+speaking, probabilistic completeness can be achieved, while
+
+incurring O(n log n) expected computational cost. Pursuing
+
+this direction is outside the scope of this work, and is left to
+
+future work.
+
+Algorithm 4: ExtendRRT ∗
+
+1 V ← V ; E ← E;
+
+2 xnearest ← Nearest(G, x);
+
+3 xnew ← Steer(xnearest, x);
+
+4 if ObstacleFree(xnearest, xnew) then
+
+5 V ← V ∪ {xnew};
+
+6
+
+xmin ← xnearest;
+
+7 Xnear ← Near(G, xnew, |V |);
+
+8 for all xnear ∈ Xnear do
+
+9
+
+if ObstacleFree(xnear, xnew) then
+
+10
+
+c ← Cost(xnear) + c(Line(xnear, xnew));
+
+11
+
+if c < Cost(xnew) then
+
+12
+
+xmin ← xnear;
+
+V. A TREE VERSION OF THE RRG ALGORITHM
+Maintaining a tree structure rather than a graph may be advantageous in some applications, due to, for instance, relatively easy extensions to motion planning problems with differential constraints, or to cope with modeling errors. The RRG algorithm can also be slightly modiﬁed to maintain a tree structure, while preserving the asymptotic optimality properties as well the computational efﬁciency. In this section a tree version of the RRG algorithm, called RRT∗, is introduced and analyzed.
+
+13 E ← E ∪ {(xmin, xnew)};
+
+14 for all xnear ∈ Xnear \ {xmin} do
+
+15
+
+if ObstacleFree(xnew, xnear) and
+
+Cost(xnear) >
+
+Cost(xnew) + c(Line(xnew, xnear)) then
+
+16
+
+xparent ← Parent(xnear);
+
+17
+
+E ← E \ {(xparent, xnear)};
+
+E ← E ∪ {(xnew, xnear)};
+
+18 return G = (V , E )
+
+A. The RRT∗ Algorithm
+Given two points x, x ∈ Xfree, recall that Line(x, x ) : [0, s] → Xfree denotes the path deﬁned by σ(τ ) = τ x + (s − τ )x for all τ ∈ [0, s], where s = x − x . Given a tree G = (V, E) and a vertex v ∈ V , let Parent be a function that maps v to the unique vertex v ∈ V such that (v , v) ∈ E.
+The RRT∗ algorithm differs from the RRT and the RRG
+algorithms only in the way that it handles the Extend procedure. The body of the RRT∗ algorithm is presented in Algorithm 1 and the Extend procedure for the RRT∗ is given in Algorithm 4. In the description of the RRT∗ algorithm, the cost of the unique path from xinit to a vertex v ∈ V is denoted by Cost(v). Initially, Cost(xinit) is set to zero.
+Similarly to the RRT and RRG, the RRT∗ algorithm ﬁrst
+extends the nearest neighbor towards the sample (Lines 2-3). However, it connects the new vertex, xnew, to the vertex that incurs the minimum accumulated cost up until xnew and lies within the set Xnear of vertices returned by the Near procedure (Lines 6-13). RRT∗ also extends the new vertex to the vertices in Xnear in order to “rewire” the vertices that can be accessed through xnew with smaller cost (Lines 14-17).
+
+From Lemma 20 and Theorem 6, the following theorem, which
+asserts the probabilistic completeness and the exponential decay of failure probability of the RRT∗ algorithm, is immediate.
+
+Theorem 21 If there exists a feasible solution to Prob-
+
+lem 1, then limi→∞ P ViRRT∗ ∩ Xgoal = ∅ = 1. More-
+
+over, if an attraction sequence A of length k exists, then
+
+P
+
+ViRRT∗ ∩ Xgoal = ∅
+
+≤
+
+e−
+
+1 2
+
+(i
+
+pk
+
+−2
+
+k)
+
+.
+
+C. Asymptotic Optimality
+Let YiRRT∗ be a random variable that denotes the cost of a minimum cost path in the tree maintained by the RRT∗ algorithm, at the end of iteration i. The following theorem ensures the asymptotic optimality of the RRT∗ algorithm.
+
+Theorem 22 Let Assumptions 12, 13, and 14 hold. Then, the cost of the minimum cost path in the RRT∗ converges to c∗ almost surely, i.e., P {limi→∞ YiRRT∗ = c∗} = 1.
+
+B. Convergence to a Feasible Solution
+
+For all i ∈ N, let ViRRT∗ and EiRRT∗ denote the set of
+
+vertices and the set of edges of the graph maintained by the
+
+RRT∗ algorithm, at the end of iteration i. {xinit} and E0RRT∗ (ω) = ∅ for all ω ∈ Ω.
+
+Let
+
+V0RRT∗ (ω)
+
+=
+
+The following lemma is the equivalent of Lemma 3.
+
+Lemma 20 For all i ∈ N and all ω ViRRG(ω), and EiRRT∗ (ω) ⊆ EiRRG(ω).
+
+∈
+
+Ω,
+
+ViRRT∗ (ω)
+
+=
+
+D. Computational Complexity
+Let MRi RT∗ be the number of steps performed by the RRT∗ algorithm in iteration i. The following theorem follows from Lemma 20 and Theorem 19.
+
+Theorem 23 Under the assumptions of Theorem 19, there
+
+exists a constant φ ∈ R>0 such that
+
+lim sup E
+i→∞
+
+MRi RT∗ MRi RT
+
+≤ φ.
+
+10
+
+VI. SIMULATIONS
+This section is devoted to an experimental study of the algorithms. Three different problem instances are considered and the RRT and RRT∗ algorithms are compared with respect to their running time and cost of the solution achieved. Both algorithms were implemented in C and run on a computer with 2.66 GHz processor and 4GB RAM running the Linux operating system.
+We consider three problem instances. In the ﬁrst two, the cost function is the Euclidean path length. The ﬁrst scenario includes no obstacles. Both algorithms are run in a square environment. The trees maintained by the algorithms are shown in Figure 1 at several stages. The ﬁgure illustrates that, in this case, the RRT algorithm does not improve the feasible solution to converge to an optimum solution. On the other hand, running the RRT∗ algorithm further improves the paths in the tree to lower cost ones. The convergence properties of the two algorithms are also investigated in Monte-Carlo runs. Both algorithms were run for 20,000 iterations 500 times and the cost of the best path in the trees were averaged for each iteration. The results are shown in Figure 2, which shows t√hat in the limit the RRT algorithm has cost very close to a 2 factor the optimal solution (see [68] for a similar result in a deterministic setting), whereas the RRT∗ converges to the optimal solution. Moreover, the variance over different RRT runs approaches 2.5, while that of the RRT∗ approaches zero. Hence, almost all RRT∗ runs have the property of convergence to an optimal solution, as expected.
+In the second scenario, both algorithms are run in an environment in presence of obstacles. In Figure 3, the trees maintained by the algorithms are shown after 20,000 iterations. The tree maintained by the RRT∗ algorithm is also shown in Figure 4 in different stages. It can be observed that the RRT∗ ﬁrst rapidly explores the state space just like the RRT. Moreover, as the number of samples increase, the RRT∗ improves its tree to include paths with smaller cost and eventually discovers a path in a different homotopy class, which reduces the cost of reaching the target considerably. Results of a Monte-Carlo study for this scenario is presented in Figure 5. Both algorithms were run alongside up until 20,000 iterations 500 times and cost of the best path in the trees were averaged for each iteration. The ﬁgures illustrate that all runs of the RRT∗ algorithm converges to the optimum, whereas the RRT algorithm is about 1.5 of the optimal solution on average. The high variance in solutions returned by the RRT algorithm stems from the fact that there are two different homotopy classes of paths that reach the goal. If the RRT luckily converges to a path of the homotopy class that contains an optimum solution, then the resulting path is relatively closer to the optimum than it is on average. If, on the other hand, the RRT ﬁrst explores a path of the second homotopy class, which is often the case for this particular scenario, then the solution that RRT converges is generally around twice the optimum.
+Finally, in the third scenario, where no obstacles are present, the cost function is selected to be the line integral of a function, which evaluates to 2 in the high cost region, 1/2 in the low cost region, and 1 everywhere else. The tree maintained by the
+
+RRT∗ algorithm is shown after 20,000 iterations in Figure 6. Notice that the tree either avoids the high cost region or crosses it quickly, and vice-versa for the low-cost region. (Incidentally, this behavior corresponds to the well known Snell-Descartes law for refraction of light, see [69] for a pathplanning application.)
+To compare the running time, both algorithms were run alongside in an environment with no obstacles up until one million iterations. Figure 7, shows the ratio of the running time of RRT∗ and that of RRT versus the number of iterations averaged over 50 runs. As expected from the complexity analysis of Section IV-C, this ratio converges to a constant value. The same ﬁgure is produced for the second scenario and provided in Figure 8.
+
+14 13 12 11 10
+9 0 2000 4000 6000 8000 10000 12000 14000 16000 18000 20000
+(a)
+
+3 2.5
+2 1.5
+1 0.5
+0 0
+
+2000
+
+4000
+
+6000
+
+8000 10000 12000 14000 16000 18000 20000
+(b)
+
+Fig. 2. The cost of the best paths in the RRT (shown in red) and the RRT∗ (shown in blue) plotted against iterations averaged over 500 trials in (a). The optimal cost is shown in black. The variance of the trials is shown in (b).
+
+VII. CONCLUSION
+This paper presented the results of a thorough analysis of the RRT and RRG algorithms for optimal motion planning. It is shown that, as the number of samples increases, the RRT algorithm converges to a sub-optimal solution almost surely. On the other hand, it is proven that the RRG algorithm has the asymptotic optimality property, i.e., almost sure convergence to an optimum solution, which the RRT algorithm lacked. The paper also proposed a novel algorithm called the RRT∗, which inherits the asymptotic optimality property of the RRG, while maintaining a tree structure rather than a graph. The RRG and the RRT∗ were shown to have no signiﬁcant overhead when compared to the RRT algorithm in terms of asymptotic computational complexity. Experimental evidence that demonstrate the effectiveness of the algorithms proposed and support the theoretical claims were also provided.
+The results reported in this paper can be extended in a number of directions, and applied to other sampling-based algorithms other than RRT. First of all, the proposed approach, building on the theory of random graphs to adjust the length
+
+11
+
+10
+
+10
+
+10
+
+10
+
+8
+
+8
+
+8
+
+8
+
+6
+
+6
+
+6
+
+6
+
+4
+
+4
+
+4
+
+4
+
+2
+
+2
+
+2
+
+2
+
+0
+
+0
+
+0
+
+0
+
+−2
+
+−2
+
+−2
+
+−2
+
+−4
+
+−4
+
+−4
+
+−4
+
+−6
+
+−6
+
+−6
+
+−6
+
+−8
+
+−8
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10
+
+−10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+10
+
+10
+
+10
+
+10
+
+8
+
+8
+
+8
+
+8
+
+6
+
+6
+
+6
+
+6
+
+4
+
+4
+
+4
+
+4
+
+2
+
+2
+
+2
+
+2
+
+0
+
+0
+
+0
+
+0
+
+−2
+
+−2
+
+−2
+
+−2
+
+−4
+
+−4
+
+−4
+
+−4
+
+−6
+
+−6
+
+−6
+
+−6
+
+−8
+
+−8
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10
+
+−10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(e)
+
+(f)
+
+(g)
+
+(h)
+
+10
+
+10
+
+8
+
+8
+
+6
+
+6
+
+4
+
+4
+
+2
+
+2
+
+0
+
+0
+
+−2
+
+−2
+
+−4
+
+−4
+
+−6
+
+−6
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(i)
+
+(j)
+
+Fig. 1. A Comparison of the RRT∗ and RRT algorithms on a simulation example with no obstacles. Both algorithms were run with the same sample
+sequence. Consequently, in this case, the vertices of the trees at a given iteration number are the same for both of the algorithms; only the edges differ. The edges formed by the RRT∗ algorithm are shown in (a)-(d) and (j), whereas those formed by the RRT algorithm are shown in (e)-(h) and (i). The tree snapshots
+(a), (e) contain 250 vertices, (b), (f) 500 vertices, (c), (g) 2500 vertices, (d), (h) 10,000 vertices and (i), (j) 20,000 vertices. The goal regions are shown in
+magenta (in upper right). The best paths that reach the target in all the trees are highlighted with red.
+
+of new connections can enhance the computational efﬁciency of PRM-based algorithms. Second, the algorithms and the analysis should be modiﬁed to address motion planning problems in the presence of differential constraints, also known
+
+as kino-dynamic planning problems. A third direction is the optimal planning problem in the presence of temporal/logic constraints on the trajectories, e.g., expressed using formal speciﬁcation languages such as Linear Temporal Logic, or
+
+12
+
+10
+
+10
+
+8
+
+8
+
+6
+
+6
+
+4
+
+4
+
+2
+
+2
+
+0
+
+0
+
+−2
+
+−2
+
+−4
+
+−4
+
+−6
+
+−6
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(a)
+
+(b)
+
+Fig. 3. A Comparison of the RRT (shown in (a)) and RRT∗ (shown in (b)) algorithms on a simulation example with obstacles. Both algorithms were run with the same sample sequence for 20,000 samples. The cost of best path in the RRT and the RRG were 21.02 and 14.51, respectively.
+
+24 22 20 18 16 14 2000
+
+4000
+
+6000
+
+8000
+
+10000
+
+12000
+
+14000
+
+16000
+
+18000
+
+20000
+
+Finally, it is noted that the proposed algorithms may have applications outside of the robotic motion planning domain. In fact, the class of incremental sampling algorithm described in this paper can be readily extended to deal with problems described by partial differential equations, such as the eikonal equation and the Hamilton-Jacobi-Bellman equation.
+
+(a)
+
+15
+
+10
+
+5
+
+0 2000
+
+4000
+
+6000
+
+8000
+
+10000
+
+12000
+
+14000
+
+16000
+
+18000
+
+20000
+
+(b)
+
+ACKNOWLEDGMENTS
+The authors are grateful to Professors M.S. Branicky and G.J. Gordon for their insightful comments on a draft version of this paper. This research was supported in part by the Michigan/AFRL Collaborative Center on Control Sciences, AFOSR grant no. FA 8650-07-2-3744. Any opinions, ﬁndings, and conclusions or recommendations expressed in this publication are those of the authors and do not necessarily reﬂect the views of the supporting organizations.
+
+Fig. 5. An environment cluttered with obstacles is considered. The cost of the best paths in the RRT (shown in red) and the RRT∗ (shown in blue) plotted against iterations averaged over 500 trials in (a). The optimal cost is shown in black. The variance of the trials is shown in (b).
+the µ-calculus. Such constraints correspond to, e.g., rules of the road constraints for autonomous ground vehicles, mission speciﬁcations for autonomous robots, and rules of engagement in military applications. Ultimately, incremental samplingbased algorithms with asymptotic optimality properties may provide the basic elements for the on-line solution of differential games, as those arising when planning in the presence of dynamic obstacles.
+
+REFERENCES
+[1] J. Latombe. Motion planning: A journey of robots, molecules, digital actors, and other artifacts. International Journal of Robotics Research, 18(11):1119–1128, 1999.
+[2] A. Bhatia and E. Frazzoli. Incremental search methods for reachability analysis of continuous and hybrid systems. In R. Alur and G.J. Pappas, editors, Hybrid Systems: Computation and Control, number 2993 in Lecture Notes in Computer Science, pages 142–156. Springer-Verlag, Philadelphia, PA, March 2004.
+[3] M. S. Branicky, M. M. Curtis, J. Levine, and S. Morgan. Samplingbased planning, control, and veriﬁcation of hybrid systems. IEEE Proc. Control Theory and Applications, 153(5):575–590, Sept. 2006.
+[4] J. Cortes, L. Jailet, and T. Simeon. Molecular disassembly with RRTlike algorithms. In IEEE International Conference on Robotics and Automation (ICRA), 2007.
+[5] Y. Liu and N.I. Badler. Real-time reach planning for animated characters using hardware acceleration. In IEEE International Conference on Computer Animation and Social Characters, pages 86–93, 2003.
+
+13
+
+10
+
+10
+
+10
+
+8
+
+8
+
+8
+
+6
+
+6
+
+6
+
+4
+
+4
+
+4
+
+2
+
+2
+
+2
+
+0
+
+0
+
+0
+
+−2
+
+−2
+
+−2
+
+−4
+
+−4
+
+−4
+
+−6
+
+−6
+
+−6
+
+−8
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(a)
+
+(b)
+
+(c)
+
+10
+
+10
+
+10
+
+8
+
+8
+
+8
+
+6
+
+6
+
+6
+
+4
+
+4
+
+4
+
+2
+
+2
+
+2
+
+0
+
+0
+
+0
+
+−2
+
+−2
+
+−2
+
+−4
+
+−4
+
+−4
+
+−6
+
+−6
+
+−6
+
+−8
+
+−8
+
+−8
+
+−10
+
+−10
+
+−10
+
+−10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 −10 −8 −6 −4 −2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+(d)
+
+(e)
+
+(f)
+
+Fig. 4. RRT∗ algorithm shown after 500 (a), 1,500 (b), 2,500 (c), 5,000 (d), 10,000 (e), 15,000 (f) iterations.
+
+[6] P.W. Finn and L.E. Kavraki. Computational approaches to drug design. Algorithmica, 25:347–371, 1999.
+[7] T. Lozano-Perez and M. A. Wesley. An algorithm for planning collisionfree paths among polyhedral obstacles. Communications of the ACM, 22(10):560–570, 1979.
+[8] J. T. Schwartz and M. Sharir. On the ‘piano movers’ problem: II. general techniques for computing topological properties of real algebraic manifolds. Advances in Applied Mathematics, 4:298–351, 1983.
+[9] J.H. Reif. Complexity of the mover’s problem and generalizations. In Proceedings of the IEEE Symposium on Foundations of Computer Science, 1979.
+[10] R. Brooks and T. Lozano-Perez. A subdivision algorithm in conﬁguration space for ﬁndpath with rotation. In International Joint Conference on Artiﬁcial Intelligence, 1983.
+[11] J. Barraquand and J. C. Latombe. Robot motion planning: A distributed representation approach. International Journal of Robotics Research, 10(6):628–649, 1993.
+[12] O. Khatib. Real-time obstacle avoidance for manipulators and mobile robots. International Journal of Robotics Research, 5(1):90–98, 1986.
+[13] J. Canny. The Complexity of Robot Motion Planning. MIT Press, 1988.
+[14] S. S. Ge and Y.J. Cui. Dynamic motion planning for mobile robots using potential ﬁeld method. Autonomous Robots, 13(3):207–222, 2002.
+[15] Y. Koren and J. Borenstein. Potential ﬁeld methods and their inherent limitations for mobile robot navigation. In IEEE Conference on Robotics and Automation, 1991.
+[16] L. Kavraki and J. Latombe. Randomized preprocessing of conﬁguration space for fast path planning. In IEEE International Conference on Robotics and Automation, 1994.
+[17] L.E. Kavraki, P. Svestka, J Latombe, and M.H. Overmars. Probabilistic
+
+roadmaps for path planning in high-dimensional conﬁguration spaces. IEEE Transactions on Robotics and Automation, 12(4):566–580, 1996.
+[18] S. M. LaValle and J. J. Kuffner. Randomized kinodynamic planning. International Journal of Robotics Research, 20(5):378–400, May 2001.
+[19] S. Prentice and N. Roy. The belief roadmap: Efﬁcient planning in blief space by factoring the covariance. International Journal of Robotics Research, 28(11–12):1448–1465, 2009.
+[20] R. Tedrake, I. R. Manchester, M. M. Tobekin, and J. W. Roberts. LQR-trees: Feedback motion planning via sums of squares veriﬁcation. International Journal of Robotics Research (to appear), 2010.
+[21] B. Luders, S. Karaman, E. Frazzoli, and J. P. How. Bounds on tracking error using closed-loop rapidly-exploring random trees. In American Control Conference, 2010.
+[22] D. Berenson, J. Kuffner, and H. Choset. An optimization approach to planning for mobile manipulation. In IEEE International Conference on Robotics and Automation, 2008.
+[23] A. Yershova and S. Lavalle. Motion planning in highly constrained spaces. Technical report, University of Illinois at Urbana-Champaign, 2008.
+[24] M. Stilman, J. Schamburek, J. Kuffner, and T. Asfour. Manipulation planning among movable obstacles. In IEEE International Conference on Robotics and Automation, 2007.
+[25] E. Koyuncu, N.K. Ure, and G. Inalhan. Integration of path/manuever planning in complex environments for agile maneuvering UCAVs. Jounal of Intelligent and Robotic Systems, 57(1–4):143–170, 2010.
+[26] J. Barraquand, L. Kavraki, J. Latombe, T. Li, R. Motwani, and P. Raghavan. A random sampling scheme for path planning. International Journal of Robotics Research, 16:759–774, 1997.
+[27] D. Hsu, J. Latombe, and H. Kurniawati. On the probabilistic foundations
+
+14
+
+10 40
+
+30 8
+20
+
+6
+
+10
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+4 Number of iterations (in millions)
+
+2
+
+Fig. 8. A comparison of the running time of the RRT∗ and the RRT
+
+algorithms in an environment with obstacles. The ratio of the running time of the RRT∗ over that of the RRT up until each iteration is plotted versus the
+0
+number of iterations.
+
+−2
+
+−4
+
+−6
+
+−8
+
+−10
+
+−10
+
+−8
+
+−6
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+Fig. 6. RRT∗ algorithm at the end of iteration 20,000 in an environment with no obstacles. The upper yellow region is the high-cost region, whereas the lower yellow region is low-cost.
+
+40
+
+35
+
+30
+
+25
+
+20
+
+15
+
+10
+
+5
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+Number of iterations (in millions)
+
+Fig. 7. A comparison of the running time of the RRT∗ and the RRT algorithms. The ratio of the running time of the RRT∗ over that of the RRT
+up until each iteration is plotted versus the number of iterations.
+
+of probabilistic roadmap planning. International Journal of Robotics Research, 25:7, 2006. [28] L. E. Kavraki, M. N. Kolountzakis, and J. Latombe. Analysis of probabilistic roadmaps for path planning. IEEE Transactions on Roborics and Automation, 14(1):166–171, 1998. [29] J.J. Kuffner and S.M. LaValle. RRT-connect: An efﬁcient approach to single-quert path planning. In Proceedings of the IEEE International Conference on Robotics and Automation, 2000. [30] S. LaValle. Planning Algorithms. Cambridge University Press, 2006. [31] S.R. Lindemann and S.M. LaValle. Current issues in sampling-based motion planning. In P. Dario and R. Chatila, editors, Eleventh International Symposium on Robotics Research, pages 36–54. Springer, 2005. [32] M. S. Branicky, S. M. LaValle, K. Olson, and L. Yang. Quasirandomized path planning. In IEEE Conference on Robotics and Automation, 2001. [33] A. L. Ladd and L. Kavraki. Measure theoretic analysis of probabilistic path planning. IEEE Transactions on Robotics and Automation, 20(2):229–242, 2004. [34] D. Hsu, R. Kindel, J. Latombe, and S. Rock. Randomized kinodynamic motion planning with moving obstacles. International Journal of Robotics Research, 21(3):233–255, 2002. [35] E. Frazzoli, M. Dahleh, and E. Feron. Real-time motion planning for agile autonomous vehicles. Journal of Guidance, Control, and
+
+Dynamics, 25(1):116–129, 2002. [36] M. S. Branicky, M. M. Curtis, J. A. Levine, and S. B. Morgan. RRTs
+for nonlinear, discrete , and hybrid planning and control. In IEEE Conference on Decision and Control, 2003. [37] M. Zucker, J. Kuffner, and M. Branicky. Multiple RRTs for rapid replanning in dynamic environments. In IEEE Conference on Robotics and Automation, 2007. [38] J. Bruce and M.M. Veloso. Real-Time Randomized Path Planning for Robot Navigation, volume 2752 of Lecture Notes in Computer Science, chapter RoboCup 2002: Robot Soccer World Cup VI, pages 288–295. Springer, 2003. [39] Y. Kuwata, J. Teo, G. Fiore, S. Karaman, E. Frazzoli, and J.P. How. Realtime motion planning with applications to autonomous urban driving. IEEE Transactions on Control Systems, 17(5):1105–1118, 2009. [40] S. Teller, M. R. Walter, M. Antone, A. Correa, R. Davis, L. Fletcher, E. Frazzoli, J. Glass, J.P. How, A. S. Huang, J. Jeon, S. Karaman, B. Luders, N. Roy, and T. Sainath. A voice-commandable robotic forklift working alongside humans in minimally-prepared outdoor environments. In IEEE International Conference on Robotics and Automation, 2010. [41] A. Shkolnik, M. Levashov, I. R. Manchester, and R. Tedrake. Bounding on rough terrain with the LittleDog robot. Under review. [42] J. J. Kuffner, S. Kagami, K. Nishiwaki, M. Inaba, and H. Inoue. Dynamically-stable motion planning for humanoid robots. Autonomous Robots, 15:105–118, 2002. [43] S. Karaman and E. Frazzoli. Sampling-based motion planning with deterministic µ-calculus speciﬁcations. In IEEE Conference on Decision and Control (CDC), 2009. [44] E.M. Clarke, O. Grumberg, and D.A. Peled. Model Checking. Springer, 1999. [45] C. Urmson and R. Simmons. Approaches for heuristically biasing RRT growth. In Proceedings of the IEEE/RSJ International Conference on Robotics and Systems (IROS), 2003. [46] D. Ferguson and A. Stentz. Anytime RRTs. In Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2006. [47] N. A. Wedge and M.S. Branicky. On heavy-tailed runtimes and restarts in rapidly-exploring random trees. In Twenty-third AAAI Conference on Artiﬁcial Intelligence, 2008. [48] M. Likhachev, G. Gordon, and S. Thrun. Anytime A* with provable bounds on sub-optimality. In Advances in Neural Information Processing Systems, 2004. [49] M. Likhachev, D. Ferguson, G. Gordon, A. Stentz, and S. Thrun. Anytime search in dynamic graphs. Artiﬁcial intelligence Journal, 172(14):1613–1643, 2008. [50] D. Stentz. The focussed D* algorithm for real-time replanning. In International Joint Conference on Artiﬁcial Intelligence, 1995. [51] M. Likhachev and D. Ferguson. Planning long dynamically-feasible maneuvers for autonomous vehicles. International Journal of Robotics Research, 28(8):933–945, 2009. [52] D. Dolgov, S. Thrun, M. Montemerlo, and J. Diebel. Experimental Robotics, chapter Path Planning for Autonomous Driving in Unknown Environments, pages 55–64. Springer, 2009. [53] M. Penrose. Random Geometric Graphs. Oxford University Press, 2003. [54] J. Dall and M. Christensen. Random geometric graphs. Physical Review E, 66(1):016121, Jul 2002. [55] S.M. LaValle, M.S. Branicky, and S.R. Lindemann. On the relationship between classical grid search and probabilistic roadmaps. International Journal of Robotics Research, 23(7–8):673–692, 2004.
+
+15
+
+[56] H. Samet. Applications of Spatial Data Structures: Computer Graphics, Image Processesing and Gis. Addison-Wesley, 1989.
+[57] H. Samet. Design and Analysis of Spatial Data Structures. AddisonWesley, 1989.
+[58] A. Atramentov and S. M. LaValle. Efﬁcient nearest neighbor searching for motion planning. In IEEE International Conference on Robotics and Automation, 2002.
+[59] T. H. Cohen, C. E. Leiserson, and R. L. Rivest. Introduction to Algorithms. MIT Press, 1990.
+[60] H. Edelsbrunner. Algorithms in Computational Geometry. SpringerVerlag, 1987.
+[61] K. L. Clarkson. A randomized algorithm for closest-point querries. SIAM Journal of Computation, 17:830–847, 1988.
+[62] S. Arya, D. M. Mount, R. Silverman, and A. Y. Wu. An optimal algorithm for approximate nearest neighbor search in ﬁxed dimensions. Journal of the ACM, 45(6):891–923, November 1999.
+[63] E. Plaku and L. E. Kavraki. Quantitative analysis of nearest-neighbors search in high-dimensional sampling-based motion planning. In Workshop on Algorithmic Foundations of Robotics (WAFR), 2008.
+[64] D. T. Lee and C. K. Wong. Worst-case analysis for region and partial region searches in multidimensional binary search trees and quad trees. Acta Informatica, 9:23–29, 1977.
+[65] P. Chanzy, L. Devroye, and C. Zamora-Cura. Analysis of range search for random k-d trees. Acta Informatica, 37:355–383, 2001.
+[66] S. Arya and D. M. Mount. Approximate range searching. Computational Geometry: Theory and Applications, 17:135–163, 2000.
+[67] S. Arya, T. Malamatos, and D. M. Mount. Space-time tradeoffs for approximate speherical range counting. In Symposium on Discrete Algorithms, 2005.
+[68] S. LaValle and J. Kuffner. Space ﬁlling trees. Technical Report CMURI-TR-09-47, Carnegie Mellon University, The Robotics Institute, 2009.
+[69] N.C. Rowe and R.S. Alexander. Finding optimal-path maps for path planning across weighted regions. The International Journal of Robotics Research, 19:83–95, 2000.
+[70] H. A. David and H. N. Nagaraja. Order Statistics. Wiley, 2003. [71] G. Grimmett and D. Stirzaker. Probability and Random Processes.
+Oxford University Press, Third edition, 2001. [72] M. Mitzenmacher and E. Upfal. Probability and Computing: Random-
+ized Algorithms and Probabilistic Analysis. Cambridge University Press, 2005. [73] S. Muthukrishnan and G. Pandurangan. The bin-covering technique for thresholding random geometric graph properties. In Proceedings of the sixteenth annual ACM-SIAM symposium on discrete algorithms, 2005.
+
+direcly implies a necessary condition for asymptotic optimality: with probability one, the initial state, xinit, must be chosen for extension inﬁnitely often.
+
+Lemma 25 The following inequality holds:
+
+P
+
+lim
+i→∞
+
+YiRRT
+
+=
+
+c∗
+
+≤ P lim sup Ci .
+i→∞
+
+Proof: Denote by ψ(x) a minimum-cost path starting
+from a given state x ∈ Xfree and reaching one of the states in the goal region5, and deﬁne a sequence {ci}i∈N of random variables as follows:
+
+ci = min Cost(Line(xinit, x) | ψ(x))
+x ∈ ViRRT, (xinit, x) ∈ EiRRT .
+Essentially, ci denotes the minimum cost that is incurred by following the line segment that connects xinit to one of its children and following an optimal path afterwards. Notice that ci is strictly greater than the optimal cost c∗ for all i ∈ N, unless the root node, xinit, has a child node that is a part of an optimal path.
+Recall, from the proof of Lemma 24, that B denotes the event ∪i∈N{YiRRT = c∗}. Let Ai denote the event that ci decreases at iteration i, i.e., Ai = {ci < ci−1}. First, notice that, conditioning on the event Bc, we have that the convergence
+of the cost of the best path in the RRT to the optimum cost (i.e., the event {limi→∞ YiRRT = c∗}) implies that ci must decrease inﬁnitely often, i.e., Ai must hold inﬁnitely often. More precisely, we have that {limi→∞ YiRRT = c∗} ∩ Bc ⊆ lim supi→∞ Ai.
+Noting that P(Bc) = 1 (by Lemma 24), it follows that
+
+P
+
+lim
+i→∞
+
+YiRRT
+
+=
+
+c∗
+
+=P
+
+lim
+i→∞
+
+YiRRT
+
+=
+
+c∗
+
+∩ Bc
+
+APPENDIX
+Proof of Theorem 10 Since the feasibility problem is assumed to admit a solution,
+the cost of the optimal path, c∗, is a ﬁnite real number. First, consider the following technical lemma.
+Lemma 24 The probability that the RRT constructs an optimal path at a ﬁnite iteration i ∈ N is zero, i.e.,
+
+≤ P lim sup Ai .
+i→∞
+Notice that, by Assumption 9, for Ai to occur inﬁnitely often, Ci must also occur inﬁnitely often, i.e., lim supi→∞ Ai ⊆ lim supi→∞ Ci. Thus, P(lim supi→∞)Ai ≤ P(lim supi→∞ Ci), which implies the lemma.
+To prove the theorem, it is shown that RRT fails to satisfy this necessary condition:
+
+P ∪i∈N{YiRRT = c∗} = 0.
+
+Proof: Let Bi denote the event the RRT has a path that has cost exactly equal to c∗ at the end of iteration i,
+
+i.e., Bi = {YiRRT = c∗}. Let B denote the event that the RRT ﬁnds a path that costs exactly c∗ at some ﬁnite iteration
+
+i. Then, B can be written as B = ∪i∈NBi. Notice that Bi ⊆ Bi+1; thus, we have that limi→∞ P(Bi) = P(B), by
+
+monotonocity of measures. Notice also that by Assumptions 7
+
+and 8, P(Bi) = 0 for all i ∈ N, since the probability that
+
+the set
+
+i j
+
+=1
+
+{Sample(j
+
+)}
+
+of
+
+points
+
+contains
+
+a
+
+point
+
+from
+
+a
+
+zero-measure set is zero. Hence, P(B) = 0.
+
+Let Ci denote the event that xinit is chosen to be extended
+
+by the Nearest procedure at iteration i. The following lemma
+
+Lemma 26 The probability that the RRT algorithm extends its root node inﬁnitely many times is zero, i.e.,
+P lim sup Ci = 0.
+i→∞
+Proof: Let {C1, C2, . . . , CK } be a ﬁnite set of cones, such that (i) each cone is centered at xinit and has aperture at most π/3, and (ii) collectively the cones cover the ball of radius η around xinit. Deﬁned for all k ∈ {1, 2, . . . , K} and all j ∈ N, let Dk,j be the event that a node from inside cone Ck is connected to xinit for the jth time. Clearly, for
+5If there is no such path, then let Λ be a symbol for “unfeasible path,” and set ψ(x) = Λ, with Cost(Λ) = +∞.
+
+16
+
+Ci to occur inﬁnitely often, Dk,j must occur for inﬁnitely many j, for at least one k. More formally, lim supi→∞ Ci ⊆ ∪Kk=1 lim supj→∞ Dk,j , and that
+
+P(lim sup Ci) ≤ P(∪Kk=1 lim sup Dk,j)
+
+i→∞
+
+j→∞
+
+K
+
+≤
+
+P(lim sup Dk,j).
+
+k=1
+
+j→∞
+
+The next step is to show that P(lim supj→∞ Dk,j) = 0 holds for all k ∈ {1, 2, . . . , K}, which implies the lemma. Let
+k be any index from {1, 2, . . . , K}. Let Vk,j denote the set of vertices inside cone Ck right after the connection of jth node to xinit from inside the cone Ck. Let rmin,k,j be the distance of the node that is inside Vk,j and has minimum distance to xinit among all the vertices in Vk,j, i.e.,
+
+rmin,k,j = min v − xinit .
+v∈Vk,j
+This distance is a random variable for ﬁxed values of k and j. Let frmin,k,j denote its probability density function. Also, given two points x, y ∈ X, let Dx,y denote the set of all points in X that are closer to y than they are to x, i.e.,
+
+Dx,y = z ∈ X x − z > y − z .
+
+For any j ∈ N>0, conditioning on rmin,k,j = z, the probability that a node from Ck is connected to xinit for the jth time is upper bounded by the measure of the region
+Ck \ Dxinit,y, where y is any point with distance z to xinit (see Figure 9). Hence, P(Dk,j | rmin,k,j = z) ≤ αµ(Ck \ Dxinit,y) for some contant α ∈ R>0 by Assumption 8. Furthermore, since Ck has aperture at most π/3, the region Ck \ Dxinit,y is included within the ball of radius z centered at xinit (also illustrated in Figure 9). Hence,
+
+P(Dk,j ) = ≤ ≤
+
+∞
+P(Dk,j | rmin,k,j = z)frmin,k,j (z)dz
+z=0 ∞
+α µ(Ck \ D )f xinit,y rmin,k,j (z)dz
+z=0 ∞
+α µ(Bxinit,z )frmin,k,j (z)dz.
+z=0
+
+Note that µ(Bxinit,z) ≤ ζdzd, where d is, recall, the dimensionality of the smallest Euclidean space containing X, and
+ζd is the volume of the unit ball in this space. Hence,
+
+∞
+
+P(Dk,j ) ≤ α ζd
+
+zdfrmin,k,j (z)dz = α ζd E[(rmin,k,j )d],
+
+z=0
+
+where the last equality follows merely by the deﬁnition of
+
+expectation. By the order statistics of the minimum distance,
+
+we
+
+have
+
+that
+
+E[(rmin,k,j )d]
+
+evaluates
+
+to
+
+β jd
+
+for
+
+some
+
+constant
+
+β ∈ R>0, under Assumption 8 (see, e.g., [70]). Hence, we
+
+have that, for all k,
+
+∞ j=1
+
+P(Dk,j )
+
+<
+
+∞,
+
+since
+
+d
+
+≥
+
+2.
+
+Then,
+
+by the Borel-Cantelli Lemma [71], one can conclude that the
+
+probability that Dk,j occurs for inﬁnitely many j is zero, i.e.,
+
+P(lim supj→∞ Dk,j) = 0, which implies the claim.
+
+The theorem is immediate from Lemmas 25 and 26.
+
+Fig. 9. Illustration of intersection of Ck (shaded in blue) of aperture ψ at
+least π/3 with the region Dxinit,y. The ball Bxinit,z of radius z that includes Ck \ Dxinit,y is also shown with dotted lines in the ﬁgure.
+
+Proof of Theorem 15
+
+In order to prove will be shown that
+
+th∞ ia=t0YPiR(RYGiRRcoGnv>ercg∗e+s tεo)
+
+c∗ is
+
+almost surely, it ﬁnite for all ε >
+
+0 (see, for instance, [71] for justiﬁcation of this implication).
+
+Recall that the volume of the unit ball in d dimensions is
+
+denoted by ζd. Recall also that ri denotes the radius of the
+
+ball
+
+with
+
+volume
+
+γ
+
+log i
+
+i
+
+used
+
+in
+
+the
+
+Near
+
+procedure
+
+and
+
+that
+
+1/d
+
+we have ri =
+
+γ log i ζd i
+
+. Let σ∗ : [0, s∗] → cl(Xfree) be an
+
+optimal path with length s∗. Recall that i denotes the iteration
+
+number (see Algorithm 1). The proof is ﬁrst outlined in the
+
+following section, and then described in detail.
+
+Outline of the proof: First, construct a sequence {Xi}i∈N of subsets of Xfree such that (i) the sequence is monotonically non-decreasing in the partial subset ordering, i.e., Xi ⊆ Xi+1 for all i ∈ N, (ii) for all large enough i ∈ N, any point in
+
+Xi is at least a certain fraction of ri away from obstacles, i.e., x − y ≥ λi for all x ∈ Xi and all y ∈ Xobs, where λi = αri for some constant α (see Figures 10(a) and 10(b)), in particular, the set Xi is included in Xfree, and (iii) the sequence converges to Xfree in the sense that ∪i∈NXi = Xfree.
+Second, construct a sequence {σi}i∈N of paths such that (i) for all i ∈ N, the path σi lies completely inside Xi, and (ii) the sequence of paths converges to the optimal path σ∗, i.e., limi→∞ σi − σ∗ = 0. This can be done by dividing σ∗ into
+segments and constructing an approximation to any segment
+
+that lies outside Xi (see Figure 10(c)). Note that, since for all large enough i, any point in Xi is at least a certain fraction of ri away from the obstacles, in particular, any point on the path σi is at least a certain fraction of ri away from the obstacles, for all such i ∈ N.
+
+Third, for any i ∈ N, construct a set Bi of overlapping balls, each with radius qi and centered at a point on the path σi, such that the balls in Bi collectively “cover” the path σi (see Figure 10(d)). Moreover, the radius qi is chosen in such a way that for all large enough i, we have that qi is less than ri. Hence, for all such large enough i, all the balls in Bi completely lie inside the obstacle-free region.
+
+Finally, compute the probability of the event that at least
+
+one ball in Bi contains no node of the RRG in iteration i; this event is denoted by Ai. Subsequently, one can show that Ai can not occur inﬁnitely often as i approaches inﬁnity, which implies that its complement, Aci , must occur inﬁnitely often
+
+17
+
+...
+
+(with probability one). That is, one can conclude that the RRG will include a node in each ball in the set Bi of balls for inﬁnitely many i’s, with probability one. Joining the vertices in subsequent balls in Bi, one can generate a path, whose cost is shown to be close to c∗. Moreover, as i approaches inﬁnity, the costs of such paths converge c∗. Appropriately chosing qi guarantees that the RRG algorithm joins the points in subsequent balls by an edge, i.e., the path is included in the RRG. Hence, the result follows.
+The assumptions on the cost function are mostly used to make the convergence arguments possible. The assumptions on the obstacles (i.e., environment), on the other hand, are primarily used for ensuring that the paths in the sequence {σi}i∈N are collision-free.
+The proof technique is based on the bin-covering technique [72], which is widely used for analyzing almost-sure properties of random geometric graphs (see, e.g., [73]). Similar methods were also used for analyzing PRMs (see [33] and the references therein).
+
+(a)
+
+(b)
+
+(c)
+
+Denote the boundary of Xi by ∂Xi. The precise value of the constant θ1 will become clear shortly.
+Construction of the sequence {σi}i∈N: Assume, without loss of any generality, that the beginning and the end of the optimal path σ∗ are at least δ away from the obstacles, i.e., for τ ∈ {0, s∗}, it is the case that σ∗(τ ) − x ≥ δ for all
+x ∈ Xobs. Construct a sequence {σi}i∈N of paths, where σi : [0, si] →
+Xi, as follows (see Figure 10(c) for an illustration). First, break up the optimal path σ∗ into a minimum number of
+segments such that each segment completely lies either inside
+Xi or inside cl(Xfree)\Xi. For this purpose, deﬁne a sequence {τ0, τ1, . . . , τm+1} of scalars as follows:
+• τ0 = 0 and τm+1 = s∗, • for all j ∈ {1, 2, . . . , m}, τj ∈ ∂Xi, and • for all {0, 1, . . . , m}, either σ∗(τ ) ∈ Xi for all τ ∈
+(τj, τj+1) or σ∗(τ ) ∈/ Xi for all τ ∈ (τj, τj+1).
+Second, for each segment of σ∗ deﬁned by its end points σ∗(τj) and σ∗(τj+1), construct a path that lies in Xi and agrees with this segment of σ∗ in its endpoints. More precisely,
+deﬁne a set {ρ0, ρ1, . . . , ρm} of paths as follows: (i) if σ∗(τ ) ∈ Xi for τ ∈ (τj, τj+1), then let ρj be the jth segment of σ∗, i.e., ρj(τ − τj) = σ∗(τ ) for all τ ∈ [τj, τj+1], (ii) if, on the other hand, σ∗(τ ) ∈/ Xi for all τ ∈ (τj, τj+1), then let ρi be a minimum-cost continuous path in Xi starting from σ∗(τj) and ending in σ∗(τj+1). Such a path always exists by the construction of Xi and Assumption 14. Finally, deﬁne σi as the concatenation of path segments ρ1, ρ2, . . . , ρm, i.e., deﬁne σi := ρ0|ρ1| . . . |ρm.
+Two important properties of the sequence of paths {σi}i∈N follow. First, each path σi is at least λi away from the obstacles. More precisely σi(τ ) − x ≥ λi for all i ∈ N, τ ∈ [0, si], and x ∈ Xobs. This claim follows from Assumption 14 and the fact that λi ≤ δ for all i. The second property, regarding the costs of the paths in {σi}i∈N, is stated in the following lemma:
+
+Lemma 27 Under Assumptions 12 and 13, limi→∞ c(σi) = c(σ∗) holds.
+
+(d)
+
+(e)
+
+Fig. 10. A region with obstacles is illustrated in Figure 10(a). An optimal path is also shown and denoted as σ∗. In Figure 10(b), the region that lies outside
+the light orange shaded shaded area (enclosed by the dotted lines) illustrates
+the set Xi. Notice that the dotted lines, hence all the points in the set Xi, have distance at least λi to any point in the obstacle region. In Figure 10(c), the optimal path is divided into parts and the segments ρ1, ρ2, . . . , ρ5 are constructed so that ρ1, ρ3, and ρ5 (solid lines) lie inside Xi, whereas ρ2 and ρ4 (dotted lines) lie inside Xfree \ Xi. Note that these path segments together make up the path σi, i.e., σi = ρ1|ρ2| . . . |ρ5. In Figure 10(d), the tiling of σi with overlapping balls in Bi are illustrated. Finally, in Figure 10(e), this tiling is shown in detail.
+
+Construction of the sequence {Xi}i∈N: Let θ1 ∈ (0, 1) be a
+
+constant. First, deﬁne a sequence {λi}i∈N of real numbers as
+
+λi = min
+
+δ,
+
+1+θ1 2+θ1
+
+ri
+
+, where δ is given by Assumption 14.
+
+Construct a sequence {Xi}i∈N of subsets of Xfree as follows
+
+(see Figure 10(b)):
+
+Xi := Xfree \ {x ∈ Xfree|∃x ∈ Xobs. x − x < λi}.
+
+Proof: First, for all i ∈ N, σi is continuous by construc-
+tion. Second, note that Xi ⊆ Xi+1 for all i ∈ N, and that ∪i∈NXi = Xfree. Let mi be the number of segments of σ∗ that lie in Xfree \ Xi. By Assumption 13, the cost of each
+such segment is bounded by κ λi. Then, by Assumption 12, |c(σi) − c(σ∗)| ≤ miκλi. Finally, since mi is a monotonically
+non-increasing function of i, and λi converges to zero as i
+
+approaches inﬁnity, the lemma follows.
+
+Construction of the sequence {Bi}i∈N of sets of balls: Next, for each i ∈ N, construct a set Bi of equal-radius overlapping balls that collectively “cover” the path σi.
+Recall the constant θ1 ∈ (0, 1), introduced above. The
+
+amount of overlap between two consecutive balls will be
+
+parametrized by this constant θ1. Denote the radius of each
+
+ball
+
+in
+
+Bi
+
+by
+
+qi,
+
+which
+
+we
+
+deﬁne
+
+as
+
+qi
+
+:=
+
+λi (1+θ1 )
+
+for
+
+reasons
+
+to become clear shortly.
+
+Construct the set Bi = {Bi,1, Bi,2, . . . , Bi,Ki+1} of balls recursively as follows (see Figures 10(d) and 10(e)):
+
+18
+
+• Let Bi,1 be centered at σi(0). • For all k > 1, let Bi,k centered at σi(τ ), where τ is such
+that the centers of Bi,k and Bi,k−1 are exactly θ1 qi apart from each other. • Let Ki be the number of balls that can possibly be generated in this manner and, ﬁnally, let Bi,Ki+1 be the ball centered at σi(si).
+Now, consider paths that can be constructed by connecting points from balls in Bi in a certain way. More precisely, for all k ∈ {1, 2, . . . , Ki + 1}, let xk be a point from the ball Bi,k. Consider a path σi that is constructed by joining the line segments connecting two consecutive points in {x1, x2, . . . , xKi+1}, i.e., σi = Line(x1, x2)|Line(x2, x3)| . . . |Line(xKi , xKi+1). With an abuse of notation, let Σi denote the set of all such paths.
+First, notice that, by the choice of the radius qi of the balls in Bi, any path σi ∈ Σi is collision-free.
+Lemma 28 Let Assumption 14 hold. For any path σi ∈ Σi, where σi : [0, si] → X, σi(τ ) ∈ Xfree for all τ ∈ [0, si].
+Proof: Let {x1, x2, . . . , xKi+1} be the set of points that forms σi = Line(x1, x2)| . . . |Line(xKi , xKi+1). It will be shown that each segment Line(xk, xk+1) is obstacle-free, i.e., lies in Xfree, which implies the lemma. Let yk denote the center of the ball Bi,k. Note that xk and yk have distance at most qi. Similarly, noting that xk+1 has distance at most qi to yk+1 and that yk and yk+1 are at most θ1 qi apart from each other, one can conclude that xk+1 has distance at most (1 + θ1)qi to yk. Indeed, yk has distance at most (1 + θ1) qi = λi to any point in the convex combination [xk, xk+1]. Finally, recall that, as a consequence of Assumption 14, any point with distance at most λi from yk lies in Xfree, which completes the proof.
+Second, notice that the cost of σi is “close” to that of σi. Indeed, the following lemma holds.
+
+Lemma 29 Let Assumptions 12 and 13 hold. Let {σi}i∈N be any sequence of paths such that σi ∈ Σi for all i ∈ N, then limi→∞ |c(σi) − c(σ∗)| = 0.
+Proof: The distance between a path σi ∈ Σi and the path σi approaches zero as i approaches inﬁnity. Moreover, by Assumptions 12 and 13, |c(σi) − c(σi)| converges to zero. Hence, the result follows from Lemma 27.
+Let us deﬁne εi = supσi∈Σi |c(σi) − c∗|. Hence, Lemma 29 establishes that limi→∞ εi = 0.
+Third, according to our choice of qi, any path in Σi is “constructable” by the RRG in the following sense.
+
+Lemma 30 For all i ∈ N and for all k ∈ {1, 2, . . . , Ki}, xk+1 − xk ≤ ri, where xk ∈ Bi,k.
+
+Proof: Recall that the radius of each ball in Bi is
+
+qi
+
+=
+
+λi (1+θ1
+
+)
+
+.
+
+Given
+
+any
+
+two
+
+points
+
+xk
+
+and
+
+xk+1,
+
+both
+
+xk
+
+and xk+1 have distances at most qi to the centers of the balls
+
+Bi,k and Bi,k+1, respectively. Note also that the centers of
+
+these balls have distance at most θ1 qi to each other. Using
+
+the triangle inequality together with the deﬁnitions of λi and
+
+qi, one obtains
+
+xk+1 − xk
+
+≤
+
+(2 + θ1)qi
+
+=
+
+2+θ1 1+θ1
+
+λi
+
+≤
+
+ri.
+
+Intuitively, Lemma 30 establishes that if each ball in Bi
+
+contains at least one node of the RRG by the end of iteration
+
+i, then the RRG algorithm will indeed connect these vertices
+
+with edges and construct a path σi from Σi. The probability that a path from Σi is constructed: Let Ai,k
+be the event that the RRG has no node inside the ball Bi,k
+
+at the end of iteration i. Moreover, let Ai be the event that at
+
+least one of the balls in Bi contains no node of the RRG at
+
+the end of iteration i, i.e., Ai =
+
+Ki +1 k=1
+
+Ai,k .
+
+It is appropriate to explain how the main result of this
+
+theorem is related to the sequence {Ai}i∈N of events. Recall that εi was deﬁned as εi = supσi∈Σi |c(σi)−c∗| and that it was already established that εi converges to zero as i approaches
+
+inﬁnity. Hence, given any ε, one can ﬁnd a number i1 ∈ N
+
+such that for all i ≥ i1, εi < ε. Recall also that ri converges to
+
+zero as i approaches inﬁnity. Hence, there exists some i2 ∈ N
+
+such that ri ≤ δ for all i ≥ i2. Let i0 = max{i1, i2} and note
+
+the following upper bound:
+
+∞
+
+P YiRRG > c∗ + ε
+
+i=0
+
+i0 −1
+
+∞
+
+=
+
+P YiRRG > c∗ + ε +
+
+P YiRRG > c∗ + ε
+
+i=0 ∞
+
+i=i0 ∞
+
+≤ i0 + P YiRRG > c∗ + εi ≤ i0 + P(Ai).
+
+i=i0
+
+i=i0
+
+To complete the proof, it will be established that
+
+∞ i=0
+
+P(Ai)
+
+<
+
+∞,
+
+which
+
+implies
+
+that
+
+∞ i=0
+
+P({YiRRG
+
+>
+
+c∗ + ε}) ≤ ∞ for all ε > 0, which in turn implies the result.
+
+To formally show this claim, deﬁne the following sequence
+
+of events. For all i ∈ N, let Ci be the event that for any point x ∈ Xfree the RRG algorithm includes a node v such that x − v ≤ η and that the line segment Line(x, v) joining v
+
+and x is obstacle-free. Under the assumptions of Theorem 6,
+
+the following lemma holds:
+
+Lemma 31 Let the assumptions of Theorem 6 and Assumption 14 hold, then there exist constants a, b ∈ R>0 such that P(Cic) ≤ ae−bi for all i ∈ N.
+Proof: The set Xfree can be partitioned into ﬁnitely many convex sets such that each partition is bounded by a ball of radius η, since Xfree is a bounded subset of Rd. Since, by Theorem 6, the probability that each such ball does not include a node of the RRG decays to zero exponentially as i approaches inﬁnity, the probability that at least one such ball does not contain a node of the RRG also decays to zero exponentially (this follows from the union bound). Moreover, if each partition contains a node of the RRG, then any point inside the partition can be connected to the associated node of the RRG with an obstacle-free line segment of length less than η, since each partition is convex and is bounded by a ball of radius η.
+The following lemma constitutes another important step in proving the main result of this theorem.
+
+19
+
+Lemma 32 Let γ > 2d(1 + 1/d)µ(Xfree), and θ2 ∈ (0, 1) be
+
+a constant. Then,
+
+∞
+i=1 P
+
+Ai
+
+i j= θ2 i
+
+Cj
+
+< ∞.
+
+Proof: It is desired to compute P(Ai | ∩ij= θ2 i Cj) under the theorem’s assumptions. Since ∩ij= θ2 i Cj is given, it can be assumed that, from iteration θ2 i to iteration i, the RRG has the following coverage property: for every point x ∈ Xfree, the RRG includes a node v that is at most η away from x and
+the line segment between x and v lies in the obstacle-free
+region.
+Recall that the length of σi was si. A bound on the number of balls in Bi with respect to i, si, and other constants of the problem can be derived as follows. Note that the segment of σi that starts at the center of Bi,k and ends at the center of Bi,k+1 has length at least θ1 qi (recall that distance between the centers of two consequtive balls in Bi is θ1qi by construction), except for the last segment, which has length less than θ1qi. Thus, for all i ≥ i2,
+
+|Bi| = Ki + 1
+
+≤
+
+si = (2 + θ1)si
+
+θ1 qi
+
+θ1ri
+
+=
+
+2
+
++ θ1 θ1
+
+si
+
+γ 1/d ζd
+
+i 1/d log i
+
+Also, given ∩ij= θ2 i Cj, the probability that a single ball, say Bi,1, does not contain a node of the RRG at the end of iteration i can be upper-bounded as follows:
+
+P(Ai,1 | ∩ij= θ2 i Cj ) =
+
+≤
+
+1 − µ(Bi,1) i−θ2 i
+
+µ(Xfree)
+
+γ
+
+log i
+
+1 − (2 + θ1)dµ(Xfree) i
+
+(1−θ2) i
+
+Proof: Note the following inequalities:
+
+∞
+P
+i=1
+
+∞
+
+(∩ij= θ2 i Cj )c
+
+=
+
+P ∪ij= θ2 i Cjc
+
+i=1
+
+∞i
+
+∞i
+
+≤
+
+P(Cjc), ≤
+
+a e−b j ,
+
+i=1 j= θ2 i
+
+i=1 j= θ2 i
+
+in which the right-hand side is ﬁnite for all θ2 ∈ (0, 1), and where the second inequality follows from Lemma 31.
+Finally, the relationship of Lemmas 32 and 33 to the main result can be pointed out. Note the following inequality:
+
+P(Ai | ∩ij= θ2 i
+
+P Cj) =
+
+Ai ∩ (∩ij= θ2 i Cj ) P(∩ij= θ2 i Cj )
+
+≥ P Ai ∩ (∩ij= θ2 i Cj )
+
+= 1 − P Aci ∪ (∩ij= θ2 i Cj )c
+
+≥ 1 − P(Aci ) − P (∩ij= θ2 i Cj )c
+
+= P(Ai) − P (∩ij= θ2 i Cj )c .
+
+Hence, taking inﬁnite sums of both sides with respect to n and rearranging, the following inequality is established:
+
+∞
+
+∞
+
+∞
+
+P(Ai) ≤
+
+P(Ai | ∩ij= θ2 i Cj ) +
+
+P (∩ij= θ2 i Cj )c
+
+i=1
+
+i=1
+
+i=1
+
+By Lemmas 32 and 33, the right-hand side is ﬁnite, whenever
+
+γ > 2d(1 + 1/d)µ(Xfree), which implies that, under the same
+
+conditions,
+
+∞ i=1
+
+P(Ai)
+
+<
+
+∞,
+
+which
+
+in
+
+turn
+
+implies
+
+the
+
+result.
+
+Using the fact that (1 − 1/f (i))r ≤ e−r/f(i), the right-hand Proof of Lemma 16
+
+side can further be bounded to obtain the following inequality: The proof of this lemma employs results from the Random
+
+P(Ai,1 | ∩ii= θ2 i
+
+Cj )
+
+≤
+
+e−
+
+(1−θ2 )γ (2+θ1 )d µ(Xfree
+
+)
+
+log i
+
+=
+
+i−
+
+(1−θ2 )γ (2+θ1)d µ(Xfree
+
+)
+
+Geometric Graph (RGG) theory (see, e.g., [53]). First, some of the relevant results in the theory of RGGs will be introduced,
+
+and then the proof of this lemma will be given.
+
+As a result of the discussion above, we have that
+
+An RGG G(Vn, rn) = (Vn, En) in Xfree with n vertices
+
+P Ai ∩ij= θ2 i Cj
+
+≤ P ∪|iB=i1|Ai,k ∩ij= θ2 i Cj
+
+is formed as follows: (i) Vn is a set of n vertices that are sampled identically and independently from Xfree according
+
+|Bi |
+
+≤
+
+P Ai ∩ij= θ2 i Cj = |Bi| P Ai,1 ∩ij= θ2 i Cj
+
+i=1
+
+≤ 2 si µ(Xfree)1/d γ 1/d
+
+i log i
+
+i 1/d
+
+−
+
+(1−θ2 )γ (2+θ1)d µ(Xfree
+
+)
+
+to a distribution with a continuous density function f (x), (ii) two vertices v, v ∈ Vn are connected with an edge if and only if the distance between them is less than rn, i.e., v−v ≤ rn.
+The following lemma is a special case of Proposition 3.1 in [53].
+
+= 2 si µ(Xfree)1/d
+
+1
+
+i . −
+
+(1−θ2 )γ µ(Xfree )(2+θ1)d
+
+−
+
+1 d
+
+γ 1/d
+
+(log i)1/d
+
+Note that
+
+∞ i=1
+
+P(Ai
+
+|
+
+∩ij=
+
+θ2 i
+
+Cj) < ∞, for all choices
+
+of
+
+γ
+
+such
+
+that
+
+(1−θ2 )γ µ(Xfree )(2+θ1 )d
+
+−
+
+1 d
+
+≥
+
+1
+
+holds,
+
+i.e.,
+
+whenever
+
+γ > 2d(1 + 1/d)µ(Xfree), noting that for any such choice
+
+of γ, there exists θ1 > 0 and θ2 > 0 satisfying the former
+
+inequality. Hence, the lemma follows.
+
+Lemma 33 Let θ2 ∈ (0, 1) be a constant. Then,
+
+∞
+i=1 P
+
+∩ij= θ2 i Cj c < ∞.
+
+Lemma 34 (see [53]) If rn satisﬁes limn→∞ rn = 0, then
+
+lim
+n→∞
+
+E[|En|] n2 (rn)d
+
+=
+
+1 2
+
+ζd
+
+f (x)2 dx.
+x∈Rd
+
+Note that, if f (x) is the uniform density function, then
+
+x∈Rd
+Let
+
+f (x)2 dx = 1/µ(Xfree). Vn◦ denote the number of
+
+vertices
+
+that
+
+are
+
+isolated,
+
+i.e.,
+
+those that do not have any neighbors. The following lemma
+
+characterizes the “density” of the isolated vertices in the limit.
+
+20
+
+Lemma
+
+35
+
+If
+
+ζd(rn)d
+
+=
+
+γ
+
+log n
+
+n
+
+for
+
+some
+
+γ
+
+∈
+
+R>0,
+
+then
+
+the
+
+number of isolated vertices, |Vn◦|, satisﬁes the following:
+
+E[|Vn◦|] ≤
+
+log n 1−γ
+
+n−1
+.
+
+n
+
+n
+
+Thus,
+
+limn→∞
+
+E[|Vn◦ |] n
+
+=
+
+0;
+
+moreover,
+
+whenever γ > 1.
+
+∞ E[|Vn◦|] n=1 n
+
+is
+
+ﬁnite
+
+Proof: Reference [53] does not consider the case when n(rn)d → ∞ as n → ∞. However, following the reasoning in the proof for the case when n(rn)d → ρ ∈ R>0 (see the proof of Proposition 3.3 in [53]), it is possible construct a proof for
+this lemma. Let us sketch this proof.
+Following [53] (note that the the notation in [53] is slightly
+different from that in this paper), and after appropriate sim-
+pliﬁcations, one gets
+
+E[Vn◦] = n
+
+(1 − In(x))n−1 f (x)dx,
+x∈Xfree
+
+where f (x) is the density function, which is uniform
+
+over Xfree in the case under consideration, and In(x) =
+
+x ∈Bx,rn x dx ,
+
+which
+
+evaluates
+
+to
+
+In
+
+=
+
+γ
+
+logn n
+
+whenever
+
+(rn)d
+
+=
+
+γ
+
+log n
+
+(the
+
+reader
+
+is
+
+referred
+
+to
+
+[53]
+
+for
+
+details).
+
+Hence,
+
+E[Vn◦] = n =
+
+log n
+
+1−γ
+
+x∈Xfree
+
+n
+
+log n n−1
+
+1−γ
+
+,
+
+n
+
+n−1
+
+1
+
+dx
+
+µ(Xfree)
+
+which converges to zero as n approaches inﬁnity. Moreover,
+
+the sum of these terms is ﬁnite whenever γ > 1.
+
+Consider the random geometric graph with the vertex set
+
+Vi that is formed with the Sample procedure, i.e., Vi = ∪ij=1{Sample(j)}. Let Vi0 denote the set of isolated vertices and let Vi1 denote the set of the remaining vertices, i.e., Vi1 = Vi \ Vi0. We will denote by Ei0 and Ei1 the set of all edges that connect the vertices in Vi1 and those in Vi0, respectively. Hence, we have that Ei0 = ∅ and Ei1 = En for all i ∈ N.
+Consider the RRG algorithm. Let Vi2 denote the set of
+all vertices that result from extending the graph when the
+
+corresponding sample is isolated, i.e., no vertices were present
+
+within the Sample(i),
+
+ball of volume γ in iteration i. Let
+
+lEoNgi2Ni di encoetnetetrheed
+
+at set
+
+the sample, of all edges
+
+that are connected to the vertices in Vi2.
+
+Notice the following two facts: (i) the random geometric
+
+graph with node set Vi can be described by GRGG,i = (Vi0 ∪ Vi1, Ei0 ∪ Ei1), and (ii) the graph maintained by the RRG algorithm is a subgraph of GRRG,i = (ViRRG, EiRRG) = (Vi1 ∪ Vi2, Ei1 ∪ Ei2).
+
+Notice that the number of calls to ObstacleFree in itera-
+tion i is exactly the number of edges created at that iteration, hence is less than or equal to |Ei1 ∪ Ei2| = |Ei1| + |Ei2|. The following lemmas lead immediately to the result:
+
+Lemma 36
+lim sup E
+i→∞
+
+|Ei1| Ni log(Ni)
+
+1γ
+
+≤
+
+.
+
+2 µ(Xfree)
+
+Proof: Consider the expected value of |Ei1|/(n2 (rn)d),
+
+when
+
+n
+
+=
+
+Ni.
+
+Substituting
+
+ζd(rn)d
+
+=
+
+γ
+
+log(Ni Ni
+
+)
+
+and
+
+using
+
+Lemma 34, the result follows.
+
+Lemma 37 lim supi→∞ E
+
+|Ei2 | Ni log(Ni)
+
+is ﬁnite.
+
+Proof: Let Mi2 denote the number of edges added to Ei2 at iteration i. Note that
+
+E[Mi2] ≤ E
+
+γ
+
+log(Ni Ni
+
+)
+
+µ(Xfree)
+
+|Vi2
+
+|
+
+γ = µ(Xfree) E
+
+log(Ni) Ni
+
+|Vi2
+
+|
+
+.
+
+Hence, noting Ei2 =
+
+i j=1
+
+Mi2
+
+,
+
+lim sup E
+i→∞
+
+|Ei| Ni log(Ni)
+
+
+≤ lim sup E 
+i→∞
+
+i j=1
+
+log(Nj Nj
+
+)
+
+|Vj2
+
+|
+
+
+
+ Ni log(Ni)
+
+Consider the expectation in the right hand side. Noting that, surely, log(Nj) ≤ log(Ni) for all j ≤ i, the following inequalities hold:
+
+ E
+
+i j=1
+
+log(Nj Nj
+
+)
+
+|Vj2
+
+|
+
+
+
+ Ni log(Ni)
+
+≤
+
+
+
+
+
+1 i |Vj2|
+
+E  Ni j=1 Nj 
+
+
+
+1/2
+
+≤E
+
+1 Ni
+
+1/2
+
+i |Vj2|
+
+E
+j=1
+
+Nj
+
+
+
+≤E
+
+
+
+1 1/2
+
+i
+
+Ni
+
+E
+j=1
+
+1/2 |Vj2|
+ Nj
+
+where the second inequality follows from the Cauchy-Schwarz inequality. Notice that the ﬁrst term approaches zero as i → ∞, whereas, by Lemma 35, the second term is ﬁnite. Hence,
+
+it is concluded that
+
+lim sup E
+i→∞
+
+
+
+1 1/2
+
+i
+
+Ni
+
+E
+j=1
+
+|Vj2| Nj
+
+1/2  < ∞,
+
+which implies the lemma.
+

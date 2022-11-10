@@ -1,0 +1,524 @@
+Planning from Pixels in Environments with Combinatorially Hard Search Spaces
+
+Marco Bagatella Max Planck Institute for Intelligent Systems
+Tübingen, Germany mbagatella@tue.mpg.de
+
+Mirek Olšák Computer Science Department University Innsbruck, Austria
+mirek@olsak.net
+
+Michal Rolínek Max Planck Institute for Intelligent Systems
+Tübingen, Germany michal.rolinek@tue.mpg.de
+
+Georg Martius Max Planck Institute for Intelligent Systems
+Tübingen, Germany georg.martius@tue.mpg.de
+
+Abstract
+The ability to form complex plans based on raw visual input is a litmus test for current capabilities of artiﬁcial intelligence, as it requires a seamless combination of visual processing and abstract algorithmic execution, two traditionally separate areas of computer science. A recent surge of interest in this ﬁeld brought advances that yield good performance in tasks ranging from arcade games to continuous control; these methods however do not come without signiﬁcant issues, such as limited generalization capabilities and difﬁculties when dealing with combinatorially hard planning instances. Our contribution is two-fold: (i) we present a method that learns to represent its environment as a latent graph and leverages state reidentiﬁcation to reduce the complexity of ﬁnding a good policy from exponential to linear (ii) we introduce a set of lightweight environments with an underlying discrete combinatorial structure in which planning is challenging even for humans. Moreover, we show that our methods achieves strong empirical generalization to variations in the environment, even across highly disadvantaged regimes, such as “one-shot” planning, or in an ofﬂine RL paradigm which only provides low-quality trajectories.
+
+latent graph space network
+margin
+
+5 34 10 25
+
+6
+
+10 9
+
+9
+
+10
+
+878
+
+1.0 success rate
+
+10
+
+0.8
+
+0.6
+1
+0.4
+
+PPGS (ours) PPO GS on IMG
+
+breadth ﬁrst search (with reidentiﬁcation)
+
+3
+
+10
+
+9 10
+
+0.2 0.0 IceSlider
+
+Figure 1: Planning from Pixels with Graph Search. Our method leverages learned latent dynamics to efﬁciently build and search a graph representation of the environment. Resulting policies show unrivaled performance across a distribution of hard combinatorial tasks.
+
+35th Conference on Neural Information Processing Systems (NeurIPS 2021).
+
+1 Introduction
+Decision problems with an underlying combinatorial structure pose a signiﬁcant challenge for a learning agent, as they require both the ability to infer the true low-dimensional state of the environment and the application of abstract reasoning to master it. A traditional approach for common logic games, given that a simulator or a model of the game are available, consists in applying a graph search algorithm to the state diagram, effectively simulating several trajectories to ﬁnd the optimal one. As long as the state space of the game grows at a polynomial rate with respect to the planning horizon, the solver is able to efﬁciently ﬁnd the optimal solution to the problem. Of course, when this is not the case, heuristics can be introduced at the expense of optimality of solutions.
+Learned world models [17, 18] can learn to map complex observations to a lower-dimensional latent space and retrieve an approximate simulator of an environment. However, while the continuous structure of the latent space is suitable for training reinforcement learning agents [12, 19] or applying heuristic search algorithms [38], it also prevents a straightforward application of simpler graph search techniques that rely on identifying and marking visited states.
+Our work follows naturally from the following insight: a simple graph search might be sufﬁcient for solving visually complex environments, as long as a world model is trained to realize a suitable structure in the latent space. Moreover, the complexity of the search can be reduced from exponential to linear by reidentifying visited latent states.
+The method we propose is located at the intersection between classical planning, representation learning and model-based reinforcement learning. It relies on a novel low-dimensional world model trained through a combination of opposing losses without reconstructing observations. We show how learned latent representations allow a dynamics model to be trained to high accuracy, and how the dynamics model can then be used to reconstruct a latent graph representing environment states as vertices and transitions as edges. The resulting latent space structure enables powerful graph search algorithms to be deployed for planning with minimal modiﬁcations, solving challenging combinatorial environments from pixels. We name our method PPGS as it Plans from Pixels through Graph Search.
+We design PPGS to be capable of generalizing to unseen variations of the environment, or equivalently across a distribution of levels [13]. This is in contrast with traditional benchmarks [7], which require the agent to be trained and tested on the same ﬁxed environment.
+We can describe the main contributions of this paper as follows: ﬁrst, we introduce a suite of environments that highlights a weakness of modern reinforcement learning approaches, second, we introduce a simple but principled world model architecture that can accurately learn the latent dynamics of a complex system from high dimensional observations; third, we show how a planning module can simultaneously estimate the latent graph for previously unseen environments and deploy a breadth ﬁrst search in the latent space to retrieve a competitive policy; fourth, we show how combining our insights leads to unrivaled performance and generalization on a challenging class of environments.
+2 Method
+For the purpose of this paper, each environment can be modeled as a family of fully-observable deterministic goal-conditioned Markov Decision Processes with discrete actions, that is the 6-tuples {(S, A, T, G, R, γ)i}1...n where Si is the state set, Ai is the action set, Ti is a transition function Ti : Si × Ai → Si, Gi is the goal set and Ri is a reward function Ri : Si × Gi → R and γi is the discount factor. We remark that each environment can also be modeled as a BlockMDP [14] in which the context space X corresponds to the state set Si we introduced.
+In particular, we deal with families of procedurally generated environments. We refer to each of the n elements of a family as a level and omit the index i when dealing with a generic level. We assume that state spaces and action spaces share the same dimensionality across all levels, that is |Si| = |Sj| and |Ai| = |Aj| for all 0 ≤ i, j ≤ n.
+In our work the reward simpliﬁes to an indicator function for goal achievement R(s, g) = 1s=g with G ⊆ S. Given a goal distribution p(g), the objective is that of ﬁnding a goal-conditioned policy πg that maximizes the return
+2
+
+Encoder
+ℒmargin
+
+Inverse Model
+
+Forward Model ℒCE
+
+Encoder
+
+ℒFW
+
+Figure 2: Architecture of the world model. A convolutional encoder extracts latent state representations from observations, while a forward model and an inverse model reconstruct latent dynamics by predicting state transitions and actions that cause them. The notation is introduced in Sec. 2.1
+
+Jπ = E
+
+E
+
+γtR(st, g)
+
+(1)
+
+g∼p(g) τ ∼p(τ |πg) t
+
+where τ ∼ p(τ |πg) is a trajectory (st, at)Tt=1 sampled from the policy.
+Our environments of interest should challenge both perceptive and reasoning capabilities of an agent. In principle, they should be solvable through extensive search in hard combinatorial spaces. In order to master them, an agent should therefore be able to (i) identify pairs of bisimilar states [43], (ii) keep track of and reidentify states it has visited in the past and (iii) produce highly accurate predictions for non-trivial time horizons. These factors contribute to making such environments very challenging for existing methods. Our method is designed in light of these necessities; it has two integral parts, the world model and the planner, which we now introduce.
+
+2.1 World Model
+The world model relies solely on three jointly trained function approximators: an encoder, a forward model and an inverse model. Their overall orchestration is depicted in Fig. 2 and described in the following.
+
+2.1.1 Encoder
+Mapping highly redundant observations from an environment to a low-dimensional state space Z has several beneﬁts [17, 18]. Ideally, the projection should extract the compressed “true state” of the environment and ignore irrelevant visual cues, discarding all information that is useless for planning. For this purpose, our method relies on an encoder hθ, that is a neural function approximator mapping each observed state s ∈ S and a low-dimensional representation z ∈ Z (embedding). While there are many suitable choices for the structure of the latent space Z, we choose to map observations to points on an d-dimensional hypersphere taking inspiration from Liu et al. [29].
+
+2.1.2 Forward Model
+In order to plan ahead in the environment, it is crucial for an agent to estimate the transition function T . In fact, if a mapping to a low-dimensional latent space Z is available, learning directly the projected transition function TZ : Z × A → Z can be largely beneﬁcial [17, 18]. The deterministic latent transition function TZ can be learned by a neural function approximator fφ so that if T (st, at) = st+1, then fφ(hθ(st), at) := fφ(zt, at) = hθ(st+1). We refer to this component as forward model. Intuitively, it can be trained to retrieve the representation of the state of the MDP at time t + 1 given the representation of the state and the action taken at the previous time step t.
+Due to the Markov property of the environment, an initial state embedding zt and the action sequence (at, . . . , at+k) are sufﬁcient to to predict the latent state at time t + k, as long as zt successfully captures all relevant information from the observed state st. The amount of information to be
+
+3
+
+embedded in zt and to be retained in autoregressive predictions is, however, in most cases, prohibitive. Take for example the case of a simple maze: zt would have to encode not only the position of the agent, but, as the predictive horizon increases, most of the structure of the maze.
+
+Invariant Structure Recovery To allow the encoder to only focus on local information, we adopt an hybrid forward model which can recover the invariant structures in the environment from previous observations. The function that the forward model seeks to approximate can then include an additional input: fφ(zt, at, sc) = zt+1, where sc ∈ S is a generic observation from the same environment and level. Through this context input the forward model can retrieve information that is constant across time steps (e.g. the location of walls in static mazes). In practice, we can use randomly sampled observation from the same level during training and use the latest observation during evaluation. This choice allows for more accurate and structure-aware predictions, as we show in the ablations in Suppl. A.
+
+Given a trajectory (st, at)Tt=1, the forward model can be trained to minimize some distance measure between state embeddings (zt+1)1...T −1 = (hθ(st+1))1...T −1 and one-step predictions (fφ(hθ(st), at, sc))1...T −1. In practice, we choose to minimize a Monte Carlo estimate of the expected Euclidean distance over a ﬁnite time horizon, a set of trajectories and a set of levels. When
+training on a distribution of levels p(l), we extract K trajectories of length H from each level with a
+uniform random policy π and we minimize
+
+1 H−1
+
+LFW = E
+l∼p(l)
+
+H
+
+−1
+
+h=1
+
+E
+ah ∼π
+
+fφ(zhl , ah, slc) − zhl +1
+
+2 2
+
+(2)
+
+where the superscript indicates the level from which the embeddings are extracted.
+
+2.1.3 Inverse Model and Collapse Prevention
+
+Unfortunately, the loss landscape of Equation 2 presents a trivial minimum in case the encoder collapses all embeddings to a single point in the latent space. As embeddings of any pair of states could not be distinguished in this case, this is not a desirable solution. We remark that this is a known problem in metric learning and image retrieval [8], for which solutions ranging from siamese networks [9] to using a triplet loss [22] have been proposed.
+
+The context of latent world models offers a natural solution that isn’t available in the general
+embedding problem, which consists in additionally training a probabilistic inverse model pω(at | zt, zt+1) such that if TZ (zt, at) = zt+1, then pω(at | zt, zt+1) > pω(ak | zt, zt+1)∀ak = at ∈ A. The inverse model, parameterized by ω, can be trained to predict the action at that causes the latent transition between two embeddings zt, zt+1 by minimizing multi-class cross entropy.
+
+1 H−1
+
+LCE = E
+l∼p(l)
+
+H
+
+−1
+
+h=1
+
+E
+ah ∼π
+
+− log pω(ah | zhl , zhl +1)
+
+.
+
+(3)
+
+Intuitively, LCE increases as embeddings collapse, since it becomes harder for the inverse model to recover the actions responsible for latent transitions. For this reason, it mitigates unwanted local minima. Moreover, it is empirically observed to enforce a regular structure in the latent space that eases the training procedure, as argued in Sec. A of the Appendix. We note that this loss plays a similar role to the reconstruction loss in Hafner et al. [18]. However, LCE does not force the encoder network to embed information that helps with reconstructing irrelevant parts of the observation, unlike training methods relying on image reconstruction [11, 17–20].
+
+While LCE is sufﬁcient for preventing collapse of the latent space, a discrete structure needs to be recovered in order to deploy graph search in the latent space. In particular, it is still necessary to deﬁne a criterion to reidentify nodes during the search procedure, or to establish whether two embeddings (directly encoded from observations or imagined) represent the same true low-dimensional state.
+
+A straightforward way to enforce this is by introducing a margin ε, representing a desirable minimum distance between embeddings of non-bisimilar states [43]. A third and ﬁnal loss term can then be introduced to encourage margins in the latent space:
+
+Lmargin = E
+l∼p(l)
+
+1 H−1 max
+H −1
+h=1
+
+0, 1 −
+
+zhl +1 − zhl
+
+2 2
+
+ε2
+
+.
+
+(4)
+
+4
+
+...
+...
+
+Figure 3: Overview of latent-space planning. One-shot planning is possible by (i) embedding the current observation and goal to the latent space and (ii) iteratively growing a latent graph until a vertex is reidentiﬁed with the goal.
+
+We then propose to reidentify two embeddings as representing the same true state if their Euclidean
+
+distance
+
+is
+
+less
+
+than
+
+ε 2
+
+.
+
+Adopting a latent margin effectively constrains the number of margin-separated states that can be
+
+represented on an hyperspherical latent space. However, this quantity is lower-bounded by the kissing
+
+number [41], that is the number of non-overlapping unit-spheres that can be tightly packed around one d dimensional sphere. The kissing number grows exponentially with the dimensionality d. Thus,
+
+the capacity of our d-dimensional unit sphere latent space (d = 16 in our case with margin ε = 0.1)
+
+is not overly restricted.
+
+The world model can be trained jointly and end-to-end by simply minimizing a combination of the three loss functions:
+
+L = αLFW + βLCE + Lmargin.
+
+(5)
+
+To summarize, the three components are respectively encouraging accurate dynamics predictions, regularizing latent representations and enforcing a discrete structure for state reidentiﬁcation.
+
+2.2 Planning Regimes
+
+A deterministic environment can be represented as a directed graph G whose vertices V represent states s ∈ S and whose edges E encode state transitions. An edge from a vertex representing a state s ∈ S to a vertex representing a state s ∈ S is present if and only if T (s, a) = s for some action a ∈ A, where T is the state transition function of the environment. This edge can then be labelled by action a. Our planning module relies on reconstructing the latent graph, which is a projection of graph G to the latent state Z.
+
+In this section we describe how a latent graph can be build
+
+from the predictions of the world model and efﬁciently searched to recover a plan, as illustrated in Fig. 3. This
+
+1013
+
+With reidentification Without reidentification
+
+method can be used as a one-shot planner, which only 1011 Cutoff
+
+# of new vertices |Lt|
+
+needs access to a visual goal and the initial observation
+
+109
+
+from a level. When iterated and augmented with online
+
+107
+
+error correction, this procedure results in a powerful ap- 105
+
+proach, which we refer to as full planner, or simply as
+
+103
+
+PPGS.
+
+101
+
+One-shot Planner Breadth First Search (BFS) is a graph search algorithm that relies on a LIFO queue and on
+
+0
+
+5
+
+10 15 20
+
+Step t
+
+marking visited states to ﬁnd an optimal path O(V + E) Figure 4: Number of leaf vertices when steps. Its simplicity makes it an ideal candidate for solving planning in ProcgenMaze, averaged over combinatorial games by exploring their latent graph. If 100 levels, with 90% conﬁdence interthe number of reachable states in the environment grows vals. polynomially, the size of the graph to search will increase
+
+at a modest rate and the method can be applied efﬁciently.
+
+5
+
+We propose to execute a BFS-like algorithm on the latent graph, which is recovered by autoregressively simulating all transitions from visited states. As depicted in Fig. 3, at each step, the new set of leaves L is retrieved by feeding the leaves from the previous iteration through the forward model fφ. The efﬁciency of the search process can be improved as shown in Fig. 4, by exploiting the margin ε enforced by equation 4 to reidentify states and identify loops in the latent graph. We now provide a simpliﬁed description of the planning method in Algorithm 1, while details can be found in Suppl. C.2.
+
+Algorithm 1 Simpliﬁed one-shot PPGS
+
+Input: Initial observed state s1, visual goal g, model parameters θ, φ
+
+1: z1, zg = hθ(s1), hθ(g)
+
+2: L, V = {z1}
+
+3: for TMAX steps do
+
+4: L = {fφ(z, a, s1) : ∃z ∈ L, a ∈ A}
+
+5: if z∗ ∈ L can be reidentiﬁed with zg then
+
+6:
+
+return action sequence from z1 to z∗
+
+7: end if
+
+project to latent space Z sets of leaves and visited vertices
+grow graph
+
+8: L = L \ V
+
+reidentify and discard visited vertices (details in Suppl. C.2)
+
+9: V = V ∪ L
+
+update visited vertices
+
+10: end for
+
+Full Planner The one-shot variant of PPGS largely relies on highly accurate autoregressive predictions, which a learned model cannot usually guarantee. We mitigate this issue by adopting a model predictive control-like approach [15]. PPGS recovers an initial guess on the best policy (ai)1,...,n simply by applying one-shot PPGS as described in the previous paragraph and in Algorithm 2. It then applies the policy step by step and projects new observations to the latent space. When new observations do not match with the latent trajectory, the policy is recomputed by applying one-shot PPGS from the latest observation. This happens when the autoregressive prediction of the current embedding (conditioned on the action sequence since the last planning iteration) can not be reidentiﬁed with the embedding of the current observation. Moreover, the algorithm stores all observed latent transitions in a lookup table and, when replanning, it only trusts the forward model on previously unseen observation/action pairs. A detailed description can be found in Suppl. C.2.
+3 Environments
+In order to benchmark both perception and abstract reasoning, we empirically show the feasibility of our method on three challenging procedurally generated environments. These include the Maze environment from the procgen suite [13], as well as DigitJump and IceSlider, two combinatorially hard environments which stress the reasoning capabilities of a learning agent, or even of an human player. In the context of our work, the term “combinatorial hardness” is used loosely. We refer to an environment as "combinatorially hard" if only very few of the exponentially many trajectories actually lead to the goal, while deviating from them often results in failure (e.g. DigitJump or IceSlider). Hence, some “intelligent” search algorithm is required. In this way, the process of retrieving a successful policy resembles that of a graph-traversing algorithm. The last two environments are made available in a public repository [1], where they can also be tested interactively. More details on their implementation are included in Suppl. D.
+ProcGenMaze The ProcgenMaze environment consists of a family of procedurally generated 2D mazes. The agent starts in the bottom left corner of the grid and needs to reach a position marked by a piece of cheese. For each level, an unique shortest solution exists, and its length is usually distributed roughly between 1 and 40 steps. This environment presents signiﬁcant intra-level variability, with different sizes, textures, and maze structures. While retrieving the optimal solution in this environment is already a non-trivial task, its dynamics are uniform and actions only cause local changes in the observations. Moreover, ProcgenMaze is a forgiving environment in which errors can always be recovered from. In the real world, many operations are irreversible, for instance, cutting/breaking objects, gluing parts, mixing liquids, etc. Environments containing remote controls, for example, show non-local effects. We use these insights to choose the additional environments.
+6
+
+ProcgenMaze
+
+DigitJump
+
+IceSlider
+
+Figure 5: Environments. Initial observations and one-shot PPGS’s solution (arrows) of a random level of each of the three environments. ProcgenMaze is from [13]. DigitJump and IceSlider are proposed by us and can be accessed at [1].
+IceSlider IceSlider is in principle similar to ProcgenMaze, since it also consists of procedurally generated mazes. However, each action propels the agent in a direction until an obstacle (a rock or the borders of the environments) is met. We generate solvable but unforgiving levels that feature irreversible transitions, that, once taken, prevent the agent from ever reaching the goal.
+DigitJump DigitJump features a distribution of randomly generated levels which consist of a 2D 8x8 grid of handwritten digits from 1 to 6. The agent needs to go from the top left corner to the bottom right corner. The 4 directional actions are available, but each of them causes the agent to move in that directions by the number of steps expressed by the digit on the starting cell. Therefore, a single action can easily transport the player across the board. This makes navigating the environment very challenging, despite the reduced cardinality of the state space. Moreover, the game presents many cells in which the agent can get irreversibly stuck.
+4 Related Work
+World Models and Reinforcement Learning The idea of learning to model an environment has been widely explored in recent years. Work by Oh et al. [32] and Chiappa et al. [11] has argued that modern machine learning architectures are capable of learning to model the dynamics of a generic environment reasonably well for non-trivial time horizons. The seminal work by Ha and Schmidhuber [17] built upon this by learning a world model in a low-dimensional latent space instead of conditioning predictions on observations. They achieved this by training a VAE on reconstructing observations and a recurrent network for sampling latent trajectories conditioned on an action sequence. Moreover, they showed how sample efﬁciency could be addressed by recovering a simple controller acting directly on latent representations through an evolutionary approach.
+This initial idea was iteratively improved along two main directions. On one hand, some subsequent works focused on learning objectives and suggested to jointly train encoding and dynamics components. Hafner et al. [18] introduced a multi-step variational inference objective to encourage latent representations to be predictive of the future and propagate information through both deterministic and stochastic paths. On the other hand, authors proposed to learn to act in the latent space by using zero-order methods [18] such as CEM [36] or policy gradient techniques [19, 20]. These improvements gradually led to strong model-based RL agents capable of achieving very competitive performance in continuous control tasks [19] and on the Atari Learning Environment [7, 10, 20].
+Relying on image reconstruction can however lead to vulnerability to visual noise: to overcome this limitation Okada and Taniguchi [33] and Zhang et al. [43] forgo the decoder network, while the latter proposes to rely on the notion of bisimilarity to learn meaningful representations. Similarly, Gelada et al. [16] only learn to predict rewards and action-conditional state distributions, but only study this task as an additional loss to model-free reinforcement learning methods. Another relevant approach is that of [44], who propose to learn a discrete graph representation of the environment, but their ﬁnal goal is that of recovering a series of subgoals for model-free RL.
+A strong example of how world models can be coupled with classical planners is given by MuZero [38]. MuZero trains a recurrent world model to guide a Monte Carlo tree search by encouraging
+7
+
+hidden states to be predictive of future states and a sparse reward signal. While we adopt a similar framework, we focus on recovering a discrete structure in the latent space in order to reidentify states and lower the complexity of the search procedure. Moreover, we do not rely on reward signals, but only focus on learning the dynamics of the environment.
+Neuro-algorithmic Planning In recent years, several other authors have explored the intersection between representation learning and classical algorithms. This is the case, for instance, of Ichter and Pavone [23], Kumar et al. [26], Kuo et al. [27] who rely on sequence models or VAEs to propose trajectories for sampling-based planners. Within planning research, Yonetani et al. [42] introduce a differentiable version of the A* search algorithm that can learn suitable representations from images with supervision. The most relevant line of work to us is perhaps the one that attempts to learn representations that are suitable as an input for classical solvers. Within this area, Asai and Fukunaga [4], Asai and Muise [5] show how symbolic representations can be extracted from complex tasks in an end-to-end fashion and directly fed into off-the-shelf solvers. More recently, Vlastelica et al. [40] frames MDPs as shortest-path problems and trains a convolutional neural network to retrieve the weights of a ﬁxed graph structure. The extracted graph representation can be solved with a combinatorial solver and trained end-to-end by leveraging the blackbox differentiation method [35].
+Visual Goals A further direction of relevant research is that of planning to achieve multiple goals [30]. While the most common approaches involve learning a goal-conditioned policy with experience relabeling [3], the recently proposed GLAMOR [34] relies on learning inverse dynamics and retrieves policies through a recurrent network. By doing so, it can achieve visual goals without explicitly modeling a reward function, an approach that is sensibly closer to ours and can serve as a relevant comparison. Another method that sharing a similar setting to ours is LEAP [31], which also attempts to fuse reinforcement learning and planning; however, its approach is fundamentally different and designed for dense rewards and continuous control. Similarly, SPTM [37] pursues a similar direction, but requires exploratory traversals in the current environment, which would be particularly hard to obtain due to procedural generation.
+5 Experiments
+The purpose of the experimental section is to empirically verify the following claims: (i) PPGS is able to solve challenging environments with an underlying combinatorial structure and (ii) PPGS is able to generalize to unseen variations of the environments, even when trained on few levels. We aim to demonstrate that forming complex plans in these simple-looking environments is beyond the reach of the best suited state-of-the-art methods. Our approach, on the other hand, achieves non-trivial performance. With this in mind, we did not insist on perfect fairness of all comparisons, as the different methods have different type of access to the data and the environment. However, the largest disadvantage is arguably given to our own method.
+While visual goals could be drawn from a distribution p(g), we evaluate a single goal for each test level matching the environment solution (or the only state that would give a positive reward in a sparse reinforcement working framework). This represents a very challenging task with respect to common visual goal achievement benchmarks [34], while also allowing comparisons with rewardbased approaches such as PPO [39]. We mainly evaluate the success rate, which is computed as the proportion of solved levels in a set of 100 unseen levels. A level is considered to be solved when the agent achieves the visual goal (or receives a non-zero reward) within 256 steps.
+Choice of Baselines Our method learns to achieve visual goals by planning with a world model learned on a distribution of levels. To the best of our knowledge, no other method in the literature shares these exact settings. For this reason, we select three diverse and strong baselines and we make our best efforts for a fair comparison within our computational limits.
+PPO [39] is a strong and scalable policy optimization method that has been applied in procedurally generated environments [13]. While PPGS requires a visual goal to be given, PPO relies on a (sparse) reward signal specializing on a unique goal per level. DreamerV2 [20] is a model-based RL approach that also relies on a reward signal, while GLAMOR [34] is more aligned with PPGS as it is also designed to reach visual goals in absence of a reward.
+8
+
+While we restrict PPGS to only access an ofﬂine dataset of low-quality random trajectories, all baselines are allowed to collect data on policy for a much larger number of environment steps. More considerations on these baselines and on the fairness of our comparison can be found in Suppl. B. Furthermore, we also consider a non-learning naive search algorithm (GS ON IMAGES) thoroughly described in C.3.
+A comprehensive ablation study of PPGS can be found in Section A of the Appendix.
+
+5.1 Comparison of Success Rates
+
+Our ﬁrst claim is supported by Figure 6. PPGS out-
+
+perform its baselines across the three environments. 1.0 The gap with baselines is smaller in ProcgenMaze, a forgiving environment for which accurate plans are 0.8
+
+Success rate
+
+not necessary. On the other hand, ProcgenMaze involves long-horizon planning, which can be seen as
+
+0.6
+
+a limitation to one-shot PPGS. As the combinatorial 0.4
+
+nature of the environment becomes more important,
+
+the gap with all baselines increases drastically.
+
+0.2
+
+PPGS One-shot PPGS GS on Images PPO DreamerV2 GLAMOR
+
+PPO performs fairly well with simple dynamics and long-term planning, but struggles more when com-
+
+0.0 ProcgenMaze IceSlider DigitJump
+
+binatorial reasoning is necessary. GLAMOR and DreamerV2 struggle across the three environments, as they likely fail to generalize across a distribution of levels. The fact that GS ON IMAGES manages to
+
+Figure 6: Success rates across the three environments. One-shot planning is competitive with the full method on shorter time horizons.
+
+rival other baselines is a testament to the harshness
+
+of the environments.
+
+5.2 Analysis of Generalization
+The inductive biases represented by the planning algorithm and our training procedure ensure good generalization from a minimal number of training levels. In Fig. 7, we compare solution rates between PPGS and PPO as the number of levels available for training increases. The same metric for larger training level sets is additionally available in Table 3. Our method generally outperforms its baselines across all environments. In ProcgenMaze, PPGS achieves better success rates than PPO after only
+
+Success rate
+
+IceSlider
+1.00
+
+0.75
+
+0.50
+
+0.25
+
+0.00
+
+100
+
+101
+
+102
+
+103
+
+# training levels
+
+ProcgenMaze
+
+Success rate
+
+DigitJump
+1.0
+
+0.5
+
+0.0
+
+100
+
+101
+
+102
+
+103
+
+# training levels
+
+0.8
+
+DigitJump
+
+Success rate
+
+0.6 0.4
+
+1.0
+
+PPGS PPO
+
+GS on Images
+
+0.2
+
+0.5
+
+100
+
+101
+
+102
+
+103
+
+# training levels
+
+0.0
+
+Figure 7: Solution rates of PPGS and PPO as a function of the cardin1a0l0ity of the 1s#0e1ttroaifntinraginleivn1eg0ls2levels. 103
+
+Success rate
+
+9
+
+seeing two orders of magnitude less level, e.g. 10 levels instead of 1000. Note that PPGS uses only 400k samples from a random policy whereas PPO uses 50M on-policy samples. Due to the harshness of the remaining environments, PPO struggles to ﬁnd a good policy and its solution rate on unseen levels improves slowly as the number of training levels increases. In IceSlider, PPGS is well above PPO for any size of the training set and a outperforms GS ON IMAGES when only having access to 2 training levels. While having a comparable performance to PPO on small training sets in DigitJump, our method severely outperforms it once approximately 200 levels are available. On the other hand, PPO’s ability to generalize plateaus. These results show that PPGS quickly learns to extract meaningful representations that generalize well to unseen scenarios.
+6 Discussion
+Limitations The main limitations of our method regard the assumptions that characterize the class of environments we focus on, namely a slowly expanding state space and discrete actions. In general, due to the complexity of the search algorithms, scaling to very large action sets becomes challenging. Moreover, a single expansion of the search tree requires a forward pass of the dynamics network, which takes a non-negligible amount of time. Finally, the world model is a fundamental component and the accuracy of the forward model is vital to the planner. Training an accurate forward model can be hard when dealing with exceedingly complex observations: very large grid sizes in the environments are a signiﬁcant obstacle. On the other hand, improvements in the world model would directly beneﬁt the whole pipeline.
+Conclusion Hard search from pixels is largely unexplored and unsolved, yet fundamental for future AI. In this paper we presented how powerful graph planners can be combined with learned perception modules to solve challenging environment with a hidden combinatorial nature. In particular, our training procedure and planning algorithm achieve this by (i) leveraging state reidentiﬁcation to reduce planning complexity and (ii) overcoming the limitation posed by information-dense observations through an hybrid forward model. We validated our proposed method, PPGS, across three challenging environments in which we found state-of-the-art methods to struggle. We believe that our results represent a sensible argument in support of the integration of learning-based approaches and classical solvers.
+Acknowledgments and Disclosure of Funding
+We acknowledge the support from the German Federal Ministry of Education and Research (BMBF) through the Tübingen AI Center (FKZ: 01IS18039B). Georg Martius is a member of the Machine Learning Cluster of Excellence, funded by the Deutsche Forschungsgemeinschaft (DFG, German Research Foundation) under Germany’s Excellence Strategy – EXC number 2064/1 – Project number 390727645.
+References
+[1] https://github.com/martius-lab/puzzlegen, 2021.
+[2] https://github.com/martius-lab/PPGS, 2021.
+[3] M. Andrychowicz, F. Wolski, A. Ray, J. Schneider, R. Fong, P. Welinder, B. McGrew, J. Tobin, O. Pieter Abbeel, and W. Zaremba. Hindsight experience replay. In Advances in Neural Information Processing Systems, 2017.
+[4] M. Asai and A. Fukunaga. Classical planning in deep latent space: Bridging the subsymbolicsymbolic boundary. In S. A. McIlraith and K. Q. Weinberger, editors, Proceedings of the Thirty-Second AAAI Conference on Artiﬁcial Intelligence, (AAAI-18), the 30th innovative Applications of Artiﬁcial Intelligence (IAAI-18), and the 8th AAAI Symposium on Educational Advances in Artiﬁcial Intelligence (EAAI-18), New Orleans, Louisiana, USA, February 2-7, 2018, pages 6094–6101, 2018.
+[5] M. Asai and C. Muise. Learning neural-symbolic descriptive planning models via cube-space priors: The voyage home (to STRIPS). In C. Bessiere, editor, Proceedings of the Twenty-Ninth International Joint Conference on Artiﬁcial Intelligence, IJCAI 2020, pages 2676–2682, 2020.
+10
+
+[6] J. L. Ba, J. R. Kiros, and G. E. Hinton. Layer normalization, 2016.
+[7] M. G. Bellemare, Y. Naddaf, J. Veness, and M. Bowling. The arcade learning environment: An evaluation platform for general agents. Journal of Artiﬁcial Intelligence Research, 47:253–279, 2013.
+[8] A. Bellet, A. Habrard, and M. Sebban. A survey on metric learning for feature vectors and structured data. arXiv preprint arXiv:1306.6709, 2013.
+[9] J. Bromley, I. Guyon, Y. LeCun, E. Säckinger, and R. Shah. Signature veriﬁcation using a" siamese" time delay neural network. Advances in neural information processing systems, 6: 737–744, 1993.
+[10] T. Chen, S. Kornblith, M. Norouzi, and G. Hinton. A simple framework for contrastive learning of visual representations. In International conference on machine learning, 2020.
+[11] S. Chiappa, S. Racanière, D. Wierstra, and S. Mohamed. Recurrent environment simulators, 2017.
+[12] K. Chua, R. Calandra, R. McAllister, and S. Levine. Deep reinforcement learning in a handful of trials using probabilistic dynamics models. In Advances in Neural Information Processing (NeurIPS), 2018.
+[13] K. Cobbe, C. Hesse, J. Hilton, and J. Schulman. Leveraging procedural generation to benchmark reinforcement learning. In International conference on machine learning, pages 2048–2056, 2020.
+[14] S. Du, A. Krishnamurthy, N. Jiang, A. Agarwal, M. Dudik, and J. Langford. Provably efﬁcient rl with rich observations via latent state decoding. In International Conference on Machine Learning. PMLR, 2019.
+[15] C. E. Garcia, D. M. Prett, and M. Morari. Model predictive control: Theory and practice—a survey. Automatica, 25(3):335–348, 1989.
+[16] C. Gelada, S. Kumar, J. Buckman, O. Nachum, and M. G. Bellemare. DeepMDP: Learning continuous latent space models for representation learning. In Proceedings of the 36th International Conference on Machine Learning, volume 97, pages 2170–2179, 2019.
+[17] D. Ha and J. Schmidhuber. Recurrent world models facilitate policy evolution. In Advances in Neural Information Processing Systems, 2018.
+[18] D. Hafner, T. Lillicrap, I. Fischer, R. Villegas, D. Ha, H. Lee, and J. Davidson. Learning latent dynamics for planning from pixels. In Proceedings of the 36th International Conference on Machine Learning, volume 97, pages 2555–2565, 2019.
+[19] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations, 2020.
+[20] D. Hafner, T. P. Lillicrap, M. Norouzi, and J. Ba. Mastering atari with discrete world models. In International Conference on Learning Representations, 2021.
+[21] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. CoRR, abs/1512.03385, 2015.
+[22] E. Hoffer and N. Ailon. Deep metric learning using triplet network. In International workshop on similarity-based pattern recognition, pages 84–92, 2015.
+[23] B. Ichter and M. Pavone. Robot motion planning in learned latent spaces. IEEE Robotics and Automation Letters, 4(3):2407–2414, 2019.
+[24] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980, 2014.
+[25] T. Kipf, E. van der Pol, and M. Welling. Contrastive learning of structured world models. In International Conference on Learning Representations, 2020.
+11
+
+[26] R. Kumar, A. Mandalika, S. Choudhury, and S. Srinivasa. Lego: Leveraging experience in roadmap generation for sampling-based planning. In 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 1488–1495, 2019.
+[27] Y.-L. Kuo, A. Barbu, and B. Katz. Deep sequential models for sampling-based planning. In 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 6490–6497. IEEE, 2018.
+[28] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11):2278–2324, 1998.
+[29] W. Liu, Y. Wen, Z. Yu, M. Li, B. Raj, and L. Song. Sphereface: Deep hypersphere embedding for face recognition. In 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 6738–6746, 2017.
+[30] A. V. Nair, V. Pong, M. Dalal, S. Bahl, S. Lin, and S. Levine. Visual reinforcement learning with imagined goals. In Advances in Neural Information Processing Systems, volume 31, 2018.
+[31] S. Nasiriany, V. Pong, S. Lin, and S. Levine. Planning with goal-conditioned policies. In Advances in Neural Information Processing Systems, volume 32, 2019.
+[32] J. Oh, X. Guo, H. Lee, R. L. Lewis, and S. Singh. Action-conditional video prediction using deep networks in atari games. In Advances in Neural Information Processing Systems, 2015.
+[33] M. Okada and T. Taniguchi. Dreaming: Model-based reinforcement learning by latent imagination without reconstruction, 2020.
+[34] K. Paster, S. A. McIlraith, and J. Ba. Planning from pixels using inverse dynamics models. In International Conference on Learning Representations, 2021.
+[35] M. V. Pogancˇic´, A. Paulus, V. Musil, G. Martius, and M. Rolinek. Differentiation of blackbox combinatorial solvers. In International Conference on Learning Representations, 2020.
+[36] R. Y. Rubinstein. Optimization of computer simulation models with rare events. European Journal of Operational Research, 99(1):89–112, 1997.
+[37] N. Savinov, A. Dosovitskiy, and V. Koltun. Semi-parametric topological memory for navigation. In International Conference on Learning Representations, 2018.
+[38] J. Schrittwieser, I. Antonoglou, T. Hubert, K. Simonyan, L. Sifre, S. Schmitt, A. Guez, E. Lockhart, D. Hassabis, T. Graepel, et al. Mastering atari, go, chess and shogi by planning with a learned model. Nature, 588(7839):604–609, 2020.
+[39] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. CoRR, abs/1707.06347, 2017.
+[40] M. Vlastelica, M. Rolínek, and G. Martius. Neuro-algorithmic policies enable fast combinatorial generalization, 2021.
+[41] Wikipedia contributors. Kissing number — Wikipedia, the free encyclopedia, 2021. URL https://en.wikipedia.org/w/index.php?title=Kissing_number& oldid=1020394961. [Online; accessed 9-May-2021].
+[42] R. Yonetani, T. Taniai, M. Barekatain, M. Nishimura, and A. Kanezaki. Path planning using neural a* search, 2020.
+[43] A. Zhang, R. T. McAllister, R. Calandra, Y. Gal, and S. Levine. Learning invariant representations for reinforcement learning without reconstruction. In International Conference on Learning Representations, 2021.
+[44] L. Zhang, G. Yang, and B. C. Stadie. World model as a graph: Learning latent landmarks for planning, 2020.
+12
+

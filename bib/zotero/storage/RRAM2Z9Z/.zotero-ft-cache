@@ -1,0 +1,486 @@
+Homotopy-Aware RRT* : Toward Human-Robot Topological Path-Planning
+Daqing Yi∗, Michael A. Goodrich† and Kevin D. Seppi‡ Computer Science Department, Brigham Young University, Provo, UT, USA
+Email: ∗daqing.yi@byu.edu, †mike@cs.byu.edu, ‡kseppi@byu.edu
+
+Abstract—An important problem in human-robot interaction is for a human to be able to tell the robot go to a particular location with instructions on how to get there or what to avoid on the way. This paper provides a solution to problems where the human wants the robot not only to optimize some objective but also to honor “soft” or “hard” topological constraints, i.e. “go quickly from A to B while avoiding C”. The paper presents the HARRT* (homotopy-aware RRT*) algorithm, which is a computationally scalable algorithm that a robot can use to plan optimal paths subject to the information provided by the human. The paper provides a theoretic justiﬁcation for the key property of the algorithm, proposes a heuristic for RRT*, and uses a set of simulation case studies of the resulting algorithm to make a case for why these properties are compatible with the requirements of human-robot interactive path-planning.
+I. INTRODUCTION
+In search and rescue, police, and military applications of human-robot teaming, a human may want to tell a robot to go to a particular location while giving information that the robot should use to decide what path to take. This is a form of interaction that requires a robot to plan a path that honors the human’s intent. In this paper, we focus on two useful elements of intent: the shape and quality of the planned path. Although algorithms exist to implement path properties like continuity and smoothness, there appears to be no algorithm that is computationally tractable while being powerful enough to honor both shape and quality aspects of a path. Such an algorithm would support human instructions like “go quickly around building A and then between the two trees while avoiding region C.” In this paper, we present an algorithm that optimizes path quality while allowing a human to specify regions to avoid, preferences for directions of traveling around obstacles, via-point/waypoint constraints, and reference path constraints [1].
+The contribution of this paper (a) is a computationally efﬁcient algorithm for detecting when two paths are homotopic that (b) can be used as a heuristic for an RRT* planner to restrict search to a given homotopy class, where (c) the planning is done by the robot and (d) the optimization criteria and shape constraint is speciﬁed by the human. The speciﬁc contribution to human-robot interaction is that these properties, supported by simulation results, create a set of path affordances that allow a human to specify a wide range of shape constraints and objective preferences that the robot honors in path-planning.
+The key to this algorithm is the topological concept of homotopy, which is a mathematical formalism of the inherent
+
+similarity or dissimilarity of two paths. Given two paths σ1 and σ2 with the same endpoints, if one can be continuously deformed into the other without encroaching any obstacle and without moving the endpoints then they are said to be homotopic [2], [3]. We write this as σ1 σ2. In a slight abuse of notation, we say that two sets of paths are homotopic Γ1 Γ2 if all paths in the sets are homotopic.
+We restrict attention to paths that start at a given initial position xinit and end at a given terminal position xgoal, and group the set of all such possible paths into classes according to their shape properties. Formally, the set of paths that are homotopic to each other form a homotopy class, and the set of homotopy classes partition the set of all possible paths between any two positions xinit and xgoal. In an environment containing obstacles, we argue that this homotopy partition, provides a mapping between a human-based or colloquial use of the term “shape” and the corresponding topological notion.
+Theoretically, there exist inﬁnite homotopy classes, because an obstacle can be encircled an arbitrary number of times. With some loss of generality, we impose the following:
+Restriction 1. We consider only “simple paths”, that is, paths that do not form complete loops around obstacles.
+We can now deﬁne the problem the algorithm must solve.
+Deﬁnition 1. Homotopy-Based Optimal Path-Plan-ning Let X ⊂ Rd denote a bounded connected open set, Xobs ⊂ X an obstacle space, Xfree = X \ Xobs the obstacle-free space, xinit an initial state , and xgoal a goal state. Deﬁne a path in X as a continuous curve parameterized by s as σ(s) : [0, 1] → X. Denote the monotonic increasing cost of the path as COST(σ). Let H(xinit, xgoal) denote the set of homotopy classes deﬁned by xinit ∈ Xfree and xgoal ∈ Xfree , H = h1, · · · , hN ⊆ H a particular subset of homotopy classes, and h(σ) the homotopy class of σ. The goal is to ﬁnd paths σh∗i ∈ Σ∗, hi ∈ H such that (a) ∀s ∈ [0, 1], σ∗(s)hi ∈ Xfree ; (b) σh∗i (0) = xinit and σh∗i (1) = xgoal; and (c) ∀hi ∈ H, σh∗i = arg minσ∈Xfree ∧h(σ)=hi COST(σ).
+Deﬁnition 1 says that, given a particular set of homotopy classes and a cost function, the planner should ﬁnd paths that minimize the cost in the given homotopy classes.
+II. RELATED WORK
+From the human side of the HRI problem, many researchers have noted that humans often represent the world using topo-
+
+978-1-4673-8370-7/16/$31.00 © 2016 IEEE
+
+279
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+logical rather than metric-based mental models [4]. Various methods have been used to create topological representations that can be used by path-planners for robots [5], [6], [7], [8]. Because these planners represent the relationships between landmarks as a graph and then plan paths using a graph-search algorithm, they satisfy strict topological constraints but do not minimize COST(σ).
+Homotopy-based path-planning should enable a combination of constraints and continuous objectives, but determining the homotopic equivalence of two paths is usually computationally expensive or not general. For example, the Voronoi diagram is used to identify a path from any homotopy class in [9], but this algorithm has limitations when there are certain kinds of complex obstacles in the world. A so-called funnel algorithm in the universal covering space yields an improvement [10], but complexity does not scale well when obstacles are not smooth and convex.
+Other algorithms for ﬁnding homotopic equivalence include (a) using semi-algebraic cuts to convert a candidate path into a “word” [11] and (b) converting a plane into a complex plane and then ﬁnding invariant properties of the paths in this plane [2]. Unfortunately, their performance depends on how the map is discretized; computation cost expands greatly if the obstacles are reasonably approximated by a high resolution discretization.
+Homotopies have been used in sampling-based algorithms. In a probabilistic road map structure, the paths can be categorized into homotopy classes using a method called homotopic redundancy [12]. Another approach is to divide the space using a set of reference frames crossing each obstacle [13]. This method is particularly relevant because, as we shall show, how a path crosses the reference frames can be represented as a canonical sequence and comparing the sequences allows homotopic equivalence to be determined. We extend the ideas in these algorithms to enable optimal path-planning within a more complete set of homotopically equivalent paths. To accomplish this, we use a variation of the bidirectional RRT* algorithm [14], which is more efﬁcient than the original [15].
+III. HOMOTOPIC STRING CLASSES
+This section shows how to create a string-based representation of any simple path, and then use the easy-to-compute strings to efﬁciently identify homotopic equivalence.
+A. Generating String Representations
+Strings are generated using an improved method of Jenkins’ approach [16] to detecting homotopic equivalence of two paths by separating a map into disjoint subregions [17]. A reference frame segment, which Jenkins called a reference frame, is a line segment constructed from a center point and a point in a obstacle, extended to the map boundaries. The collection of reference frames created from a set of obstacles partition the map into disjoint subregions. Figure 1a shows an example of a map with two obstacles and two reference frames (blue and green dashed lines) – one for each obstacle. Strings will be constructed based on the simple idea that if two paths cross
+
+the same sequences of reference frames, then they belong to the same homotopy class.
+
+S1-1
+
+S4-0
+
+S1-0 S2-0
+S3-0
+
+S4-0
+
+S1-1 S1-0 S3-0
+
+S2-0
+
+S1-1 S1-0 S2-0 S3-0 S4-0
+
+S3-1
+
+S3-1
+
+S3-1
+
+(a) Ref. frames (b) State trans. (ST) (c) Homotopic ST
+
+Fig. 1: Map with obstacles.
+
+In Algorithm 1, the reference frames R are created from a set of points that are generated as follows: In a map with a set of obstacle regions B, an obstacle point bk is randomly sampled from each obstacle region Bk ∈ B. A center point c is then randomly sampled in the non-obstacle region Xfree = X \ B subject to the constraint that it is not in any line that connects two different bk. Connecting each bk with c creates a radial structure of reference frames that partition the map.
+
+Algorithm 1 INITREFFRAMES (Xfree, B)
+1: R = ∅, b = ∅ 2: for each Bk ∈ B do 3: b ← b ∪ bk randomly sampled from Bk
+4: c ← Randomly sampled from Xfree 5: while ∃bk, bk , c ∈ LINE( bk, bk ) do 6: c ← Randomly sampled from Xfree
+7: for each bk ∈ b do 8: lk ← LINE( bk, c ) 9: {lkm } ← INTERSECT(lk, B, c) 10: R ← R ∪ {lkm }
+return R
+The method LINE(p1, p2) returns the line deﬁned by p1 and p2, and the method INTERSECT(r, B, c) returns all segments of line r that don’t intersect with an obstacle in B or the center point c.
+If we assign an ID character to each reference frame, then how a path sequentially crosses the reference frames can be converted into a string of ID characters. For example, in Figure 1a, the path that starts in subregion S4−0 and ends in subregion S1−1 sequentially visits the reference frames α1,1, α2,2, α2,3. Concatenating these characters yields the path string α1,1α2,2α2,3. A deterministic ﬁnite automata (DFA) formalizes this process; see Figure 1b. Deﬁnition 2. Let M = (S, R, δ, S0, ST ) be a DFA that represents the string generation process from a path, where S is a set of subregions, R is a set of reference frames, S0 ∈ S is the start subregion, ST ∈ S is the end subregion, and δ : S × R → S is the transition function that deﬁnes how one subregion transitions to another subregion by crossing one reference frame in R. A string v is created as follows:
+• v is initialized as an empty string ε.
+
+280
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+• The path starts at xinit ∈ S0 and ends at xgoal ∈ ST . • When there is a transition across a reference frame r ∈
+R, v ← vr.
+Thus, v is the string generated by a path through the map using M . A string block Γv is the set of all paths that generate string v. We now develop conditions under which a set of string blocks partition the set of all simple paths into a set of disjoint homotopy classes. We present these as a series of properties, lemmas, and theorems.
+Recall that we are restricting attention to simple paths, and let Γ denote the set of all simple paths. We begin with properties of paths and the strings that they generate through M . Property 1 states that there are a ﬁnite number of unique strings generated by M that induce a partition over the Γ.
+
+Property 1. Γ =
+
+m i=1
+
+Γvi
+
+and
+
+vi
+
+=
+
+vj
+
+⇒ Γvi
+
+∩ Γvj
+
+= ∅.
+
+The second property is that is an equivalence relation.
+
+Property 2. in Γvi Γvj is an equivalence relation.
+Property 3 states that two paths are homotopic when they belong to the same string block Γv. In other words, if σi and σj generate the same string v, σi and σj are homotopic.
+Property 3. ∀σi, σj ∈ Γv, σi σj.
+Property 4 states that if two touching paths σi and σj are concatenated together to form σi ◦ σj then M generates a string vivj that is the concatenation of the strings generated by the two individual paths vi and vj.
+Property 4. If σi ∈ Γvi , σj ∈ Γvj and σi(1) = σj(0) then σi ◦ σj ∈ Γvivj .
+To determine the homotopic equivalence of two paths that belong to different string blocks, we remove an ambiguity from M . Observe that the reference frames form a radial structure emanating from the center point c. We denote the set of all reference frames segments between the center point c and an obstacle boundary by Rc and the set of subregions that connect with the center point c by Sc.
+Property 5. A path segment that sequentially crosses several reference frames in Rc between two different subregions in Sc is homotopic to a path segment that crosses only the center point c.
+
+For example, in Figure 2a, two paths with different strings α2,0α1,0 and α1,1α2,1 indicate two paths in the same homotopy class. By Property 5, we have Γα2,0α1,0 Γc Γ . α1,1α2,1 Figure 2b illustrates a second example.
+An important consequence of Property 5 is that paths that only go through regions Sc are homotopic to a simple path segment that starts and ends at the same position within Sc. Furthermore, all of these paths are homotopic to a path that generates the empty string. This means that we can merge all the subregions in Sc into a new subregion Sc. We can now create a new DFA, illustrated in Figure 1c, that removes the ambiguity associated with the center region.
+
+(a) Example A
+
+(b) Example B
+
+Fig. 2: Equivalence in Homotopy.
+
+Deﬁnition 3. Let M h = (Sh, Rh, δh, S0h, STh ) be a homotopic DFA that represents the string generation process from a path, where Sh = (S \ Sc) ∪ {Sc} is a set of subregions, Rh = R \ Rc is a set of reference frames, S0h ∈ Sh is the start subregion, STh ∈ Sh is the end subregion, and δh : Sh ×Rh → Sh is the transition function that deﬁnes how one subregion transitions to another subregion along the path by reference frames in Rh. Strings are generated as follows:
+• v is initialized as an empty string ε. • The path starts at xinit ∈ S0h and ends at xgoal ∈ STh . • When there is a transition across a reference frame r ∈
+Rh, v ← vr. • When there is transition Rc, v ← vε = v.
+Now that we have removed this ambiguity, we observe an important relationship between a simple path and the string that M h generates from this path. Let v = M h(σ) denote the string generated from a path σ.
+Property 6. A duplicate ID character in a string M h(σ) indicates that σ has visited a subregion at least twice.
+We call strings that don’t have duplicate ID characters non-repeating strings v∗. Non-repeating strings can only be generated by simple paths that never leave a subregion by crossing a reference frame and then returning by recrossing that same reference frame. This implies the next property.
+Property 7. In every simple homotopy class there exists a path σ such that M h(σ) has no duplicate characters.
+Consider a string constructed in the following manner: begin with the empty string ε and recursively insert a palindromic substring wwR, where the R operator reverses the characters in the string, into any position of a string. We denote a string made up of recursively embedded palindromic substrings an REP string. Note that ε and strings of the form wwR are REP strings.
+
+(a) Before deformation (b) After deformation Fig. 3: Path deformation.
+
+281
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+We now present the culminating lemma of this subsection.
+Lemma 1. If σ is a simple path segment that begins and ends in the same subregion and encloses no obstacle, then M h(σ) is a REP string.
+
+Proof. The proof is by induction on the number of subregions visited by a path.
+• Base case: If a simple path segment σ never leaves a subregion then M h(σ) = ε.
+• Induction step: Assume a simple path segment σ that begins and ends in the same subregion, and M h(σ) is a REP string. Deform the path segment σ into a different simple segment σ by crossing only one more reference frame with ID q, as illustrated in Figure 3. M h(σ ) is M h(σ) embedded with qq, where qq = qqR is a palindromic substring. Thus, M h(σ ) is also a REP string.
+• Conclusion: Any simple path segment σ that begins and ends in the same subregion can be obtained by recursively applying deformation to a simple path that never leaves a subregion in the inductive step.
+
+A useful consequence of this Lemma is the following.
+Corollary 1. All simple paths that begin and end in the same subregion and enclose no obstacle are homotopic to each other and to a path σ such that M h(σ) = ε.
+
+B. Identifying the Equivalence
+
+Having characterized several relationships between a path σ and its corresponding string M h(σ), we now want to
+
+identify string properties that tell us when two paths are
+
+homotopic. Although Property 3 tells us that two paths are
+
+homotopic when they are in the same string block, we need
+
+more. Speciﬁcally, we also need to know when two paths from
+
+different string blocks are homotopic.
+
+Write the set of all the simple paths as the union of several
+
+homotopy classes Γ = Γh1 ∪ Γh2 · · · ∪ Γhg , in which Γhi is the set of all the paths in homotopy class hi. By Property 1 and Property 3, we know that each homotopy class is a union
+
+of several the set of
+
+string blocks, that is strings vij associated
+
+Γhi = with the
+
+Γvij . Let Vi denote homotopy class hi,
+
+and deﬁne ΓVi = Γvij . Property 8 tells us that given a homotopy class hi and its
+
+corresponding Vi, if M h(σ) ∈ Vi, then σ ∈ Γhi , and vice
+
+versa.
+
+Property 8. ∀Γhi , ∃Vi = ∪vij , Γhi = ΓVi = ∪Γvij .
+This induces a hierarchy of path partitions and their associated string patterns, as illustrated in Figure 4.
+This hierarchy tells us that we can identify the homotopy class of a path, σ ∈ Γhi , by ﬁnding M h(σ) ∈ Vi.
+We now show that we can use a non-repeating string v∗ to determine whether M h(σ1) and M h(σ2) belong to the same
+
+Fig. 4: A hierarchy of path partitions.
+Vi. We begin with Lemma 2, which shows that every path is homotopic to a path that generates a non-repeating string.
+Lemma 2. ∀v, ∃v∗, Γv Γv∗
+Proof. Every path in a homotopy class is homotopic to the shortest path in that same homotopy class. By Property 7, the shortest path generates a non-repeating string v∗, which means Γv Γv∗ .
+The next lemma states that any two different non-repeating string blocks are not homotopic.
+Lemma 3. If vi∗ = vj∗ then Γvi∗ Γvj∗ .
+Proof. Assume that ∃vi∗ = vj∗ such that Γvi∗ Γvj∗ . Let σi ∈ Γvi∗ and σj ∈ Γvj∗ . Because σi and σj are homotopic to each other, we can assume without loss of generality that σj and σi end at the same point, σi(1) = σj(1). Again because σi σj, the continuous path formed when we connect σi to σjR(s) = σj(1 − s), a reversed version of σj, encloses no obstacle. By Lemma 1, M h(σi◦σjR) is a REP string. Observe that M h(σi◦ σjR) = vi∗vj∗R by construction. The only way to cut a REP string v into two non-repeating strings is that the number of any character in the REP string v is two and the REP string v is palindromic. Cutting the palindromic string v in the middle gets v1 and v2, in which v1 = v2R. But since vi∗ = vj∗, then vi∗vj∗R cannot be a REP string.
+This implies that each Vi associated with each homotopy class Γhi contains only one non-repeating string.
+Theorem 1 characterizes the relationship between Vi and its one and only non-repeating string vi∗.
+Theorem 1. For all Vi there exists a unique non-repeating string vi∗ ∈ Vi, such that ∀vij ∈ Vi, Γvij Γvi∗ .
+Proof. Lemma 2 states that such a string much exist and Lemma 3 states that this string is unique.
+The next theorem gives us a construction by which we can identify the non-repeating string representative from for each Vi.
+Theorem 2. Removing all the REP substrings of M h(σ) yields the vi∗ for which ΓMh(σ) Γvi∗ .
+Proof. The differences between M h(σ) and vi∗ are the REP substrings M h(σ). The REP substrings are generated by adding a path segment that leaves a subregion by crossing one or more reference frames and then returning across the same reference frames in reverse order. By Lemma 1, this
+
+282
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+path segment is homotopic to a path σ ∈ Γε (empty string). By Property 4, we have ΓMh(σ) Γvi∗ .
+This gives us a powerful tool for ﬁnding when two strings represent homotopic or non-homotopic paths. Consider Algorithm 2, which removes REP substrings using the simple principle that if a character is on the top of the stack when you encounter the next one, you’ve found a REP substring and should eliminate it from the string.
+
+Algorithm 2 REPTrim(v)
+
+1: stack T = ∅
+
+2: for char ∈ v do
+
+3: if TOP(T ) == char then
+
+4:
+
+POP(T )
+
+5: else
+
+6:
+
+T ← char
+
+return T
+
+When combined with Theorem 2, this has the marvelous
+
+effect of ﬁnding a non-repeating string called REPTrim(v)
+
+such that Γv corollary.
+
+ΓREPTrim(v). This yields the following
+
+Corollary 2. REPTrim(M h(σi)) = REPTrim(M h(σj)) iff σi σj .
+
+IV. HOMOTOPY-AWARE RRT*
+Corollary 2 gives us a useful way to determine whether two paths belong to the same homotopy class, but it doesn’t tell us anything about how to construct the path that minimizes the cost objective within that homotopy class. This section uses a heuristic based on the REP trim algorithm to restrict paths generated by RRT* to a desired homotopy class. Future work will explore improved heuristics and better variations of RRT* using the explicit REP Trim algorithm.
+RRT* explores the map to generate an optimal tree structure based on the cost distribution on the map. While the tree structure explores the planning space, the DFA M h can be used to generate the strings of the branches. The string of each branch indicates the homotopic information of the corresponding subpath. The resulting algorithm, Algorithm 3, is called Homotopy-aware RRT* (HARRT*).
+
+Algorithm 3 HARRT* (xinit, xgoal)
+
+1: i ← 0
+
+2: Ns ← {xinit}; Es ← ∅; Ts ← (Ns, Es)
+
+3: Ng ← {xgoal}; Eg ← ∅; Tg ← (Ng, Eg)
+
+4: while i < N do
+
+5: Ts, xns ew ← EXPLORE(Ts, i)
+
+6: Tg, xng ew ← EXPLORE(Tg, i)
+
+7:
+
+ps ← CONNECT(xns ew, Tg)
+
+8:
+
+pg ← CONNECT(xng ew, Ts)
+
+9: P ← UPDATEBESTPATHBYCLASS(ps, P )
+
+10: P ← UPDATEBESTPATHBYCLASS(pg, P )
+
+11: i ← i + 1
+
+12: P ← MERGEPATHS(P ) return P
+
+The algorithm uses a bi-directional structure. There is a start tree Ts = (Ns, Es), which is an RRT* structure from the start position for the optimal cost-to-arrive. Ns is the set of vertices in Ts, and Es is the set of edges in Ts. Similarly, there is a goal tree Tg = (Ng, Eg), which is an RRT* structure from the goal position for the optimal cost-to-go.
+In each iteration, a new vertex is created and added to each tree using EXPLORE(). CONNECT() is then called to create a path with a vertex in the other tree. In order to guarantee optimality, a set of near vertices in Tg is provided to ﬁnd the best vertex to be connected with the new vertex xns ew in Ts, and vice versa. The created path will be compared with the current best path that belongs to the same string block. If it is a better one, the best path in this string block will be updated, which is implemented in UPDATEBESTPATHBYCLASS().
+
+Algorithm 4 EXPLORE(T, i)
+
+1: xrand ← SAMPLE(i) ; 2: xnearest ← NEAREST(T , xrand) 3: xnew ← STEER(xnearest, xrand, η) 4: if OBSTACLEFREE(xnearest, xnew) then 5: s ← STR(xnearest) ◦ CRF((xnearest, xnew)) 6: if STRINGCHECK(s) then
+
+7:
+
+xmin ← xnearest
+
+8:
+
+Xnear ← NEAR(T, xnew, |N |)
+
+9:
+
+for each xnear ∈ Xnear do
+
+10:
+
+if OBSTACLEFREE(xnew, xnear) then
+
+11:
+
+s ← STR(xnear) ◦ CRF((xnear, xnew))
+
+12:
+
+if STRINGCHECK(s) then
+
+13:
+
+if
+
+C O S T(xnear )
+
++c(
+
+LINE(xnear, xnew) ) < COST(xnew) then
+
+14:
+
+xmin ← xnear
+
+15:
+
+E ← E ∪ {(xmin, xnew)}
+
+16:
+
+for each xnear ∈ Xnear \ {xmin} do
+
+17:
+
+if OBSTACLEFREE(xnew, xnear) then
+
+18:
+
+s ← STR(xnew) ◦ CRF((xnew, xnear))
+
+19:
+
+if STRINGCHECK(s) then
+
+20:
+
+if COST(xnear) > COST(xnew) +
+
+c(LINE(xnew, xnear)) then
+
+21:
+
+xparent ← PARENT(xnear)
+
+22:
+
+E ← E \ {(xparent, xnear)}
+
+23:
+return T, xnew
+
+E ← E ∪ {(xnew, xnear)}
+
+Algorithm 4 gives the exploration process of a tree structure and is similar with that used in RRT* [18]. The ﬁrst difference is that the string associated with each branch is updated (implementing M h on that branch) and the second difference is the use of the STRINGCHECK() method (implementing a heuristic version of the REP Trim algorithm) to check whether the string of a branch satisﬁes the string constraint. The methods in Algorithm 4 are deﬁned as follows:
+• CRF(l): Return the ID characters that represent the crossed reference frames of a line segment l if any.
+• STR(x): Return the string that represents the crossed reference frames of the subpath from the root to the node
+
+283
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+x sequentially. This implements M h.
+We assume that a human has speciﬁed one or more homotopy classes, and therefore string blocks, as the constraint of the planned paths. STRINGCHECK() compares whether a string of a subpath is a substring of the strings generated by the human. In effect, this eliminates branches that deviate from the non-repeating string representation of the human constraint. It is a heuristic because it does not test whether a branch has a REP substring but rather prevents RRT* from exploring branches that might have such substrings. Notice that the goal tree Tg compares the strings in a reversed order.
+Because RRT* maintains a tree structure, each vertex has only one path to arrive from the root. This path, which starts from the root to the vertex, can be converted into a string of ID characters by M h. The STRINGCHECK() guarantees that a new node is added or rewired so that all the branches of the tree structure are in the constraint of strings. For example, suppose we have a string constraint “ab”. A branch of the start tree Ts with string “a” satisﬁes the constraint, because “a” can be extended into “ab” by concatenating a “b”. However, a branch beginning with string “b” cannot be extended into “ab”, and therefore does not satisfy the string constraint. It is similar for the goal tree Tg but with reversed string order. Note that this is an early check of the homotopy class constraint and may eliminate some paths that would explore areas outside of the current subregion; we will say more about this in the results section.
+
+Algorithm 5 CONNECT(xnew, T )
+
+1: pmin = ∅
+
+2: Xnear ← NEAR(T, xnew, |N |)
+
+3: for each xnear ∈ Xnear do
+
+4: if OBSTACLEFREE(xnew, xnear) then
+
+5:
+
+if xnew ∈ Ts then
+
+6:
+
+p ← CONCATENATE(xnew, xnear)
+
+7:
+
+else
+
+8:
+
+p ← CONCATENATE(xnear, xnew)
+
+9:
+
+if STRINGCHECK(p) and c(p) < c(pmin) then
+
+10:
+
+pmin = p
+
+return pmin
+
+The methods in Algorithm 5 are deﬁned as follows: • PATH(v, T ): Return the path from the root of the tree T
+to the vertex v. • CONCATENATE(pa, pb): Return a concatenated path of pa
+and pb. If pa and pb are from different directions, one of them will be reversed for the concatenation. When the exploration process is ﬁnished, there is a set of the best paths of all the string blocks. By the REP Trim algorithm we can merge the optimal paths in the string blocks that belong to the same homotopy class. The MERGEPATHS() merges the equivalent string blocks into homotopy classes. Thus, the set of paths P will be updated.
+V. EXPERIMENTS
+Recall the following claim from the introduction: “The contribution of this paper is an algorithm that has guaranteed
+
+properties ... [that] create a set of path affordances that allow a human to specify a wide range of hard and soft constraints that the robot is guaranteed to honor when it plans its path.” To this point in the paper, all the text has focused on either the theoretic analysis of Palindrome Trim algorithm or the heuristic implementation of this algorithm to help RRT* restrict exploration to a given homotopy class. This section provides evidence that the algorithm can support an important need in HRI.
+Consider a path-planning problem where a human supervisor deﬁnes the task for a robot. Consider further different ways in which the human can express hard and soft constraints as well as performance objectives. The ﬁrst two examples of human intent translate into homotopic path constraints over an optimization problem. Note that we use the word “quickly” to represent the optimization criterion; in practice, many possible criteria exist.
+1) Quickly go from point A to point B through a sequence of speciﬁc regions. Topologically, such a path is constrained to one homotopy class, so this homotopy class becomes the constraint of the optimization problem and “quickly” becomes the objective to optimize [10].
+2) Quickly go from point A to point B making sure to visit some regions and avoid other regions. Topologically, such a path is constrained to be among the set of homotopy classes that include the desired regions and avoid the undesired regions. The corresponding homotopic constraint restricts the optimal path to the set of homotopy classes that satisfy the requirements.
+The next example of human intent allow a human to express preference among different path shapes, but also allow the human to trade off between following a desired path shape and optimizing another performance objective.
+3) In quickly going from point A to point B, I prefer some types of paths over others, but I recognize that tradeoffs may be needed. This indicates that the human has preferences over different homotopy classes, and also acknowledges that certain homotopy classes may not allow an acceptable optimization of another taskbased objective. If the preference on the homotopy classes can be modeled using an objective function, then non-dominant solutions over the task-based objective (e.g., “quickly”) and homotopic objective (e.g., “north of building A”) can be found, and the human can select one of these solutions by balancing tradeoffs.
+Clearly, these examples do not cover the set of all possible ways a human can express intent, but they do represent an important (and we would argue a natural) subset of ways that a human can express intent.
+In the results in this section, we use the Euclidean distance as the objective to minimize because optimality can easily be veriﬁed. The objective can be replaced with any other type.
+A. Single Homotopy Class
+This subsection considers the ﬁrst way of expressing intent: Quickly go from point A to point B through a sequence of
+
+284
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+speciﬁc regions. In this case, the algorithm simply seeks to ﬁnd the path that minimizes the Euclidean distance between two points subject to the path belonging to a homotopy class.
+
+of high cost and then return to the subregion once they have circumvented the high cost area. Certainly, this future work would need to explore tradeoffs in the deviation budget, the spacing of sample points that generate the radial structure, and the structure of the cost function.
+We conclude this subsection with an example world that exposes a problem that is avoided by the bi-directional approach we have taken but which a single direction RRT encounters.
+
+(a) Example A
+
+(b) Example B
+
+Fig. 5: Optimal paths with hard constraints.
+
+Figure 5 shows results for two different worlds. In Example A, the authors sketched the fuzzy red path, turned that path into a single homotopy constraint, and then used the HARRT* algorithm to ﬁnd the shortest path that connected the points subject to the constraint. The green radial lines indicate the reference frames, the yellowish lines indicate the branches of the forward tree of the RRT, the turqoise lines indicate the backward tree of the RRT, and the orange line represents the path found by the algorithm. Inspection shows that that the path is indeed the shortest path within the homotopy class. Further inspection shows that the algorithm concentrated its search effort in the homotopy class, abandoning branches of the tree either when costs became high or when the path crossed a reference frame that deviated from the non-repeating string pattern. Example B shows a similar result but with the human input suppressed to help improve clarity.
+Figure 5 also illustrates that the current implementation of HARRT* is an approximation. The theoretic results show that we can determine when any two paths are in the same homotopy class by removing REP substrings, but where we check for homotopic consistency in the RRT implementation has a big impact on how big the trees grow in the algorithm. At one extreme, future work should explore whether it is possible (a) to check the homotopy class of the path returned by the RRT-based exploration once a complete path from start to ﬁnish has been found and (b) to reject paths that do not satisfy the homotopy constraint. In the current version of HARRT*, the STRINGCHECK() method prevents the extension of the branches into a string that does match the non-repeating string. This is an “early check” on the path that can reject potentially optimal paths within a homotopy class if the optimal path would naturally generate some REP substrings.
+As illustrated by the simple examples in this section, this “early check” avoids exploring a lot of the state space, resulting in search efﬁciency and producing acceptable paths, but it is possible to construct examples where this early check would prevent the discovery of the optimal path. Future work should explore variations of the STRINGCHECK() method that allow a budgeted amount of deviation from a path that generates a non-repeating string. For example, the algorithm could allow a two character palindrome to be part of the string, allowing exploration of paths that leave a subregion to avoid an area
+
+(a) Single directional tree
+
+(b) Bidirectional tree
+
+Fig. 6: Search results from different structures.
+
+Figure 6 gives the results from the single directional and bidirectional tree structures for a problem where multiple homotopy classes are allowed. Each tree structure ﬁnds an optimal path in each of several homotopy classes (though the optimal path is shown for only one homotopy class) optimal paths in several homotopy classes but only one of them is illustrated, but the single directional tree structure could not ﬁnd an optimal path that swings by the left side of the left-most obstacle; see Figure 6a. By contrast, the via-point constraints in the bidirectional tree structure enforce the exploration of all the possible homotopy classes; see Figure 6b.
+Although this result is encouraging, it exposes a challenge in combining RRT* with the Palindrome Trim algorithm or a related heuristic. Stated simply, it is possible for RRT* to “rewire” nodes in such a way that homotopy constraints are violated. Using bidirectional search ﬁxed the problem for this world, but it is easy to construct other worlds for which bidirectional search won’t work. Future work will address this challenge.
+
+B. Multiple Homotopy Classes
+This section considers the second way of expressing intent: Quickly go from point A to point B making sure to visit some regions and avoid other regions. In this case, the set of regions to visit and regions to avoid create a set of possible homotopy classes.
+This section gives an example of the kinds of possible solutions that can be generated when multiple homotopy classes are explored simultaneously. Figure 7, which will be referenced again in the next section, shows the optimal solutions returned by HARRT* for six different homotopy classes. Observe that each path is optimal for the homotopy class given that the cost function is Euclidean distance. (As an aside, when the cost function is Euclidean distance the heuristic implementation of the REP trim algorithm won’t cause problems since the shortest path is also a path that generates a non-repeating string.) For this second type of
+
+285
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+
+human intent expression, the path with the lowest cost would be returned.
+
+that efﬁcient interactions are plausible given the properties of the algorithm. Future work should explore how natural language or a graphical user interface can be combined with the algorithm, and whether resulting interactions are compatible with human workload bounds and situation awareness needs.
+Finally, future work should explore how the homotopyaware RRT* algorithm can be extended to problems with multiple performance objectives, enabling either hard shape constraints or tradeoffs between a set of objectives and the shape of the resulting path.
+
+Fig. 7: Optimal paths in six homotopy classes.
+C. Soft Constraint and Tradeoffs
+This section considers the third way of expressing intent: In going from point A to point B, I prefer some types of paths over others, but I recognize that tradeoffs may be needed. This method is actually quite different than the two previous methods because it treats path shape not as a hard constraint but rather as an objective to be optimized. Fortunately, HARRT* can support a human trying to ﬁnd tradeoffs between preferences among homotopy classes and the costs associated with choosing a path from a speciﬁc homotopy class.
+The algorithm for ﬁnding these tradeoffs would use HARRT* to ﬁnd the optimal path from the set of all relevant homotopy classes, as was done in the previous subsection. Recall that HARRT* can simultaneously search in different homotopy classes and returns the solutions in one run. The output of the algorithm would then change its what it presents to the human; rather than returning the best path across homotopy classes as in the previous subsection, the algorithm would ﬁnd the minimum cost path for each homotopy class and then output both the path and the cost of the path for each homotopy class. This generates a tradeoff space that can be evaluated by the human.
+For example, Figure 7 shows the optimal paths in six different homotopy classes found by HARRT*. Associated with each class/path pair is the cost of the optimal path. If the cost is displayed for each class/path pair, a human could determine which shape/cost pair provides the best tradeoff.
+VI. CONCLUSION AND FUTURE WORK
+It is possible to create a computationally efﬁcient algorithm that uses strings to determine when two continuous paths are homotopic. This algorithm can be used as a heuristic in a bidirectional RRT* algorithm to prune paths from the search that are not compatible with an intended homotopy class. Furthermore, the algorithm seems compatible with various degrees of approximation, allowing for tradeoffs between computation speed and quality of the path found by the algorithm, but future work must conﬁrm this.
+The paper did not explore the usability, workload, or naturalness of the interactions between the human and the robot afforded by the algorithm, but the empirical results suggest
+
+REFERENCES
+[1] D. Yi, M. Goodrich, and K. Seppi, “Informative path planning with a human path constraint,” in Systems, Man and Cybernetics (SMC), 2014 IEEE International Conference on, Oct 2014, pp. 1752–1758.
+[2] S. Bhattacharya, “Search-based path planning with homotopy class constraints,” in Twenty-Fourth AAAI Conference on Artiﬁcial Intelligence, 2010.
+[3] A. Hatcher, “Algebraic topology. 2002,” Cambridge UP, Cambridge, vol. 606, no. 9.
+[4] B. Kuipers, “The spatial semantic hierarchy,” Tech. Rep. AI99-281, 29, 1999.
+[5] M. J. Mataric, “Integration of representation into goal-driven behaviorbased robots,” Robotics and Automation, IEEE Transactions on, vol. 8, no. 3, pp. 304–312, 1992.
+[6] S. Thrun, “Learning metric-topological maps for indoor mobile robot navigation,” Artiﬁcial Intelligence, vol. 99, no. 1, pp. 21–71, 1998.
+[7] J. Fasola and M. J. Mataric, “Modeling dynamic spatial relations with global properties for natural language-based human-robot interaction,” in RO-MAN, 2013 IEEE. IEEE, 2013, pp. 453–460.
+[8] D. C. Shah and M. E. Campbell, “A qualitative path planner for robot navigation using human-provided maps,” The International Journal of Robotics Research, vol. 32, no. 13, pp. 1517–1535, 2013.
+[9] B. Banerjee and B. Chandrasekaran, “A framework of voronoi diagram for planning multiple paths in free space,” Journal of Experimental & Theoretical Artiﬁcial Intelligence, vol. 25, no. 4, pp. 457–475, 2013.
+[10] J. Hershberger and J. Snoeyink, “Computing minimum length paths of a given homotopy class,” Computational Geometry, vol. 4, no. 2, pp. 63 – 97, 1994.
+[11] D. Grigoriev and A. Slissenko, “Polytime algorithm for the shortest path in a homotopy class amidst semi-algebraic obstacles in the plane,” in Proceedings of the 1998 International Symposium on Symbolic and Algebraic Computation, ser. ISSAC ’98. New York, NY, USA: ACM, 1998, pp. 17–24.
+[12] E. Schmitzberger, J. Bouchet, M. Dufaut, D. Wolf, and R. Husson, “Capture of homotopy classes with probabilistic road map,” in Intelligent Robots and Systems, 2002. IEEE/RSJ International Conference on, vol. 3, 2002, pp. 2317–2322 vol.3.
+[13] E. Hernandez, M. Carreras, and P. Ridao, “A comparison of homotopic path planning algorithms for robotic applications,” Robotics and Autonomous Systems, vol. 64, no. 0, pp. 44 – 58, 2015.
+[14] J. Starek, E. Schmerling, L. Janson, and M. Pavone, “Bidirectional fast marching trees: An optimal sampling-based algorithm for bidirectional motion planning,” in Workshop on Algorithmic Foundations of Robotics, 2014.
+[15] M. Jordan and A. Perez, “Optimal bidirectional rapidly-exploring random trees,” Computer Science and Artiﬁcial Intelligence Laboratory, Massachusetts Institute of Technology, Cambridge, MA, Tech. Rep. MIT-CSAIL-TR-2013-021, August 2013.
+[16] K. D. Jenkins, “The shortest path problem in the plane with obstacles: A graph modeling approach to producing ﬁnite search lists of homotopy classes.” Master’s thesis, Naval Postgraduate School, Monterey, CA, June 1991.
+[17] E. Hernandez, M. Carreras, J. Antich, P. Ridao, and A. Ortiz, “A topologically guided path planner for an AUV using homotopy classes,” in Robotics and Automation (ICRA), 2011 IEEE International Conference on, May 2011, pp. 2337–2343.
+[18] S. Karaman and E. Frazzoli, “Incremental sampling-based algorithms for optimal motion planning,” in Proceedings of Robotics: Science and Systems, Zaragoza, Spain, June 2010.
+
+286
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 11,2022 at 08:44:58 UTC from IEEE Xplore. Restrictions apply.
+

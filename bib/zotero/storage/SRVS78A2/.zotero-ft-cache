@@ -1,0 +1,759 @@
+2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) Congress Center Hamburg Sept 28 - Oct 2, 2015. Hamburg, Germany
+Path Planning for a Tethered Robot using Multi-Heuristic A* with Topology-based Heuristics
+Soonkyum Kim1 and Maxim Likhachev2
+
+Abstract— In this paper, we solve the path planning problem for a tethered mobile robot, which is connected to a ﬁxed base by a cable of length L. The reachable space of the robot is restricted by the length of the cable and obstacles. The reachable space of the tethered robot can be computed by considering the topology class of the cable. However, it is computationally too expensive to compute this space a-priori. Instead, in this paper, we show how we can plan using a recently-developed variant of A* search, called Multi-Heuristic A*. Normally, the Multi-Heuristic A* algorithm takes in a ﬁxed set of heuristic functions. In our problem, however, the heuristics represent length of paths to the goal along different topology classes, and there can be too many of them and not all the topology classes are useful. To deal with this, we adapt Multi-Heuristic A* to work with a dynamically generated set of heuristic functions. It starts out as a normal weighted A*. Whenever the search gets trapped in a local minimum, we ﬁnd the proper topology class of the path to escape from it and add the corresponding new heuristic function into the set of heuristic functions considered by the search. We present experimental analysis comparing our approach with weighted A* on planning for a tethered robot in simulation.
+I. INTRODUCTION
+In extreme environments such as disaster areas, wireless signal may not be strong enough for an operator to communicate to a robot [16], [19]. For example, this was the case when robots were deployed in the reactor building after the disaster of Fukushima due to the radioactive environment [8]. In such cases, using power and communication cables to tether the robot can effectively solve such problems [5]. Tethering also helps in deploying robot in environments with limited accessibility. For example, Nassiraei et al. designed a tethered sewer pipe inspection robot to work instead of a human operator to decrease the cost and to speed-up the inspection [17]. Also, tethered mobile robot can be used to maintain and construct highways [12].
+Tethering also used whenever size limits or actuation power make it impossible for a robot to carry its own power supply. For example, a number of prototypes of micro robots use external power source to actuate the motors or sensors as shown in Figure 1(a) [6] and Figure 1(b). These robots are tethered.
+While tethering solves communication and power problem for mobile robots, it also causes challenges in control and planning. In general, the cable is stiff and has ﬁnite length,
+1Soonkyum Kim is a Postdoctorial Fellow of Robotics Institute, Carnegie Mellon University, 5000 Forbes Avenue, Pittsburgh, Pennsylvania, 15213, USA kim.soonkyum@gmail.com
+2Maxim Likhachev is a Research Assistant Professor of Robotics Institute, Carnegie Mellon University, 5000 Forbes Avenue, Pittsburgh, Pennsylvania, 15213, USA maxim@cs.cmu.edu
+
+(a) A picture of a ﬂappingwing microrobot prototype taken from (Chirarattananon, Ma, and Wood 2013).
+
+(b) A
+
+tethered
+
+tunnel
+
+inspecting robot taken from
+
+http://www.wired.com/2011/12/robot-
+
+tunnels/all/
+
+Fig. 1. Examples of tethered robots
+
+which restricts the workspace of the mobile robot around the ﬁxed base point. Also, due to obstacles, certain robot poses become reachable only under speciﬁc cable conﬁgurations (the topology class of the cable).
+In this work, we consider the path planning problem for a tethered mobile robot. The work space of the tethered robot is restricted by the cable of maximum length L which connects the robot to a ﬁxed base. This workspace can be calculated by considering the homotopy class of the cable [14], which is computationally too expensive for online planning. Instead of relying on this preprocessing, we consider the topology class of the path and cable to guide a heuristic search in the form of heuristics. Recently-developed Multi-Heuristic A* allows to deal with numerous inadmissible heuristic functions while guaranteeing the suboptimality bound [2]. As there could be too many possible topology classes and corresponding heuristic functions and not all of them are useful during the search, we propose a Topology-based Multi-Heuristic A*, which starts as a normal weighted A* [18] but shifts to MultiHeuristic A* by adding new heuristic functions to escape from local minima.
+II. RELATED WORK
+There has been active research on path planning for tethered mobile robots. Some early work has considered a tangle-free path planning of a group of tethered mobiles robots in obstacle-free environments [11]. In contrast, our approach can handle arbitrary obstacles.
+Finding the shortest path for a tethered mobile robot was studied in [23], [24]. The authors triangulated the environment by using all the edges of polygonal obstacles as
+
+978-1-4799-9994-1/15/$31.00 ©2015 IEEE
+
+4656
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+edges of triangles. Then the authors built the visibility graph to ﬁnd the shortest path. However, the suggested algorithm suffers from the computational complexity associated with the number of vertex of obstacles. In addition, our approach is not constrained to polygonal obstacles.
+Homotopy class of the cable was considered in [13] to solve a similar problem. However, the authors did not use the homotopy invariant but considered the path length to the node to distinguish paths in different homotopy classes. This representation of homotopy class is based on the metric information of the path and can lose some important information about the paths. This loss of information can result in failure to distinguish paths in different homotopy classes and may lead to ﬁnding solutions that are infeasible. For example, they will not be able to differentiate between two paths of the same length even if one passes an obstacle on the right and the other one on the left. In our work, we do consider the homotopy invariant and build an augmented graph to handle the topology information of path and cable. As a result, the solutions found by our approach are guaranteed to be feasible.
+Motion planning for a tethered axel rover on steep terrain was studied in [1]. They also consider the homotopy class of the path of round trip path to the goal to minimize the possibility of entanglement of the cable. This work was later extended to an online motion planning algorithm to deal with partially known environment [21]. Also, ﬁnding the coverage area is another form of planning problem. In [20], the authors solved the planning problem for a tethered mobile robot to explore and cover the partially known environment and return to the base point, which also works as the starting point. In our work, we consider arbitrary starting position and cable conﬁgurations.
+The shortest path of a tethered mobile robot can be generated by relying on pre-computation of the reachable space, which is computationally expensive [14]. We avoid this precomputation and propose a novel algorithm to consider the topology class of the cable and robot path to focus the search. This method results in fast computation of bounded suboptimal paths.
+III. THE PRELIMINARIES
+In this section, we discuss the topology of curves, which could be paths or cables. Since the notion of topology was already introduced in various literature [7], [9], [10], [22], [3], we will brieﬂy discuss the topology required in our paper. Throughout this paper, we follow the same notations as [14].
+We consider the workspace or search space, W ⊂ 2 as a simply connected and bounded region on plane. We have m arbitrary-shaped obstacles of O = {O1, O2, . . . , Om}. We consider a path or cable in the workspace as a curve on the plane. Two curves, connecting the same start and end points, are homotopic if and only if one can continuously deform to the other without intersecting any obstacles. We call the set of curves that are homotopic homotopy class. For example, the two curves, τ1 and τ2 in Figure 2(a) are homotopic and
+
+in the same homotopy class. However, τ3 is not homotopic to these two curves as it cannot deform to τ1 or τ2 because of the obstacle, O1.
+Homotopy invariant is a function of curves that will return the same value for all the curves in the same homotopy class and the different values for pairs of curves that lie in different homotopy classes. In general, it is not easy to ﬁnd or design such a function. In a 2-dimensional plane, however, one can ﬁnd a relatively simple and easy homotopy invariant. To do this, we choose reference points inside of each obstacle, ζi = (xr,i, yr,i) ∈ Oi. Then we set the reference ray, ri, for each obstacle to start from the corresponding reference point in the direction of [0, 1]T . These reference rays serve to compute the homotopy invariant, word, of the given curve. We can then represent the homotopy class of the given curve, h(·), by building a word to trace the curve while consecutively appending a letter corresponding to the reference ray that the curve crosses. For example, if the curve crosses the reference ray ri from left to right, we add “ri.” When the curve crosses the reference ray from right to left, we add “ri−1.” Figure 2(b) shows an example (borrowed from [14]), the homotopy invariant of the curve γ is h(γ) = “r2r3r5r6−1.” Note that “r4r4−1” gets evaluated to an empty word, “”.
+Homology is a similar concept to homotopy but slightly different. Two curves, connecting the same start and end points, are homologous if and only if they form a boundary of a 2-dimensional region that does not contain or intersect any obstacles. If two curves are homotopic, they are homologous. However, the inverse is not necessarily true. Figure 2(c) shows an example that the two curves, τ1 and τ2, are homologous but not homotopic. The homology invariant of the curves was deﬁned as H-signature of the curve [3]. The Hsignature is not unique and can be designed in several ways including Cauchy-Integration [3], [4]. In this work, we use the H-signature introduced in [15] because this H-signature is designed to count the number of crossing with reference rays, +1 for left-to-right and −1 for right-to-left. This function can be calculated from the homotopy invariant, word, deﬁned above by counting the number of the corresponding letters appearing in the word. For example, the H-signature of the curve γ in Figure 2(b) is H(γ) = [0, 1, 1, 0, 1, −1]T , where ith components correspond to obstacle Oi.
+IV. PROBLEM FORMULATION
+In this paper, we solve the problem of planning a path for a tethered mobile robot from the given initial position and cable conﬁguration to the goal while satisfying the cable length constraint. We set the maximum cable length as L. We represent the problem as searching for a path in a homotopy invariant augmented graph. The vertex of the augmented graph, (q, w), includes the position of the robot and homotopy class of the cable, respectively. Also, to decrease the computation load, we add a variable, called cable length l, which is initialized as the length of initial cable conﬁguration at the start vertex and is updated at every generated state based on its predecessor’s l and the transition. Each vertex is feasible if the position of the robot
+
+4657
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+O3
+
+τ2
+
+τ1
+
+O1
+
+τ3
+
+xs
+
+xg O2
+
+r1 r2
+
+r3+
+
+r4 +
+
+ζ3
+
+qs
+
+ζ1
+
+γ
+
+–
+
++
+
+ζ4
+
+ζ2
+
+r5
+
+r6
+
+qg –
+
+ζ6
+
++
+ζ5
+
+O3
+τ1 O1
+
+xs
+
+τ2
+
+xg O2
+
+(a) Example where τ1 and τ2 are homotopic. τ1 (b) ζi are representative points inside the obsta- (c) Example where two curves (τ1 and τ2 ) are
+
+and τ3 are not homotopic because of obstacle cles, O1, O2, · · · , Om (in that order), and ri are homologous but not homotopic.
+
+O1.
+
+rays emanating from the respective points. The
+
+homotopy invariant of this curve γ is h(γ) =
+
+“r2 r3 r5 r6−1 ”.
+
+Fig. 2. We consider two topology classes of curves, homotopy class and homology class.
+
+is obstacle free and if this conﬁguration is reachable [14]. In other words, the given position is reachable if there is at least one feasible cable conﬁguration, satisfying cable length constraint and is obstacle free, under the given homotopy class, w. It is a sufﬁcient condition of the reachability that the dependent variable l is less than the maximum cable length, l ≤ L. So, whenever l is longer than the cable length, we run the l = curveShorten(s, O), described below, which returns the length of the shorten path connecting the given state s and the ﬁxed base from the given state s and a set of obstacles O. Then we update the value of l. If the updated value of l is smaller than the maximum cable length L, this vertex is feasible. Even when the updated value of l is greater than L, there can be a curve that is homotopic to the extracted path and its length is shorter than L. So this method is a conservative way to ﬁnd or build a feasible and reachable space of the tethered mobile robot. The following is the brief algorithm for the CurveShorten function that was also used in [14]. (Here, we keep track of which obstacles, Oc, are blocking the visibility to remove unnecessary computation in the later part of the planner.)
+
+Algorithm CurveShorten:
+
+1) curveShorten(s, O = {O1, O2, . . . , Om}) 2) P = [v0 = qb, v1, . . . , vn = s] = extractP athT o(s); 3) l = 0, Oc = ∅; 4) i = 0, j = 0; 5) while j ≤ n 6) if j < n AND qiqj+1 ∩ O = ∅ 7) j = j + 1; 8) else
+
+9)
+
+l = l + qiqj ;
+
+10) i = j;
+
+11)
+
+add ∀k into Oc s.t. qiqj+1 ∩ Ok = ∅
+
+12) l = l + qiqj ;
+
+13) return (l, Oc)
+
+In the above algorithm extractP athT o(s) generates the sequence of vertices from the state to the initial conﬁguration
+
+by backtracking the path from the given vertex, s, to the initial conﬁguration of the robot and appending the initial cable conﬁguration as a sequence of connected states. Then this sequence lies in the same homotopy class with the cable conﬁguration of the given vertex s. To speed up and improve the performance of the curveShorten(), we trace all the vertices on this sequence to ﬁnd a pair of vertices that have the same x value and the same homotopy invariants. If the path segment connecting these vertices is not a straight vertical line and if such vertical straight line segment is feasible, we can replace the path segment with this vertical straight line because the process does not change the homotopy class of the path and the replaced segment is deﬁnitely shorter than the original segment. The green vertical line of the Figure 3(a) shows an example of such replacement. However, the red vertical line is obstacle free but cannot replace the original path as it will change the topology class of the path. By doing so, we run the curveShorten() with slightly different and shorter initial path than the one in [14]. This additional procedure helps to avoid ﬁnding locally optimal solutions. The red curve in Figure 3(b) shows an example of the shortened path achieved by the above curveShorten() from the given initial path of the blue curve.
+V. TOPOLOGY-BASED MULTI-HEURISTIC A*
+A. Heuristic functions considering topology
+To search the graph we use a heuristic search. As such, it relies heavily on having a good heuristic function that for any state s estimates the cost of reaching a goal state from s.
+In this work, we minimize the travelling distance of the robot on a plane. The most common admissible heuristic in 2D search is the Euclidean distance to the goal. In this work, we choose the Euclidean distance as the admissible heuristic of the search. However, the search could be trapped in local minima, which are usually caused by obstacles that block the movement of the cable while exploring the search
+
+4658
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+r1
+
+r2
+
+r1
+
+r2
+
+O1
+
+xb
+
+O2
+
+s
+
+O1
+
+xb
+
+O2
+
+s
+
+(a)
+
+Example
+
+of (b) Example of curveShorten.
+
+extractP athT o(s). The blue The blue curve is the initial se-
+
+curve is the path extracted by quence of states achieved from
+
+backtracking form s to the base. extractP athT o(s). The red curve
+
+The vertical green curve can replace is the line segments, qiqj , in
+
+the dashed part of the blue curve line 9 and 12 of the Algorithm
+
+because this replacement does not CurveShorten. So the length of
+
+change the topology class of the this red curve is the value of
+
+path. However, the vertical red curveShorten(), which is shorter
+
+curve is not acceptable as it will than the length of the blue curve.
+
+change the topology class of the
+
+path.
+
+Fig. 3. Example of Algorithm curveShorten.
+
+space guided by a heuristic function which does not consider the cable length constraint and obstacles. If there are some additional heuristic functions to help escaping from these local minima, they can decrease the computation. To this end, we consider the topology-based additional heuristic functions to calculate the length of the shortest path under speciﬁc homology classes. In the following section, we explain how these heuristic functions are being used.
+The heuristic function we design calculates the length of the shortest path from the given position, qc, to the goal position, qg, while considering the change of the H-signature value corresponding to the given obstacle, Oi. There are three different types of heuristic functions: not changing the value of H-signature, increasing the value of H-signature and decreasing the value of H-signature. However, it is not trivial to compute such functions as they also depend on the size and shape of the obstacles. We therefore designed a heuristic function which ﬁnds the under-estimated length of the path by considering the corresponding obstacle as a vertical line segment and ignoring other obstacles. For each obstacle, we deﬁne ymin,i = min(x,y)∈Oi y s.t. x = xr,i and ymax,i = max(x,y)∈Oi y s.t. x = xr,i. We then consider Oi and a vertical line segment connecting (xr,i, ymin,i) and (xr,i, ymax,i), which is the longest vertical line inside of Oi containing ζi. Then we can calculate the length of the path from given position to the goal to change or maintain the homology class corresponding to obstacle. The following algorithm shows how to calculate such distance by using symmetry of the problem.
+
+Algorithm heuristic function considering homology class:
+
+1) procedure distNotToChange(qc = (xc, yc),
+
+2) if xc > xg
+
+qg = (xg, yg), Oi)
+
+3) return distNotToChange(qg, qc, Oi)
+
+4) if xc < xi and xi < xg 5) if (yg − yc)(xi − xc) > (ymin,i − yc)(xg − xc)
+
+6)
+
+return dist(xc, yc, xi, ymin,i)
+
++dist(xi, ymin,i, xg, yg)
+
+7) return dist(xc, yc, xg, yg) 8) procedure distIncrease(qc = (xc, yc),
+
+qg = (xg, yg), Oi)
+
+9) if xc > xg 10) return distDecrease(qg, qc, Oi) 11) if xi < xc
+
+12) return dist(xc, yc, xi, ymin,i)+(ymax,i − ymin,i)
+
++dist(xi, ymax,i, xg, yg) 13) if xi < xg 14) if (yg − yc)(xi − xc) > (ymax,i − yc)(xg − xc)
+
+15)
+
+return dist(xc, yc, xg, yg)
+
+16) else
+
+17)
+
+return dist(xc, yc, xi, ymax,i)
+
++dist(xi, ymax,i, xg, yg)
+
+18) return dist(xc, yc, xi, ymax,i)+(ymax,i − ymin,i) +dist(xi, ymin,i, xg, yg)
+19) procedure distDecrease(qc = (xc, yc),
+
+20) if xc > xg
+
+qg = (xg, yg), Oi)
+
+21) return distIncrease(qg, qc, Oi)
+
+22) if xi < xc
+
+23) return dist(xc, yc, xi, ymax,i)+(ymax,i − ymin,i) +dist(xi, ymin,i, xg, yg)
+24) if xi < xg
+
+25) return dist(xc, yc, xi, ymin,i)+2(ymax,i − ymin,i) +dist(xi, ymax,i, xg, yg)
+
+26) return dist(xc, yc, xi, ymin,i)+(ymax,i − ymin,i)
+
++dist(xi, ymax,i, xg, yg)
+
+27) procedure dist(x1, y1, x2, y2) 28) return (x1 − x2)2 + (y1 − y2)2
+
+In our algorithm, we will be adding new heuristic functions whenever the search is trapped in the local minimum. As part of this process, we will be ﬁguring out which heuristic function helps to escape from this local minimum. We start with the empty set of additional heuristic functions, Hadd = ∅. Whenever we expand vertices in a local minimum, we ﬁnd a critical obstacle by assuming that this local minimum is caused by the cable length constraint. The following description of the algorithm shown in incHeuristics(s) shows how it works for a vertex s. First, we ﬁnd the obstacles that block the visibility, which causes the cable to detour. Then, we ﬁnd the most dominant obstacle by running and comparing the result of curveShorten() with different sets of obstacles. Then we add the desired homology class of the path to pass the chosen obstacle in opposite direction.
+
+4659
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+Algorithm add new heuristic function:
+
+add necessary heuristic functions whenever we need them
+
+1) procedure incHeuristic(s)
+
+to solve the given path planning problem.
+
+2) (lc, Oc) = curveShorten(s, O);
+
+The following is the pseudo-code of the suggested
+
+3) ﬁnd Ok minimizes lk = curveShorten(s, O \ {Ok}) Topology-based Multi-Heuristic A*. This search algorithm
+
+4) if lk < lc
+
+is fundamentally the same as Shared Multi-Heuristic A*.
+
+5) w = Hk(w, k);
+
+However, the search shifts from weighted A* to Shared
+
+6) Case based on w
+
+Multi-Heuristic A* when it ﬁrst adds additional heuristic
+
+7) case w > 0
+
+function; when n becomes bigger than 0 (line 49). Whenever
+
+8)
+
+wd = w − 1;
+
+expanding the selected vertex, we check if it is a local
+
+9) case w < 0
+
+minimum (line 42). This check basically compares if the
+
+10)
+
+wd = w + 1;
+
+priorities of all successor states are larger than the priority
+
+11) case w = 0
+
+of state in question. Then we ﬁnd and add a proper heuristic
+
+12)
+
+if s is on left side of goal
+
+function by using incHeuristic(s) function as described in
+
+13)
+
+wd = 1;
+
+the previous section. By doing so, we add and consider only
+
+14)
+
+else
+
+few heuristic functions during the search on as-needed basis.
+
+15)
+
+wd = −1;
+
+Topology-based Multi-Heuristic A* guarantees bounded
+
+16) add (Ok, wd) into Hadd
+
+optimality. If the algorithm terminates at line 10 while
+
+17) procedure Hk(w, k) 18) return (# of rk in w - # of rk−1 in w)
+
+running as a weighted A*, the solution will be the same as in weighted A* and bounded by w1. If the algorithm shifted
+
+Here Hk() calculates the H-signature of the given vertex corresponding to the given obstacle and wd is the desired H-signature to avoid the local minimum due to the corre-
+
+to Shared Multi-Heuristic A* and the search terminates at line 17 or 22, then the optimality of the solution is bounded by w1w2 same as in Shared Multi-Heuristic A*.
+
+sponding obstacle. By doing so, the corresponding heuristic Algorithm Topology-based Multi-Heuristic A*:
+
+function for each desired homology class is calculated for the given vertex. If there is a heuristic function corresponding to desired homology class of (Ok, wd) and a given vertex s = (q, w), the heuristic function to the goal, qg is
+
+h(s) = distN otT oChange(q, qg, Ok) distIncrease(q, qg, Ok) distDecrease(q, qg, Ok)
+
+if ws = wd if ws < wd if ws > wd
+
+where ws = Hk(w, k) is the value of H-signature of the given vertex, q, corresponding to the obstacle Ok.
+
+B. Algorithm
+The Topology-based Multi-Heuristic A* is a variation of Shared Multi-Heuristic A* in [2], which explores the search space guided by ﬁxed number of heuristic functions. The difference between the proposed Topology-based MultiHeuristic A* and Shared Multi-Heuristic A* is that the former starts out by following the normal weighted A* search with a single admissible heuristic function, which is the Euclidean distance to the goal in this work, and whenever the search is trapped in a local minimum, it adds additional heuristic functions, which are not required to be admissible, to escape from this local minimum. These additional heuristic functions are achieved by considering the topology class of the path to the goal and current cable conﬁguration as described in the previous section. If we have more than one heuristic function, the search switches to Shared Multi-Heuristic A* [2]. Given m obstacles, there are 3m + 1 candidate heuristic functions, one for the admissible heuristic function and three heuristic functions per obstacle considering three different homology classes. However, it is not clear which functions are the best in guiding the search. Therefore, as described in the previous section, we only
+
+1) procedure TbMHA*()
+
+2) g(sgoal) = ∞, bp(sstart) = bp(sgoal) = null
+
+3) g(sstart) = 0;
+
+4) OP EN0 = ∅;
+
+5) OP EN0.insert(sstart, key(sgoal, 0));
+
+6) n = 0
+
+7) while OP EN0 not empty
+
+8) if n = 0
+
+9)
+
+if bp(sgoal)
+
+10)
+
+terminate and return path pointed by bp(sgoal);
+
+11) s = OP EN0.T op();
+
+12) expand(s, 0);
+
+13) else
+
+14) for i = 1 to n
+
+15)
+
+if OP ENi.M inkey() ≤ w2OP EN0.M inkey()
+
+16)
+
+if g(sgoal) ≤ OP ENi.M inkey()
+
+17)
+
+terminate and return path pointed by bp(sgoal);
+
+18)
+
+s = OP ENi.T op();
+
+19)
+
+expand(s, i);
+
+20)
+
+else
+
+21)
+
+if g(sgoal) ≤ OP EN0.M inkey()
+
+22)
+
+terminate and return path pointed by bp(sgoal);
+
+23)
+
+s = OP EN0.T op();
+
+24)
+
+expand(s, 0);
+
+25) procedure key(s,i)
+
+26) return g(s) + w1hi(s);
+
+27) procedure expand(s,i)
+
+28) for i = 0, . . . , n
+
+29) OP ENi.remove(s);
+
+30) if s is goal and g(s) < g(sgoal)
+
+31) sgoal = s;
+
+32) for each s ∈ Succ(s)
+
+33) if s was never visited
+
+34) g(s ) = ∞; bf (s ) = null;
+
+35) if g(s ) > g(s) + c(s, s )
+
+36) if s has not been expanded in the anchor search
+
+37)
+
+insert/update s in OP EN0 with key(s , 0)
+
+38)
+
+if s has not been expanded in any inadmissible search
+
+39)
+
+for i = 1 to n
+
+40)
+
+if key(s , i) ≤ w2key(s , 0)
+
+41)
+
+insert/update s in OP ENi with key(s , i)
+
+42) if key(s, 0) ≥ key(s , 0) for each s ∈ Succ(s)
+
+43) m = incHeuristic(s);
+
+44) for i = 1 to m
+
+45)
+
+OP ENn+i = ∅;
+
+46)
+
+for each s ∈ OP EN0
+
+47)
+
+if key(s , n + i) ≤ w2key(s , 0)
+
+48)
+
+OP ENn+i.insert(s , key(s , n + i));
+
+49) n = n + m;
+
+4660
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+(a)
+
+(b)
+
+Fig. 4. Example paths of the simulations. The blue curves are the initial cable conﬁgurations and the green curves are the paths. The ﬁxed base point is the end of blue curve at the bottom center of the map.
+
+VI. SIMULATION RESULT
+
+To demonstrate the performance of the suggested
+
+Topology-based Multi-Heuristic A*(TbMHA*) for path plan-
+
+ning for a tethered mobile robot, we performed various simu-
+
+lations and compared the performance with weighted A*. (As
+
+the suggested TbMHA* guarantees bounded suboptimality,
+
+we choose weighted A*, instead of A*, to compare the
+
+performance, which also guarantees bounded suboptimality)
+
+Since the simulation result depends on the weighting param-
+
+eters for both algorithms, we used the weighting value of
+
+w
+
+=
+
+10
+
+for
+
+the
+
+weighted
+
+A*
+
+and
+
+we
+
+chose
+
+w1
+
+=
+
+10 3
+
+and
+
+w2 = 3 for the Topology-based Multi-Heuristic A*. Then,
+
+both algorithms had the optimality bound of w1w2 = 10.
+
+Both planning algorithm adapt travelling distance as cost, and
+
+weighted A* uses Euclidean distance to the goal as heuristic
+
+function, h. TbMHA* adapts the heuristic function consid-
+
+ering homology class described in the previous section.
+
+We built two simple 100 × 100 grid maps with 12 and
+
+11 obstacles (Figure 4(a) and 4(b) respectively). And we
+
+choose the geometric center of each obstacle as its reference
+
+point. Using those, we ran several simulations with different
+
+cable length constraints and goal positions. The plots in
+
+Figure 4 show example paths generated by TbMHA*. We ran
+
+18(three different cable lengths and three different goals for
+
+each two maps) simulations and compared the computation
+
+time and the number of expansions during the search. We
+
+compared evaluation parameters as the ratios of expansion
+
+and computation time of TbMHA* with respect to those of
+
+weighted A*.
+
+# of expansions by TbMHA*
+
+re
+
+= #
+
+of
+
+expansions
+
+by
+
+weighted
+
+A*
+
+computation time of TbMHA*
+
+rt
+
+= computation
+
+time
+
+of
+
+weighted
+
+A*
+
+We plot these evaluation parameters in Figure 5. The xaxis represents the re and y-axis represents rt. The × marks are the evaluation of each simulation and the circle is the mean of re and rt for all 18 simulations. The inside of the dotted lines is the region where both parameters are less than 1, in other words, where the suggested Topology-based Multi-Heuristic A* works faster than weighted A* with less
+
+expansions. The plot in Figure 5(a) shows all 18 simulations. The mean values of the evaluation parameters are r¯e = 1.4 and r¯t = 0.76. According to these results, TbMHA* can ﬁnd the path faster but needs more expansions. However, there are only four simulations, lying outside of the dotted line, where the weighted A* works better. All these simulations are the cases where we set the largest value of maximum cable length. So the cable is long enough that the cable constraint does not effect the resulting paths. All those four cases correspond to cases where the shortest path for the robot without the tether is the same as the path for tethered robot.
+The Figure 5(b) is zoom-in on the lower left portion of Figure 5(a). The cases shown in Figure 5(b) are the simulations where cable length constraint did make the problem harder. If we consider only these 14 cases in Figure 5(b), the average evaluation parameters are r¯e = 0.3116 and r¯t = 0.2643. According to this result, TbMHA* ﬁnds the paths faster with less expansions than weighted A*.
+To show the performance of TbMHA* on large problem, we considered an example of 300 × 300 grid map with 53 obstacles. (As the computational complexity increases exponentially with the number of obstacles, we increase the number of obstacles instead of increasing the size of the grid.) The Figure 6 shows the resulting path to the goal. Figure 7 shows the snapshots of the path. The blue curves are one of candidates of cable conﬁgurations at each instance which is achieved by curveShorten() with path history appending initial cable conﬁguration. At each instant the length of the blue curve is less than the maximum cable length. So all the conﬁgurations on this path are feasible and reachable. To ﬁnd a path of this example, the weighted A* took 55240ses > 15hr while expanding about ﬁve million vertices. However, the Topology-based Multi-Heuristic A* solves the same problem in 3100sec < 52min while expanding only 580, 000 vertices. The evaluation parameter for this example was rt = 0.056 and re = 0.117.
+The above simulation result shows that the proposed Topology-based Multi-Heuristic A* works much more efﬁciently and faster than weighted A* to ﬁnd the path of a tethered mobile robot in large and more complex environments. Also, the suggested TbMHA* has more beneﬁts in computation time compared to number of expansions. The reason is that the proportion of nodes that require a call to curveShorten(), which is by far the most expensive procedure, is much higher in weighted A* than in TbMHA*. The reason for this is curveShorten() runs when the value of l of the expanded node is greater than the cable length constraint L. This happens when nodes are around the local minima caused by cable length constraints. TbMHA* avoids or escapes these local minima by adapting proper heuristic function based on the topology class of cable and paths. So, the simulation results show that TbMHA* tends to expand less nodes around local minima or escapes from local minima faster than weighted A*.
+We can achieve this result by considering the topology class of the cable and path to add proper heuristic functions
+
+4661
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+7
+
+6
+
+5
+
+4
+
+3
+
+2
+
+1
+
+0
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+1
+
+0.8
+
+0.6
+
+0.4
+
+0.2
+
+0
+
+0
+
+0.2 0.4 0.6 0.8
+
+1
+
+1.2
+
+(a)
+
+(b)
+
+Fig. 5. Comparing the computation load of the suggested Topology-based Multi-Heuristic A* to weighted A*. The x-axis is the ratio of expanded vertices, and y-axis is the ratio of computation time. Each × represents the evaluation parameters of each simulation and the circle is the average.
+
+Fig. 7. Snapshots of the path in the example of Figure 6 from left to right, top to bottom. The blue curves are the expected cable conﬁguration achieved by curveShorten(). At each instant, the length of the blue curve is shorter than the maximum cable length. The green curve is the path history of the robot.
+
+to guide the search in the right direction to the goal. There are some exceptional examples where TbMHA* does not work better than weighted A*. If the cable is long enough, the problem is a simple path planning problem that doesn’t require reasoning over tether.
+VII. CONCLUSION
+In this paper we described the algorithm to solve the path planning problem for a tethered mobile robot, which is connected to the ﬁxed base by a ﬂexible ﬁxed-length cable. We formulate this path planning as a graph-search and propose Topology-based Multi-Heuristic A* which is a variation of Multi-Heuristic A*. The algorithm guarantees
+
+the suboptimality bound on the solution while decreasing the computation time dramatically. In our approach, we considered the topology class of the path and cable to ﬁnd proper heuristic functions that help the search escape local minima. We demonstrated the performance of the proposed algorithm in simulations. One of the future directions is to ﬁnd other constraints that cause local minima in planning for a tethered robot and design proper heuristic functions.
+ACKNOWLEDGMENT
+This research was sponsored by the ONR DR-IRIS MURI grant N00014-09-1-1052 and ONR ANTIDOTE MURI grant N00014-09-1-1031.
+
+4662
+
+Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+
+Fig. 6. Example path of the simulation in 300 × 300 grid map with 53 obstacles. The blue curves are the initial cable conﬁguration and the green curve is the path. The ﬁxed base point is the end of blue curve at the bottom center of the map.
+REFERENCES
+[1] P. Abad-Manterola, I.A.D. Nesnas, and J.W. Burdick. Motion planning on steep terrain for the tethered axel rover. In Robotics and Automation (ICRA), 2011 IEEE International Conference on, pages 4188–4195, May 2011.
+[2] Sandip Aine, Siddharth Swaminathan, Venkatraman Narayanan, Victor Hwang, and Maxim Likhachev. Multi-heuristic a*. In Proceedings of Robotics: Science and Systems, Berkeley, USA, July 2014.
+[3] Subhrajit Bhattacharya, Vijay Kumar, and Maxim Likhachev. Searchbased path planning with homotopy class constraints. In Proceedings of the Twenty-Fourth AAAI Conference on Artiﬁcial Intelligence, Atlanta, Georgia, July 11 2010.
+[4] Subhrajit Bhattacharya, Maxim Likhachev, and Vijay Kumar. Identiﬁcation and representation of homotopy classes of trajectories for search-based path planning in 3d. In Proceedings of Robotics: Science and Systems, 27-30 June 2011.
+[5] Stephen Cass. DARPA Unveils Atlas DRC Robot, Jul 2013. http://spectrum.ieee.org/automaton/robotics/humanoids/darpa-unveilsatlas-drc-robot.
+[6] P. Chirarattananon, K.Y. Ma, and R.J. Wood. Adaptive control for takeoff, hovering, and landing of a robotic ﬂy. In Intelligent Robots and Systems (IROS), 2013 IEEE/RSJ International Conference on, pages 3808–3815, Nov 2013.
+[7] D. Grigoriev and A. Slissenko. Polytime algorithm for the shortest path in a homotopy class amidst semi-algebraic obstacles in the plane. In ISSAC ’98: Proceedings of the 1998 international symposium on
+
+Symbolic and algebraic computation, pages 17–24, New York, NY, USA, 1998. ACM. [8] Erico Guizzo. Fukushima Robot Operator Writes Tell-All Blog, Aug 2011. http://spectrum.ieee.org/automaton/robotics/industrialrobots/fukushima-robot-operator-diaries. [9] Allen Hatcher. Algebraic Topology. Cambridge Univ. Press, 2001. [10] J. Hershberger and J. Snoeyink. Computing minimum length paths of a given homotopy class. Comput. Geom. Theory Appl, 4:331–342, 1991. [11] S. Hert and V. Lumelsky. The ties that bind: motion planning for multiple tethered robots. In Robotics and Automation, 1994. Proceedings., 1994 IEEE International Conference on, pages 2734– 2741 vol.4, 1994.
+[12] Daehie Hong, Steven A. Velinsky, and Kazuo Yamazaki. Tethered mobile robot for automating highway maintenance operations. Robotics and Computer-Integrated Manufacturing, 13(4):297 – 307, 1997.
+[13] Takeo Igarashi and Mike Stilman. Homotopic path planning on manifolds for cabled mobile robots. In David Hsu, Volkan Isler, JeanClaude Latombe, and MingC. Lin, editors, Algorithmic Foundations of Robotics IX, volume 68 of Springer Tracts in Advanced Robotics, pages 1–18. Springer Berlin Heidelberg, 2011.
+[14] Soonkyum Kim, S. Bhattacharya, and V. Kumar. Path planning for a tethered mobile robot. In Robotics and Automation (ICRA), 2014 IEEE International Conference on, pages 1132–1139, May 2014.
+[15] Soonkyum Kim, Subhrajit Bhattacharya, Hordur Heidarsson, Gaurav Sukhatme, and Vijay Kumar. A topological approach to using cables to separate and manipulate sets of objects. In Proceedings of the Robotics: Science and System (RSS), Syndey, Australia, June 24-28 2013.
+[16] Nathan Michael, Shaojie Shen, Kartik Mohta, Yash Mulgaonkar, Vijay Kumar, Keiji Nagatani, Yoshito Okada, Seiga Kiribayashi, Kazuki Otake, Kazuya Yoshida, Kazunori Ohno, Eijiro Takeuchi, and Satoshi Tadokoro. Collaborative mapping of an earthquake-damaged building via ground and aerial robots. Journal of Field Robotics, 29(5):832– 841, 2012.
+[17] A.A.F. Nassiraei, Y. Kawamura, A. Ahrary, Y. Mikuriya, and K. Ishii. Concept and design of a fully autonomous sewer pipe inspection mobile robot ”kantaro”. In Robotics and Automation, 2007 IEEE International Conference on, pages 136–143, April 2007.
+[18] Ira Pohl. Heuristic search viewed as path ﬁnding in a graph. Artiﬁcial Intelligence, 1(34):193 – 204, 1970.
+[19] K.S. Pratt, R.R. Murphy, J.L. Burke, J. Craighead, C. Grifﬁn, and S. Stover. Use of tethered small unmanned aerial system at berkman plaza ii collapse. In Safety, Security and Rescue Robotics, 2008. SSRR 2008. IEEE International Workshop on, pages 134–139, 2008.
+[20] Iddo Shnaps and Elon Rimon. Online coverage by a tethered autonomous mobile robot in planar unknown environments. In Proceedings of Robotics: Science and Systems, Berlin, Germany, June 2013.
+[21] M.M. Tanner, J.W. Burdick, and I.A.D. Nesnas. Online motion planning for tethered robots in extreme terrain. In Robotics and Automation (ICRA), 2013 IEEE International Conference on, pages 5557–5564, May 2013.
+[22] Benjamn Tovar, Fred Cohen, and Steven M. LaValle. Sensor beams, obstacles, and possible paths. In Workshop on the Algorithmic Foundations of Robotics, pages 317–332, 2008.
+[23] P.G. Xavier. Shortest path planning for a tethered robot or an anchored cable. In Robotics and Automation, 1999. Proceedings. 1999 IEEE International Conference on, volume 2, pages 1011–1017 vol.2, 1999.
+[24] Ning Xu, Peter Brass, and Ivo Vigan. An improved algorithm in shortest path planning for a tethered robot. Technical report.
+
+4663 Authorized licensed use limited to: Technische Hochschule Ingolstadt. Downloaded on August 26,2022 at 11:49:00 UTC from IEEE Xplore. Restrictions apply.
+

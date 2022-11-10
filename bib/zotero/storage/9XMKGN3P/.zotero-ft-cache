@@ -1,0 +1,881 @@
+Sampling-based motion planning with deterministic u-calculus specifications
+
+The MIT Faculty has made this article openly available. Please share how this access benefits you. Your story matters.
+
+Citation
+As Published Publisher Version Citable link Terms of Use Detailed Terms
+
+S. Karaman and E. Frazzoli. Sampling-based motion planning with deterministic µ-calculus specifications. In Proc. of IEEE Conference on Decision and Control, Dec. 2009.
+http://dx.doi.org/10.1109/CDC.2009.5400278
+Institute of Electrical and Electronics Engineers
+Author's final manuscript
+http://hdl.handle.net/1721.1/57434
+Attribution-Noncommercial-Share Alike 3.0 Unported
+http://creativecommons.org/licenses/by-nc-sa/3.0/
+
+Sampling-based Motion Planning
+with Deterministic µ-Calculus Speciﬁcations
+
+Sertac Karaman
+
+Emilio Frazzoli
+
+Abstract— In this paper, we propose algorithms for the online computation of control programs for dynamical systems that provably satisfy a class of temporal logic speciﬁcations. Such speciﬁcations have recently been proposed in the literature as a powerful tool to synthesize provably correct control programs, for example for embedded systems and robotic applications. The proposed algorithms, generalizing state-of-the-art algorithms for point-to-point motion planning, incrementally build ﬁnite transition systems representing a discrete subset of dynamically feasible trajectories. At each iteration, local µ-calculus model-checking methods are used to establish whether the current transition system satisﬁes the speciﬁcations. Efﬁcient sampling strategies are presented, ensuring the probabilistic completeness of the algorithms. We demonstrate the effectiveness of the proposed approach on simulation examples.
+I. INTRODUCTION
+The automatic generation of control programs that provably satisfy complex speciﬁcations on the system’s behavior is a problem of great current interest, e.g., for the design and certiﬁcation of high-conﬁdence embedded and robotic systems, e.g., in automotive, aerospace, security, and medical applications. Various ﬂavors of temporal logics, including, e.g., Linear Temporal Logic (LTL) [1], [2] and Metric Temporal Logic (MTL) [3], [4], have been shown to be not only powerful languages to express complex speciﬁcations, but also amenable to formal methods for control design.
+A common approach to control design with temporal logic speciﬁcations is based on the construction of feedback controllers leading to an abstraction of the underlying physical system into a ﬁnite transition system (e.g., Kripke structures). For example, in [2], a partition of the state space is constructed, and control laws are designed that ensure direct transitions between neighboring cells in the partition. Model checking [5] is then performed on a negation of the speciﬁcations for such discrete transition system, thus synthesizing as a counter-example a control law governing transitions, ultimately satisfying the given speciﬁcation.
+The ability of these methods to synthesize a control program satisfying the speciﬁcation depend heavily on the construction of the abstracted ﬁnite transition system. In other words, abstraction-based methods are, in general, not complete, since the choice of the abstraction constrains the achievable system’s behaviors, and the synthesis procedure may not yield a control law satisfying the speciﬁcations even though one exists. Completeness may be achieved limiting the class of dynamical systems and/or speciﬁcations
+The authors are with the Laboratory for Information and Decision Systems, Massachusetts Institute of Technology, Cambridge, MA.
+
+to highly-structured cases (e.g., ω−regular properties can be checked for rectangular hybrid automata, which constitutes a maximal class of such systems [6], [7]). In addition, such methods rely on off-line computations to construct the ﬁnite transition system abstraction, and are not directly applicable, e.g., to dynamically changing environments.
+In this paper, we propose a different approach, building on two main ideas. First, instead of relying on a ﬁxed abstraction of the underlying dynamical system, we incrementally construct a ﬁnite transition system representing a discrete sample of the dynamically feasible trajectories for the system. This is done through a sampling procedure inspired by stateof-the-art methods originally designed to solve point-topoint motion planning problems in robotics [8]. Second, we propose incremental model checking methods, establishing in an efﬁcient way whether the transition system at the current iteration is rich enough to satisfy the speciﬁcation. In doing so, we concentrate on deterministic µ-calculus, a temporal logic that is known to (i) admit efﬁcient modelchecking algorithms, and (ii) be strictly more expressive than other linear time temporal logics used in the literature, including LTL.
+The paper is structured as follows: In Section II, we formally introduce the syntax and semantics of the deterministic fragment of µ-calculus and provide the problem formulation. Section III contains the main contributions of the paper. More speciﬁcally, in III-A we present an efﬁcient, probabilistically-complete incremental sampling-based algorithm to compute a control program for a dynamical system satisfying µ-calculus speciﬁcations. In III-B, we propose an incremental model checking algorithm, which complements the sampling-based algorithm. In Section IV, we discuss the effectiveness of the proposed algorithms through numerical experiments.
+
+II. BACKGROUND AND PROBLEM FORMULATION
+
+Consider a discrete-time, time-invariant dynamical control system, described by the equations
+
+z(i + 1) = f (z(i), u(i)),
+
+(1)
+
+where z : N → Rn is the state trajectory, u : N → [−1, 1]m, is the control law, and f : Rn × [−1, 1]m → Rn is Lipschitz. Let Π be a set, the elements of which are called the atomic propositions, usually denoted by p1, p2, . . . , and let L : Rn → 2Π be a state-labeling function, which maps
+each state to the set of atomic propositions it satisﬁes. Given an initial condition z(0), it is desired to design
+a control law u such that the (inﬁnite) state trajectory
+
+z satisﬁes a given temporal logic speciﬁcation Φ. In the following, we will provide some details of our choice of speciﬁcation language, i.e., µ-calculus, and its semantics in terms of the system (1). In particular, we will deﬁne what we mean by saying that a control law u correctly implements a speciﬁcation Φ on system (1).
+A. Finite models of dynamical control systems
+A common model used in computer science to check temporal properties of systems, such as reachability, safety, fairness, or liveness, is a class of ﬁnite transition systems called Kripke structures, which we formalize as follows.
+Deﬁnition II.1 (Kripke Structure) A Kripke structure K, deﬁned on a set Π of atomic propositions, is a tuple K = (S, S0, R, L), where S is a ﬁnite set of states, S0 ⊆ S is a set of initial states, R ⊆ S × S, where for all s ∈ S there exists s ∈ S such that (s, s ) ∈ R, is the transition relation, L : S → 2Π is the labeling function.
+Even though the dynamical control system model (1), endowed with a state-labeling function, is richer than a Kripke structure, a subset of its possible behaviors can be modeled as Kripke structures. More precisely,
+Deﬁnition II.2 (Finite models of dynamical systems) A Kripke structure K = (S, {s0}, R, L∗) models the dynamical control system (1), with initial condition z(0), if (i) S ⊆ Rn ∪ { }; (ii) s0 = z(0) ∈ S; (iii) (s, s ) ∈ R only if s = , or if s ∈ Rn and there exists v ∈ Rm, v ∞ ≤ 1, such that s = f (s, v); (iv) L(s) = L(s) for all s ∈ Rn, and L( ) = ∅.
+In other words, all transitions in the Kripke structure K can be mapped to trajectories for the system (1). (The converse is clearly not true.) The symbol represents a sink state, satisfying no atomic propositions, which allows to express ﬁnite-time trajectories using the Kripke structure formalism.
+Given a model of the system as a Kripke structure, the model-checking question is to ﬁnd those states/paths that satisfy a (temporal) logic formula on the set of atomic propositions, or prove that no such state/path exists. The logic formula is generally referred to as the speciﬁcation, since the logic, in this case, constitutes a language to represent the speciﬁcation, which itself encodes a desirable behavior of the system. Note that in our case, in which Kripke structures are ﬁnite models of dynamical control systems, if a state in a Kripke structure modeling the system satisﬁes a speciﬁcation, so does the original system. On the other hand, if the state does not satisfy the speciﬁcation, it may be the case that the particular Kripke structure is not a rich enough model of the system; a reﬁnement of the Kripke structure may be required to prove that the speciﬁcation can indeed be satisﬁed.
+B. Temporal logics and the µ-calculus
+Several speciﬁcation logics have been proposed in the literature, including Computation Tree Logic (CTL), Linear Temporal Logic (LTL), and their superset CTL∗. For this
+
+work, we concentrate on a form of temporal logic called deterministic µ-calculus. The reasons for our choice are that (i) µ-calculus admits very efﬁcient model-checking algorithms, and (ii) it is very expressive, the full µ-calculus being a strict
+superset of other temporal logics such as those mentioned above. In fact, the deterministic µ-calculus is known to be able to express all ω-regular properties [9] (i.e., properties
+that can be stated on a Bu¨chi automaton, see [10]). In the following, we brieﬂy discuss a fragment of µ-calculus, which
+is particularly appropriate for robotics applications. Let Var be a set of variables.We will commonly use
+the letters x and y to indicate variables. The syntax of the deterministic µ-calculus is deﬁned as follows.
+
+Deﬁnition II.3 (Deterministic µ-calculus) Let Π and Var be two disjoint sets. The syntax of the deterministic µcalculus is given in BNF form as follows:
+φ := p | ¬p | x | p ∧ φ | ¬p ∧ φ | φ ∨ φ | ♦φ | µx.φ | νx.φ
+where p ∈ Π and x ∈ Var.
+
+Following [11], the set of all deterministic µ-calculus formu-
+
+lae will be denoted by L1. The ♦ operator will be referred to
+
+as the existential successor operator, whereas the operators
+
+µx. and νx. will be called, respectively, the least and greatest ﬁxed-point operators. The size of a µ-calculus formula Φ, denoted by |Φ|, is deﬁned as the total number of atomic propositions, variables, and operators in Φ.
+
+The semantics of µ-calculus formulae is commonly deﬁned on Kripke structures. Let K = (S, {s0}, R, L) be a Kripke structure deﬁned of a set of atomic propositions Π.
+
+Given a formula φ ∈ L1, the subset of S for which φ holds
+
+will be denoted as φ K; a state s ∈ φ K will be referred to
+
+as be
+
+a φ-state. Moreover, the Kripke structure
+
+lKetxQK=xQ,(Sw,h{esr0e}Q, R⊆, LS
+
+and x ∈ Var, )—deﬁned on
+
+an augmented set of atomic propositions, namely Π ∪ {x}—
+
+such that
+
+L (s) =
+
+L(s) ∪ {x} L(s)
+
+for all s ∈ Q for all s ∈/ Q.
+
+Deﬁnition II.4 (Semantics of the deterministic µ-calculus)
+
+Given a formula φ ∈ L1, the set φ K is recursively deﬁned as follows1:
+
+• p K = {s ∈ S | x ∈ L(s)}, for all p ∈ Π,
+
+• ¬p K = {s ∈ S | x ∈ L(s)} for all p ∈ Π,
+
+• φ ∧ ψ K = φ K ∩ ψ K,
+
+• φ ∨ ψ K = φ K ∪ ψ K,
+
+• ♦φ K = {s ∈ S | there exists s ∈
+
+S such that (s, s ) ∈ R and s ∈ φ K},
+
+•
+
+µx.φ K is the least set i.e., µx.φ K is such that
+
+Q such µx.φ K
+
+that Q = = φ Kxµx.φ
+
+φ
+K
+
+KxQ , and
+
+∀Q ⊆ S. Q = φ KxQ ⇒ µx.φ K ⊆ Q .
+
+1By convention, unary operators have precedence over binary operators.
+
+•
+
+νx.φ K = is the greatest i.e., νx.φ K is such that
+
+set Q such that Q = νx.φ K = φ Kxνx.φ
+
+φ
+K
+
+KxQ , and
+
+∀Q ⊆ S. Q = φ KxQ ⇒ Q ⊆ νx.φ K .
+
+One of the main advantages of the µ-calculus is that its model-checking procedure is very simple and intuitive. Note that in the absence of the ﬁxed-point and the existential successor operators the formulae can be evaluated at a given state, i.e., even without the knowledge of R. Formulae with ﬁnite nesting of the existential successor operator can also be handled fairly easily by searching for a successor state that satisﬁes the subformula with the existential successor operator. The ﬁxed-point operators, however, appear rather troublesome. Interestingly, they can also be model-checked easily. The following theorem suggest a natural global model-checking procedure for ﬁxed-point formulae.
+
+Theorem II.5 (Tarski-Knaster Theorem (see e.g., [12]))
+Let K be a Kripke structure and φ be an L1 formula. Moreover, let Qi be deﬁned recursively as follows:
+• Q0 = ∅, • Qi = φ . KxQi−1 Then, (i) Qi ⊆ Qi−1, for all i ∈ N, (ii) there exists a number n ∈ N such that Qn = Qn−1, and (iii) Qn = µx.φ K. Furthermore, if Qi = S in the above deﬁnition, then we have that (i) Qi−1 ⊆ Qi, for all i ∈ N, (ii) there exists a number m ∈ N such that Qm = Qm−1, and (iii) Qm = νx.φ K.
+
+This interpretation of the Tarski-Knaster ﬁxed-point theorem
+
+follows from the fact that, for any µ-calculus formula φ,
+
+and any Kripke which maps 2S
+
+structure to itself,
+
+K, the function is a monotonic
+
+f (Q) := function,
+
+φ KxQ , i.e., for
+
+any P, Q ⊆ S, P ⊆ Q implies that f (P ) ⊆ f (Q) (for the
+
+proofs and related discussion see, for example, [12]).
+
+Deterministic µ-calculus is the fragment of modal µ-
+
+calculus, in which no branching property can be expressed.
+
+Rather than a limitation, this is desirable feature for motion
+
+planning problems, since the motion plan in the end is
+
+itself a “trajectory” respecting the linear ﬂow of the time.
+
+Hence, by employing the deterministic µ-calculus we rule
+
+out all the branching-time speciﬁcations and focus only on
+
+those speciﬁcations for which a linear time trajectory can be
+
+generated. In terms of its expressive power, the determin-
+
+istic µ-calculus is strictly more expressive than the Linear
+
+Temporal Logic [6], [9]. More precisely, L1 is known to be equally expressive as the set of all ω−regular properties. That
+
+is, any temporal property that can be expressed using, for
+
+instance, Bu¨chi automata [10], can be expressed in L1 (see for example [9] or [6] for constructive proofs). Hence, L1 is
+
+indeed the most expressive regular language that can be used
+
+for the speciﬁcation of linear time properties, which makes
+
+it the most expressive temporal logic for motion planning
+
+applications.
+
+Despite its raw expressive power, the µ-calculus is not
+
+well accepted for direct use in practical applications due to its
+
+unnatural semantics. That is, unlike, for instance the temporal
+
+logics, long µ-calculus speciﬁcations are found to be quite
+
+hard to understand by inspection, and expressing temporal properties using µ-calculus, even though possible, is hard for humans. However, there are algorithms which convert a given temporal logic speciﬁcation, e.g., in LTL, into a µ-calculus speciﬁcation automatically (see for instance [9], [13]). To further introduce the µ-calculus, we present a few example formulae, which will be revisited in the next section after introducing sampling-based algorithms.
+Examples
+a) Reachability Speciﬁcations: Consider the µ-calculus formula Φ = µx.(p ∨ ♦x). In words, Φ is satisﬁed by the smallest set of states, which, if labeled with x, would satisfy p ∨ ♦x. Notice that such set is the set Q of all states, which either satisfy p or can reach a state that satisﬁes p. One way to see this is to carry out the iteration in the Tarski-Knaster theorem: Q1 is the set of states that satisfy p, Q2 is the set of states that either satisfy p (that are in Q1) or that have an outgoing edge to a state that satisﬁes p, Q3 is the set of states that are either in Q2 or have a transition to a state in Q2, etc. This iteration converges to the set of all states, from which there is a trajectory leading to a state that satisﬁes p. Another, perhaps more intuitive look at Φ is the following. First, note that such set of states is indeed a ﬁxed point, i.e., if Q is labeled with x, then the set of states that satisfy p ∨ ♦x would be Q itself. That is, all the states in Q satisfy p ∨ ♦x and no other state outside Q satisfy p ∨ ♦x. The former statement is true, since each state in Q either satisfy p or has a transition to a state that satisﬁes x. The latter one is also correct, since if there is any state s that is not in Q but it satisﬁes p ∨ ♦x, then it either has to satisfy p or it has to have a transition to a state which is labeled with x. In any case, s would have a path that reaches Q and thus reaches a state that satisfy p. Hence, Φ essentially deﬁnes a reachability property, ensuring the reachability to a state that satisﬁes p.
+b) Safety Speciﬁcations: Next, consider Φ = νx.(q ∧ ♦x). In words, this formula is satisﬁed by the largest set Q of states that both satisfy q and has a transition to a state with the same property. Hence, for any state in Q, there must be cycle of states, all of which satisfy q.
+c) Safely Reaching a Region: The standard motion planning objective is, for instance, to avoid obstacles and reach a goal state. Let us label the goal states with p and the obstacles with q. Then, the speciﬁcation Φ = µx.(¬q ∧ (p ∨ ♦x)) is the smallest set of states for which there exists a trajectory reaching state that satisﬁes p (a goal state) and along the way never goes through a state that satisﬁes q (an obstacle).
+d) Reaching a Safe Region: Another example is the one in which the speciﬁcation is to eventually reach a point where a property p can be retained forever. Essentially, this can be done easily by merging the ﬁrst two examples together as in Φ = µx.((νy.(p ∧ ♦y)) ∨ ♦x).
+e) Ordering Speciﬁcations: A common speciﬁcation is, for instance, to ensure some property p until another
+
+property q is attained. In this case, a corresponding µcalculus speciﬁcation is µx.(p ∨ (q ∧ ♦x)), which intuitively states that either q is satisﬁed or there is a next state which satisﬁes p and the property p ∨ (q ∧ ♦x).
+f) Liveness Speciﬁcations: Consider a ﬁnal example, where it is desired to satisfy a property p inﬁnitely often. That is, at all points along the path, p is satisﬁed in the future. One way to specify such a behavior is to use νy.µx.♦((p∧y)∨x), which intuitively states that in the next states either the property p is satisﬁed, or there is a path to a state which satisﬁes p (stated via the disjunction and the µx. operators). Moreover, this statement is true at all times (stated via the conjunction and the νy. operators).
+C. Problem Formulation
+At this point, we can relate discrete-time dynamical systems to µ-calculus speciﬁcations as follows.
+Deﬁnition II.6 A dynamical control system of the form (1), endowed with a state-labeling function L, is said to satisfy a µ-calculus speciﬁcation Φ at some initial state x0 if and only if there exists a Kripke structure K∗ = (S∗, {s0}, R∗, L∗) modeling the system, and such that s0 ∈ Φ K∗ .
+Hence, by deﬁnition, a discrete-time dynamical system satisﬁes a given µ-calculus speciﬁcation if one can construct a Kripke structure K∗ from a ﬁnite subset of its state space, such that K∗ respects the state transitions of the dynamical system described by Equation (1) and x0 satisﬁes Φ in K.
+Given the above deﬁnition, the motion planning problem with µ-calculus speciﬁcations can be stated as follows:
+Problem II.7 Given a discrete-time dynamical control system (1), and an L1 formula Φ, determine whether or not the dynamical system satisﬁes Φ. If yes, return a control law u implementing the speciﬁcation. If not, return failure.
+It is worth mentioning at this point that even though this problem deﬁnition is not directly related to motion planning, we will show in the next sections that satisfaction of a µcalculus speciﬁcation can be related to a “path”, which in turn can be used as the motion plan with desired properties.
+III. PLANNING ALGORITHMS
+In principle, Problem II.7 could be addressed using the following iterative procedure: (i) Choose a ﬁnite set of states (including the initial condition) from Rm, e.g., by random sampling; (ii) Construct a Kripke structure modeling the system (1) from this set of states and the sink state , i.e., by determining which state pairs are in R, and deﬁning the appropriate labeling function, as in Def. II.6; (iii) Check whether this model satisﬁes the speciﬁcation Φ, using, e.g., the Tarski-Knaster iteration [12]. If not, repeat the procedure adding more states into the Kripke structure.
+The soundness of the procedure above is a consequence of the following technical lemma, which will be proved in the appendix.
+
+Lemma III.1 Let K = (S, {s0}, R, L) and K = (S , {s0}, R , L ) be two Kripke structures such that (i) S ⊆ S , (ii) R ⊆ R , (iii) for all s ∈ S, L(s)∩Π = L (s)∩Π. Then, for any L1 formula Φ, Φ K ⊆ Φ K .
+Intuitively, the lemma states that any Kripke structure K that can be constructed from K by adding extra states and transitions satisﬁes the same set of L1 formulae as K at all the states that are common to both structures. Even though this seems intuitive, this property can easily be shown not to be true for, for instance, the full µ-calculus.
+In order to make the iterative procedure effective, it is necessary to ensure that samples are chosen in such a way that the resulting Kripke structure models a rich set of trajectories of the dynamical system. Moreover, it is desirable that the complexity of checking whether a Kripke structure satisﬁes a speciﬁcation at each iteration only depend on the number of states added at that iteration, not on the total number of states in the ﬁnite model. We will address these two points next.
+A. Sampling-based Kripke Structures
+Sampling-based algorithms have been recently proposed as a very efﬁcient approach to robotic motion planning. Such algorithms, e.g., Probabilistic RoadMaps (PRM) [14], and Rapidly-exploring Random Trees (RRT) [15] effectively build a ﬁnite transition system modeling a dynamical system, and check whether such ﬁnite transition contains a trajectory from the initial state to a desired goal state. In PRMs, states are chosen randomly, independently and identically from a given distribution; moreover, PRMs are typically undirected graphs, and are not directly applicable to general dynamical systems. On the other hand, RRTs are constructed as directed trees, and new states/transitions are added in a way that efﬁciently probes the set of all feasible trajectories of a general dynamical system. Unfortunately, since RRTs are directed trees—and thus unable to express cyclic trajectories—they cannot serve as ﬁnite models of trajectories satisfying general ω-regular properties.
+In order to combine efﬁcient exploration with the ability to satisfy general ω-regular properties, we propose an extension of the RRT algorithm, to which we refer as Rapidlyexploring Random Graph (RRG). Before giving the full algorithm, let us introduce some necessary components.
+Distance function: Let Dist : Rn × Rn → R≥0 be a continuous function, with Dist(u, v) = 0 iff v = f (u, 0).
+Sample generation: Let Sample : N → Rn be a function that generates independent, identically distributed samples from a distribution S supported on Rn (or a subset containing all states that can possibly satisfy the speciﬁcation).
+Local steering: Let Steer : Rn × Rn → [−1, 1]m be a function that computes a control input moving the initial state “closer” to a desired state. More precisely, if v = Steer(s1, s2), with Dist(s1, s2) > 0, then Dist(f (s1, v), s2) < Dist(s1, s2). The function Steer− is similarly deﬁned, backwards in time. In other words, let f − : Rn × [−1, 1]m → Rn be such that, if s = f (s, v),
+
+then s = f −(s , v). Then, if v = Steer−(s2, s1), with Dist(s1, s2) > 0, then Dist(f −(s2, v), s2) < Dist(s1, s2). Finally, we assume that the local steering functions provide exact one-step steering when feasible. In other words, if s2 is reachable in one step from s1, then f (s1, Steer(s1, s2)) = s2, and s1 = f −(s2, Steer−(s2, s1)).
+The main body of the RRG algorithm is given in Alg. 1. We incrementally build a Kripke structure modeling the
+system (1), initializing it to a trivial structure containing only
+the initial condition. At each step, we ﬁrst check whether the current Kripke structure satisﬁes the speciﬁcation Φ (an efﬁcient algorithm to perform this computation will be
+given in the next section). If not, a sample is chosen, based
+on which new states/transitions are added to the Kripke
+structure, until the speciﬁcation is satisﬁed. Note that the
+algorithm may not terminate, unless a trajectory of (1) exists that satisﬁes Φ, and can be expressed by the Kripke structure at some iteration.
+
+Algorithm 1: RRG(Φ, z(0)) 1 s0 ← z(0), S ← {s0, }, R ← {(s0, 2 while s0 ∈/ Φ K do 3 K ← (S, {s0}, R, L); 4 q ← Sample(i), i ← i + 1; 5 (S+, R+) ← Expand(K, q); 6 (S−, R−) ← Expand−(K, q); 7 S ← S ∪ S+ ∪ S−; 8 R ← R ∪ R+ ∪ R−;
+9 Return K;
+
+)}, i ← 0;
+
+New states/transitions are added to the Kripke structure using the Expand procedure outlined in Alg. 2. Essentially, for each sample q, we ﬁnd the nearest neighbor s∗ already in the Kripke structure, and attempt to reach q from this state. Then we repeat the same procedure, considering only states in the Kripke structure, and in the intersection of half-spaces containing q but not previously-considered nearest neighbors, until there are no more such states. A similar function, Expand−, can be deﬁned working backwards in time (i.e., using the Steer−function); in addition, in Expand− we do not create any transitions to states that are not reachable from the initial state.
+Algorithm 2: Expand(K = (S, s0, R, L), q) 1 C ← Rn, S ← ∅, R ← ∅; 2 while S ∩ C = ∅ do 3 s∗ = arg mins∈S∩C Dist(s, q); 4 s ← Steer(s∗, q); 5 S ← S ∪ {s }, R ← R ∪ {(s∗, s ), (s , )}; 6 Remove from C a halfspace H(s∗, q) containing s∗ but not q, i.e., C ← C \ H(S∗, q); 7 Return the sets S and R ;
+The RRG algorithm yields a Kripke structure that contains an RRT-like tree, with the addition of edges generating
+
+(s∗)− s0
+
+q s∗previous
+
+s∗ C
+
+Fig. 1. Illustration of the RRG algorithm. Blue and red circles represent new states in S+ and S−, respectively.
+
+cycles. The algorithm inherits the probabilistic completeness of RRTs, i.e., if there exists a Kripke structure K∗ as given in Deﬁnition II.6, under mild technical conditions, the
+algorithm ﬁnds it with high probability as the number of
+samples increases. More formally,
+
+Theorem III.2 Consider a time-invariant, discrete-time dynamical system (1), satisfying a L1 speciﬁcation Φ. Assume that (i) there exists a Kripke structure K∗ = (S∗, {s0}, R∗, L∗), which models an overconstrained version of (1), in which the control must lie in [−η, η]m, η ∈ (0, 1), (ii) z(0) ∈ Φ K∗ , (iii) there exists > 0 such that for all s ∈ S, and z ∈ Rn : z − s ≤ , L(s) = L(z). Then the RRG algorithm terminates with an output K = (S, {s0}, R, L), such that z(0) ∈ Φ K, with probability approaching one, as the number of samples
+increases.
+
+Proof: (Sketch) It is a well-known fact that (inﬁnite)
+
+trajectories satisfying ω-regular properties (such as L1 speciﬁcations) can be decomposed into a ﬁnite-length preﬁx
+
+and a (possibly trivial) ﬁnite-length loop that is repeated
+
+inﬁnitely often [12]. Hence, a ﬁnite number of (ordered)
+
+states Let us
+
+are sufﬁcient call this set
+
+to of
+
+sctaotmesplSe¯t.elByascehdaroacntetrhiezeasasusmolputtiioonns.
+
+on the theorem, and the continuity of the function f in
+
+t(hreespdeycntiavmeliyc,alloospy)stoemf n, eoignhebocrahnooddesﬁanreouandﬁtnhietestaseteqsueinncS¯e
+
+such that all points in a neighborhood can reach in one step
+
+all points in the next neighborhood (modulo the loop length
+
+if appropriate). Reasoning by induction, one can show that
+
+(i) there is a ﬁnite probability that at the i-th iteration, the
+
+sample state in
+
+qS¯
+
+will be generated in the neighborhood of the after the initial condition z(0), thus adding a
+
+ﬁrst state
+
+in that state’s neighborhood; (ii) assuming that the Kripke
+
+structure at the i-th iteration already includes transitions up
+
+to the neighborhood of the k-th state in the solution, there
+
+is a ﬁnite probability that the sample q will be generated in the neighborhood of the (k + 1)-th state, thus adding a new
+
+state there. Hence, as the number of samples goes to inﬁnity,
+
+the probability that the set of states in the incrementally-
+
+built Kripke structure K does not contain all the states in K¯ vanishes. The above theorem does not state bounds on, e.g., the rate at which the probability of success converges to one. However, we refer interested readers to the literature on RRTs and incremental sampling methods (e.g., [15]) for some additional insights on the matter.
+
+B. Incremental Model Checking
+In this section, we ﬁrst present a simple local model checking procedure for deterministic µ-calculus. Then, we extend this algorithm to an incremental model checker, where new states or transitions can be added to the Kripke structure without necessarily running the whole model checking procedure all over. This type of model checking procedure well suits the sampling based algorithm presented in the previous section.
+A local model checking procedure for the deterministic fragment of the µ-calculus is presented in Algorithm 3, which checks whether or not the initial state of a given Kripke structure K satisﬁes a given L1 formula Φ. The algorithm also assumes a global data structure, called Stack, which is essentially a set that stores state and L1 formula pairs, i.e., Stack ⊆ S × L1. Moreover, the algorithm uses the function BndFormula(x) which maps the set Var of variables to the subformula of the form σx.φ, i.e., the subformula that x is bound by in Φ.
+
+Lemma III.3 The Algorithm ModelCheck(s0, Φ) returns True if and only if s0 ∈ Φ K holds.
+
+Algorithm 3 is very similar to the local model checking al-
+
+gorithm that appears in [12] and has many common grounds
+
+with the global algorithm provided in [11]. The proof of
+
+Lemma III.3 is very similar to the correctness proofs of the
+
+procedures given in those references, hence this proof will
+
+not be carried out here. Even though we do not provide full
+
+proofs here for the sake of brevity, Lemma III.3 can be used
+
+to prove the correctness of the incremental model checking
+
+algorithm, which will be outlined shortly. Given an L1 formula φ, let SF(φ) be the set of all
+subformulae of φ. For incremental model checking purposes, we maintain a graph G = (V, E), where V ⊆ S × SF(φ) is
+
+called the set of nodes and E ⊆ V × V is the set of edges. Given two nodes, v = (s, ψ) and v = (s, ψ ) in V , there exists an edge (v, v ) in E, if one of the following holds:
+
+• ψ = p ∧ ψ and p ∈ L(s), • ψ = ¬p ∧ ψ and p ∈/ L(s), • ψ = ψ ∨ ψ (for some ψ ), • ψ = µx.ψ or ψ = νx.ψ , • ψ = x where x ∈ Var and ψ = µx.ψ
+
+or ψ = νx.ψ
+
+for some ψ .
+
+Let v = (s , ψ), then there exists an edge (v, v ) in E if the
+
+following holds:
+
+• ψ = ♦ψ and (s, s ) ∈ R.
+
+Algorithm 3: ModelCheck(K, Φ, s, φ)
+
+1 switch φ do
+
+2 case p where p ∈ Π
+
+3
+
+return p ∈ L(s)
+
+4 case ¬p where p ∈ Π
+
+5
+
+return p ∈/ L(s)
+
+6 case p ∧ ϕ
+
+7
+
+return p ∧ ModelCheck(s, ϕ)
+
+8 case ¬p ∧ ϕ
+
+9
+
+return ¬p ∧ ModelCheck(s, ϕ)
+
+10 case ϕ ∨ ψ
+
+11
+
+return
+
+ModelCheck(s, ϕ) ∨ ModelCheck(s, ψ)
+
+12 case ♦ϕ
+
+13
+
+for ∀s ∈ suc(s) do
+
+14
+
+if ModelCheck(s , ϕ) then
+
+15
+
+return True
+
+16
+
+return False
+
+17 case σx.ϕ where σ ∈ {µ, ν}
+
+18
+
+Stack := Stack ∪ {(s, ϕ)}
+
+19
+
+V alue := ModelCheck(s, ϕ)
+
+20
+
+Stack := Stack \ {(s, ϕ)}
+
+21
+
+return V alue
+
+22 case x where x ∈ V ar
+
+23
+
+if (s, BndFormula(x)) ∈ Stack then
+
+24
+
+switch BndFormula(x) do
+
+25
+
+case µx.ϕ
+
+26
+
+return False
+
+27
+
+case νx.ϕ
+
+28
+
+return True
+
+29
+
+else
+
+30
+
+return ModelCheck(s, BndFormula(x))
+
+Notice that these conditions resemble the branching con-
+
+ditions in Algorithm 3. Intuitively, there is an edge between two nodes (s, ψ) and (s , ψ ) in G = (V, E), if ModelCheck(K, Φ, s, ψ) calls ModelCheck(K, Φ, s , ψ ).
+
+The incremental model checking algorithm also maintains a reachability relation Reaches ⊂ V × V , where (v, v ) ∈ Reaches and v = (s, ψ), implies that ψ is a ν−formula, i.e., ψ is of the form ψ = νx.ψ , and that there is a path from v
+
+to v in E.
+
+Given a Kripke structure K, adding a state s in to K is
+
+done by updating S as S ∪ {s} and adding (s, ψ) into V , for
+
+all (s, ψ ). Moreover, edges (v, v ), where v = (s, ψ) and
+
+v = (s, ψ ), are added into E according to the deﬁnition
+
+outlined above. Let v = (s, ψ) and v = (s , ψ ) be two
+
+nodes in V . When a transition (s, s ) is added into R, we
+
+add (v, v ) into E if ψ = ♦ψ . After adding each edge (v, v )
+
+to if
+
+Eth,erteheerxeiasctshaabinliotyderev¯lati=on(Rs¯e, ψa¯c)hinis
+
+updated V such
+
+with that
+
+(ψ¯v¯,ivs
+
+), a
+
+ν−formula and there is a path on G = (V, E), which does
+
+not cross a node (s , ψ ), where ψ is a µ−formula bigger
+
+than ψ¯. A given L1 speciﬁcation is satisﬁed if and only if there
+exists two nodes v = (s, ψ) and v = (s, ψ ) in V such that ψ = x with x ∈ Var and ψ = νx.ϕ for some ϕ and that (i) there is a path from v to v in G = (V, E), (ii) this path does not cross any node v = (s , ψ ), where ψ is a µ−formula that is larger than ψ, and (iii) this path is reachable from the node (s0, φ), where s0 is the initial state and φ is the speciﬁcation.
+Precisely speaking, one has to incrementally maintain the relation Reach as well the set of those nodes in V that can be reached from (s0, φ). Let us note that maintenance of the reachability relation of a graph is a problem of particular interest in incremental computation (see, for instance, [16]). Although in the case of adding and deleting edges its incremental time complexity is known to be unbounded, if the case where only adding edges is considered it is one of the easiest problems in incremental computation (see [16] for further discussion and proofs).
+
+IV. SIMULATION RESULTS
+
+In this section, we provide an illustrative example. We consider a linear discrete time dynamical system with z(i + 1) = Az(i) + Bu(i), where
+
+A=
+
+1.019 −0.029 0.049 0.95
+
+,
+
+B=
+
+0.101 −0.0015 0.0025 0.098
+
+.
+
+The initial condition is z0 = [0, 0]. The speciﬁcation requires the system to visit two distinct
+subsets R1 and R2 of the state-space inﬁnitely often while avoiding a large region R3. Let p1, p2, and p3 be the atomic propositions, which are satisﬁed by only those states that are in regions R1, R2, and R3, respectively. More precisely, the dynamical system is labeled such that pi ∈ L(s) if s ∈ Ri for all i = 1, 2, 3. This speciﬁcation can be given in the deterministic µ−calculus as
+
+µw.((¬p3 ∧ ♦w) ∨ νz.{(p2 ∧ µx.[¬p3 ∧ ((p1 ∧ z) ∨ ♦x)]) ∨(p1 ∧ µy.[¬p3 ∧ ((p2 ∧ z) ∨ ♦y)])})
+
+The algorithm described in this paper takes about 3.5 seconds to solve this example sampling slightly more than 1000 states and exploring close to 6000 nodes. The solution trajectory as well as the parts of the state-space that were explored are shown in Figure 2. The graph produced by the RRG algorithm is depicted in Figure 3, while searching for this solution.
+In Figure 4, an example run on a system with linear dynamics z(i + 1) = Az(i) + Bu(i), where A and B are identity matrices, is considered. The layout of the regions in the state-space is the same as the previous example. The algorithm took less than 0.1 seconds to ﬁnd the answer exploring about 350 nodes.
+We have also run some limited experiments on similar problems in higher-dimensional spaces (up to 12), obtaining computation time of the order of a few seconds. Further investigation of the performance of the algorithm in highdimensional spaces will be the objective of future work.
+
+8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+Fig. 2. The part of the state space explored and the trajectory that satisﬁes the speciﬁcation. Regions R1 and R2 are shown in red in the upper right and lower left corners. Region R3 is the red rectangular region in the middle.
+
+100 samples 8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+(a)
+
+500 samples 8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+(c)
+
+250 samples 8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+(b)
+
+750 samples 8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+(d)
+
+Fig. 3. Demonstration of the RRG algorithm on the example.
+
+V. CONCLUSIONS
+In this paper, we propose an incremental, sampling-based methodology for the generation of motion plans for dynamical systems that provably satisfy temporal logic speciﬁcations. In particular, we concentrate on speciﬁcations expressed in the deterministic µ-calculus, which is a superset of other well-known linear temporal logic formulas which have been extensively used, e.g., for robotics applications. Our approach is based on two steps: (i) a sampling-based generation of ﬁnite transition systems modeling a subset of the possible system trajectories, and (ii) an incremental model-checking algorithm that can establish whether the current model of the system is rich enough to express
+
+10
+
+8
+
+6
+
+4
+
+2
+
+0
+
+!2
+
+!4
+
+!6
+
+!8
+
+!10
+
+!10 !8
+
+!6
+
+!4
+
+!2
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+Fig. 4. Simulation with simple dynamics.
+
+behaviors satisfying the speciﬁcation. Numerical experiments suggest that the proposed approach is fast enough for on-line implementation in robotics and embedded systems, even in high-dimensional problems. Future work will include extensions to address feedback control policies, reactive planning, efﬁcient sampling methods, and trajectory optimization.
+ACKNOWLEDGMENTS
+The authors are grateful to Dr. Amit Bhatia for several inspiring discussions about motion planning algorithms and their possible extensions to handle complex speciﬁcations. This research was done with support from the Michigan/AFRL Collaborative Center on Control Sciences, AFOSR grant no. FA 8650-07-2-3744. Any opinions, ﬁndings, and conclusions or recommendations expressed in this publication are those of the authors and do not necessarily reﬂect the views of the supporting organizations.
+REFERENCES
+[1] P. Tabuada and G.J. Pappas. Linear temporal logic control of discretetime linear systems. IEEE Trans. Automatic Control, 14(1):61–70, 2006.
+[2] M. Kloetzer and C. Belta. A fully automated framework for control of linear systems from temporal logic speciﬁcations. IEEE Trans. Automatic Control, 53(1):287–297, 2008.
+[3] S. Karaman and E. Frazzoli. Vehicle routing problem with metric temporal logic speciﬁcations. In IEEE Conference on Decision and Control, 2008.
+[4] R. Koymans. Specifying real-time properties with metric temporal logic. Real-time Systems, 2(4):255–299, 1990.
+[5] E.M. Clarke, O. Grumberg, and D.A. Peled. Model Checking. Springer, 1999.
+[6] T.A. Henzinger, R. Majumdar, and J. Raskin. A classiﬁcation of symbolic transition systems. ACM Transactions on Computational Logic, 6(1):1–32, 2005.
+[7] T. Henzinger, P. Kopke, A. Puri, and P. Varaiya. What is decidable about hybrid automata? Journal of Computer and System Sciences, 57:94–124, 1998.
+[8] E. Frazzoli, M.A. Dahleh, and E. Feron. Real-time motion planning for agile autonomous vehicles. Journal of Guidance, Control and Dynamics, 25(1):116–129, 2002.
+[9] E.A. Emerson, C.S. Jutla, and A.P. Sistla. On model checking for the mu-calculus and its fragments. Theoretical Computer Science, 258:491–522, 2001.
+[10] W. Thomas. Handbook of Theoretical Computer Science, chapter Automata on Inﬁnite Objects. Elsevier Science, 1990.
+
+[11] E. Emerson, C. Jutla, and A. Sistla. On model-checking for the fragments of mu-calculus. In CAV 93: Computer-aided Veriﬁcation, 1993.
+[12] K. Schneider. Veriﬁcation of Reactive Systems. Springer, 2004. [13] M. Dam. CTL* and ECTL* as fragments of the modal mu-calculus.
+Theoretical Computer Science, 126:77–96, 1994. [14] L.E. Kavraki, P. Svestka, J.C. Latombe, and M.H. Overmars. Proba-
+bilistic roadmaps for path planning in high-dimensional conﬁguration spaces. IEEE Transactions on Robotics and Automation, 12(4):566– 580, 1996. [15] S. LaValle and J.J. Kuffner. Randomized kinodynamic planning. International Journal of Robotics Research, 20(5):378–400, 2001. [16] G. Ramalingam. Bounded Incremental Computation. Number 1089 in Lecture Notes in Computer Science. Springer, 1996.
+
+APPENDIX
+
+Proof: [Lemma III.1] The proof is an induction on the size of the formula Φ. For |Φ| = 1, we have that Φ must be of the form Φ = p, where p ∈ Π. In this case, for all s ∈ S, we have s ∈ p K ⇔ p ∈ L(s), which is itself then equivalent to p ∈ L (s) (by Condition (iii.a) of the lemma), which in turn is equivalent to s ∈ Φ K by the semantics.
+Assume that the hypothesis holds for all L1 formulae of size n − 1. For the induction step, let us consider all the different possible cases. Let Φ be of the form ¬φ, which can only happen if Φ = ¬p, where p ∈ Π, following the
+
+syntax of L1. This case is very similar to the base case, i.e., s ∈ ¬p K ⇔ p ∈/ L(s) ⇔ p ∈/ L (s) ⇔ s ∈ ¬p K for all s ∈ S. Let Φ be of the form Φ = φ ∨ ψ, then,
+
+by the induction hypothesis, there holds φ K ⊆ φ K and ψ K ⊆ ψ K , using which we conclude φ ∨ ψ K = φ K ∪ ψ K ⊆ φ K ∪ ψ K = φ ∨ ψ K . For the case when Φ = φ ∧ ψ, the same fact can be used to deduce φ∧ψ K = φ K∩ ψ K ⊆ φ K ∩ ψ K = φ∧ψ K. Consider the case Φ = ♦φ. Then, for all s ∈ S, we have that s ∈ ♦φ K is equivalent to ∃s˜ ∈ S such that (s, s˜) ∈ R and s˜ ∈ ψ K. Note that since s˜ ∈ S and (s, s˜) ∈ R, we have that s˜ ∈ S and (s, s˜) ∈ R , by Conditions (i) and (ii) of the
+
+lemma. Hence, the last statement implies that there exists
+
+s˜ ∈ S such that (s, s˜) ∈ R . Moreover, by the induction
+
+hypothesis, we have s ∈ φ K implies that s˜ ∈ φ K . These
+
+statements together are equivalent to s ∈ φ K , which ﬁnally
+
+establishes φ K ⊆ φ K . Consider the case, in which φ is of the form Φ = µx.φ. To prove this case we show that
+
+the Qi
+
+sets :=
+
+Q0 := ∅, Qi := φ KxQi−1
+
+φK
+
+Qi−1 x
+
+satisfy
+
+Qi
+
+⊆
+
+Qi
+
+as for
+
+well as Q0 := ∅, all i. Noting that,
+
+by the Tarski-Knaster Theorem, Qi and Qi converge to
+
+µx.φ K and µx.φ K , respectively, this result will imply
+
+that µx.φ K ⊆ µx.φ K . Hence, it remains to show that
+
+Qi ⊆ inner
+
+Qi for all induction
+
+i. on
+
+To show this property the number i. For the
+
+let us base
+
+consider case, i =
+
+an 0,
+
+the statement holds trivially. In the induction step, noting
+
+that Qi−1 ⊂ Qi−1 holds by the induction hypothesis, we
+
+have
+
+that
+
+KxQi
+
+and
+
+K Qi−1
+x
+
+satisfy
+
+all
+
+the
+
+conditions
+
+of
+
+the
+
+lemma. Hence, we have Qi =
+
+φ KxQi ⊂
+
+φK
+
+Qi x
+
+= Qi,
+
+where the set inclusion is by the induction hypothesis of the
+
+outer induction since φ is of size n − 1. The case when
+
+Φ = νx.φ is very similar to the previous case, hence we
+
+omit that part of the proof here for the sake of brevity.
+
